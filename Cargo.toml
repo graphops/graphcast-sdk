@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "waku-bindings",
+    "waku-sys",
+    "examples/graphcast",
+]
