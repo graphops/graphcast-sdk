@@ -1,0 +1,11 @@
+type GossipOperatorOf {
+  id: String!
+}
+
+type GraphAccount {
+  gossipOperatorOf: GossipOperatorOf
+}
+
+type Query {
+    graphAccount(id: String!): GraphAccount
+}

@@ -1,0 +1,8 @@
+query ProofOfIndexing($subgraph: String!, $blockNumber: Int!, $blockHash: String!, $indexer: String) {
+    proofOfIndexing(
+      subgraph: $subgraph
+      blockNumber: $blockNumber
+      blockHash: $blockHash
+      indexer: $indexer
+    )
+}

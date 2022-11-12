@@ -1,0 +1,13 @@
+query Indexer($address: String!) {
+  indexer(id: $address) {
+    stakedTokens
+    allocations{
+      subgraphDeployment{
+        ipfsHash
+      }
+    }
+  }
+  graphNetwork(id: 1) {
+    minimumIndexerStake
+  }
+}

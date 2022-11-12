@@ -112,9 +112,7 @@ pub fn main() -> Result<(), String> {
         .peers()
         .unwrap()
         .iter()
-        .map(|peer| peer.peer_id())
-        .filter(|id| id.as_str() != node.peer_id().unwrap().as_str())
-        .next()
+        .map(|peer| peer.peer_id()).find(|id| id.as_str() != node.peer_id().unwrap().as_str())
         .unwrap()
         .clone();
 
@@ -132,7 +130,7 @@ pub fn main() -> Result<(), String> {
     node.lightpush_publish_encrypt_symmetric(
         &message,
         None,
-        peer_id.clone(),
+        peer_id,
         &ssk,
         Some(&sk),
         None,

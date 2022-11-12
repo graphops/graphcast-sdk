@@ -1,0 +1,7 @@
+query GraphAccount($address: String!) {
+  graphAccount(id: $address) {
+    gossipOperatorOf {
+      id
+    }
+  }
+}
