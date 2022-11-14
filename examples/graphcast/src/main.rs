@@ -1,4 +1,3 @@
-use chrono::Utc;
 use ethers::{
     signers::{LocalWallet, Signer},
     types::{RecoveryMessage, Signature},
@@ -6,22 +5,21 @@ use ethers::{
 use ethers_contract::EthAbiType;
 use ethers_core::types::transaction::eip712::Eip712;
 use ethers_derive_eip712::*;
-use once_cell::sync::Lazy;
+
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-use client_graph_node::{perform_proof_of_indexing, query_graph_node_poi};
+use client_graph_node::query_graph_node_poi;
 use client_network::{
-    perform_indexer_query, query_indexer_allocations, query_indexer_stake,
-    query_stake_minimum_requirement,
+    query_indexer_allocations, query_indexer_stake, query_stake_minimum_requirement,
 };
-use client_registry::{perform_operator_indexer_query, query_registry_indexer};
+use client_registry::query_registry_indexer;
 
 use std::env;
-use std::{error::Error, str::FromStr, thread::sleep, time::Duration};
+use std::{str::FromStr, thread::sleep, time::Duration};
 use waku::{
     waku_new, waku_set_event_callback, Encoding, Multiaddr, ProtocolId, Running, Signal,
-    WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic,
+    WakuNodeHandle, WakuPubSubTopic,
 };
 mod client_graph_node;
 mod client_network;
@@ -61,9 +59,9 @@ unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     ::std::slice::from_raw_parts((p as *const T) as *const u8, ::std::mem::size_of::<T>())
 }
 
-impl Into<RecoveryMessage> for RadioPayloadMessage {
-    fn into(self) -> RecoveryMessage {
-        RecoveryMessage::Data(unsafe { any_as_u8_slice(&self).to_vec() })
+impl From<RadioPayloadMessage> for RecoveryMessage {
+    fn from(m: RadioPayloadMessage) -> RecoveryMessage {
+        RecoveryMessage::Data(unsafe { any_as_u8_slice(&m).to_vec() })
     }
 }
 
@@ -159,6 +157,7 @@ fn setup_node_handle(graphcast_topics: Vec<Option<WakuPubSubTopic>>) -> WakuNode
 
 #[tokio::main]
 async fn main() {
+    let test_topic = String::from("QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB");
     let app_name: String = String::from("graphcast");
 
     let registry_subgraph =
@@ -174,12 +173,10 @@ async fn main() {
     let indexer_stake =
         query_indexer_stake(network_subgraph.clone(), indexer_address.clone()).await;
     println!("fetch network subgraph indexer_stake: {:#?}", indexer_stake);
-    let mut indexer_allocations_temp =
+    let indexer_allocations_temp =
         query_indexer_allocations(network_subgraph.clone(), indexer_address.clone()).await;
     //Temp: test topic for local poi
-    let indexer_allocations = [String::from(
-        "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U",
-    )];
+    let indexer_allocations = [String::from(&test_topic)];
     println!(
         "fetch network subgraph indexer_allocations: {:#?}\nAdd test topic: {:#?}",
         indexer_allocations_temp, indexer_allocations,
@@ -193,7 +190,7 @@ async fn main() {
         .into_iter()
         .map(|hash| {
             let borrowed_hash: &str = &hash;
-            let topic = app_name.clone().to_owned() + "-poi-crosschecker-" + borrowed_hash.clone();
+            let topic = app_name.clone() + "-poi-crosschecker-" + borrowed_hash;
             Some(WakuPubSubTopic {
                 topic_name: topic,
                 encoding: Encoding::Proto,
@@ -203,18 +200,24 @@ async fn main() {
 
     // pretend that we have message topic (ipfsHash), block number and block hash, we then query graph node for POI
     let graph_node_endpoint = String::from("http://localhost:8030/graphql");
-    let ipfs_hash = String::from("QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U");
+    let ipfs_hash = &test_topic;
     let block_hash =
         String::from("9462869694a6b2cffef2615cdb3cfb45c03b113c54a4422d071dadb5aa571395");
     let block_number = 7534805;
-    let poi = query_graph_node_poi(graph_node_endpoint, ipfs_hash, block_hash, block_number).await;
+    let poi = query_graph_node_poi(
+        graph_node_endpoint,
+        ipfs_hash.to_string(),
+        block_hash,
+        block_number,
+    )
+    .await;
     println!("fetch graph node poi ---- {:#?}", poi);
 
     //TODO: add Dispute query to the network subgraph endpoint
     //TODO: add setCostModels mutation to the indexer management server url
     // let indexer_management_endpoint = String::from("http://localhost::18000");
 
-    let node_handle = setup_node_handle(topics.clone());
+    setup_node_handle(topics.clone());
 
     // HANDLE RECEIVED MESSAGE
     waku_set_event_callback(move |signal: Signal| match signal.event() {
@@ -252,11 +255,8 @@ async fn main() {
     for topic in topics {
         let graph_node_endpoint = String::from("http://localhost:8030/graphql");
         let payload = topic.clone().unwrap().topic_name;
-        let ipfs_hash = String::from("hash");
         let npoi = String::from("npoi");
         let nonce = 55;
-        let block_number = 4;
-        let block_hash = String::from("block hash");
 
         let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
 
@@ -270,17 +270,10 @@ async fn main() {
             String::from("9462869694a6b2cffef2615cdb3cfb45c03b113c54a4422d071dadb5aa571395");
         let block_number = 7534805;
 
-        let basic_topic = WakuContentTopic {
-            application_name: String::from("graphcast"),
-            version: 0,
-            content_topic_name: String::from("poi-crosschecker"),
-            encoding: Encoding::Proto,
-        };
-
         // now sending topic name (somehow a hash)
         // query block number and block hash
         // get graph-node queries
-        let poi = match query_graph_node_poi(
+        match query_graph_node_poi(
             graph_node_endpoint,
             ipfs_hash.to_string(),
             block_hash.clone(),
@@ -288,22 +281,7 @@ async fn main() {
         )
         .await
         {
-            Ok(poi_response) => {
-                let poi = poi_response.data.proof_of_indexing;
-                // let message = RadioPayloadMessage::new(ipfs_hash.to_string(), poi);
-                // let mut buff = Vec::new();
-                // Message::encode(&message, &mut buff).expect("Could not encode :(");
-
-                // let waku_message = WakuMessage::new(
-                //     buff,
-                //     basic_topic.clone(),
-                //     2,
-                //     Utc::now().timestamp() as usize,
-                // );
-                // node_handle
-                //     .relay_publish_message(&waku_message, topic.clone(), None)
-                //     .expect("Could not send message.");
-
+            Ok(_) => {
                 // CONSTRUCT MESSAGE
                 let radio_payload_message =
                     RadioPayloadMessage::new(ipfs_hash.to_string(), npoi.clone());
@@ -338,7 +316,7 @@ async fn main() {
                 res.push(topic.unwrap())
             }
             Err(error) => {
-                println!("No data for topic {}", payload);
+                println!("No data for topic {}, more context: {}", payload, error);
             }
         };
     }
