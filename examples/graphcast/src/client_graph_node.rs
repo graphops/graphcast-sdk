@@ -45,12 +45,12 @@ pub async fn query_graph_node_poi(
     graph_node_endpoint: String,
     ipfs_hash: String,
     block_hash: String,
-    block_number: u32,
+    block_number: i64,
 ) -> Result<ProofOfIndexingResponse, serde_json::Error> {
     let variables: Variables = Variables {
         subgraph: ipfs_hash.clone(),
         block_hash: block_hash.clone(),
-        block_number: block_number.into(),
+        block_number,
         indexer: None,
     };
     let queried_result = &perform_proof_of_indexing(graph_node_endpoint, variables).await;
