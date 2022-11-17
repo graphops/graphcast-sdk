@@ -215,42 +215,45 @@ async fn main() {
     let node_handle = setup_node_handle(topics.clone());
 
     // HANDLE RECEIVED MESSAGE
-    waku_set_event_callback(move |signal: Signal| match signal.event() {
-        waku::Event::WakuMessage(event) => {
-            match <GraphcastMessage as Message>::decode(event.waku_message().payload()) {
-                Ok(graphcast_message) => {
-                    println!(
-                        "\n{}\n{} {:?}",
-                        "New message received".bold().green(),
-                        "Graphcast message:".cyan(),
-                        graphcast_message
-                    );
+    waku_set_event_callback(move |signal: Signal| {
+        println!("{}", "New message!".bold().red());
+        match signal.event() {
+            waku::Event::WakuMessage(event) => {
+                match <GraphcastMessage as Message>::decode(event.waku_message().payload()) {
+                    Ok(graphcast_message) => {
+                        println!(
+                            "\n{}\n{} {:?}",
+                            "New message received".bold().green(),
+                            "Graphcast message:".cyan(),
+                            graphcast_message
+                        );
 
-                    let signature = Signature::from_str(&graphcast_message.signature).unwrap();
-                    let radio_payload = RadioPayloadMessage::new(
-                        graphcast_message.subgraph_hash,
-                        graphcast_message.npoi,
-                    );
+                        let signature = Signature::from_str(&graphcast_message.signature).unwrap();
+                        let radio_payload = RadioPayloadMessage::new(
+                            graphcast_message.subgraph_hash,
+                            graphcast_message.npoi,
+                        );
 
-                    let encoded_message = radio_payload.encode_eip712().unwrap();
-                    let address = signature.recover(encoded_message).unwrap();
+                        let encoded_message = radio_payload.encode_eip712().unwrap();
+                        let address = signature.recover(encoded_message).unwrap();
 
-                    println!(
-                        "{} {}",
-                        "Recovered address from incoming message:".cyan(),
-                        address
-                    );
-                }
-                Err(e) => {
-                    println!("Error occurred!\n {:?}", e);
+                        println!(
+                            "{} {}",
+                            "Recovered address from incoming message:".cyan(),
+                            address
+                        );
+                    }
+                    Err(e) => {
+                        println!("Error occurred!\n {:?}", e);
+                    }
                 }
             }
-        }
-        waku::Event::Unrecognized(data) => {
-            println!("Unrecognized event!\n {:?}", data);
-        }
-        _ => {
-            println!("signal! {:?}", serde_json::to_string(&signal));
+            waku::Event::Unrecognized(data) => {
+                println!("Unrecognized event!\n {:?}", data);
+            }
+            _ => {
+                println!("signal! {:?}", serde_json::to_string(&signal));
+            }
         }
     });
 
