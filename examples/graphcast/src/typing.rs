@@ -18,12 +18,6 @@ pub struct RadioPayload {
     pub npoi: String,
 }
 
-impl RadioPayload {
-    pub fn new(ipfs_hash: String, npoi: String) -> Self {
-        RadioPayload { ipfs_hash, npoi }
-    }
-}
-
 impl Clone for RadioPayload {
     fn clone(&self) -> Self {
         Self {

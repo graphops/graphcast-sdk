@@ -11,27 +11,24 @@ pub async fn testing_functionalities () -> String {
     
     let received_from_address = String::from("0x2bc5349585cbbf924026d25a520ffa9e8b51a39b");
     let indexer_address = query_registry_indexer(registry_subgraph, received_from_address).await;
-    println!("{} {}", "Indexer address: ", indexer_address);
+    println!("Indexer address:  {}", indexer_address);
 
     let indexer_stake =
         query_indexer_stake(network_subgraph.clone(), indexer_address.clone()).await;
-    println!("{} {}", "Indexer stake: ", indexer_stake);
+    println!("Indexer stake:  {}", indexer_stake);
     let indexer_allocations_temp =
         query_indexer_allocations(network_subgraph.clone(), indexer_address.clone()).await;
     //Temp: test topic for local poi
     let indexer_allocations = [String::from(&test_topic)];
     println!(
-        "{}\n{:?}\n{}\n{:?}",
-        "Indexer allocations: ",
+        "Indexer allocations: \n{:?}\nAdd test topic:\n{:?}",
         indexer_allocations_temp,
-        "Add test topic:",
         indexer_allocations,
     );
     let minimum_req =
         query_stake_minimum_requirement(network_subgraph.clone(), indexer_address.clone()).await;
     println!(
-        "{} {}",
-        "fetch minimum indexer requirement: ",
+        "fetch minimum indexer requirement:  {}",
         minimum_req
     );
 
