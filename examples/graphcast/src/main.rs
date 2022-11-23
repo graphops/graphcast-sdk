@@ -8,9 +8,9 @@ use ethers::{
     types::{Signature, U64},
 };
 use prost::Message;
-use tokio::runtime::Runtime;
 use std::env;
 use std::{str::FromStr, thread::sleep, time::Duration};
+use tokio::runtime::Runtime;
 use waku::{
     waku_set_event_callback, Encoding, Signal, WakuContentTopic, WakuMessage, WakuPubSubTopic,
 };
@@ -86,11 +86,7 @@ async fn main() {
             waku::Event::WakuMessage(event) => {
                 match <GraphcastMessage as Message>::decode(event.waku_message().payload()) {
                     Ok(graphcast_message) => {
-                        println!(
-                            "{} {:?}",
-                            "Graphcast message:".cyan(),
-                            graphcast_message
-                        );
+                        println!("{} {:?}", "Graphcast message:".cyan(), graphcast_message);
 
                         let signature = Signature::from_str(&graphcast_message.signature).unwrap();
                         let radio_payload = RadioPayloadMessage::new(
@@ -102,10 +98,12 @@ async fn main() {
                         let address = signature.recover(encoded_message).unwrap();
                         let address = format!("{:#x}", address);
 
-                        let registry_subgraph =
-                        String::from("https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test");
+                        let registry_subgraph = String::from(
+                            "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
+                        );
 
-                        let indexer_address = query_registry_indexer(registry_subgraph, address.to_string()).await;
+                        let indexer_address =
+                            query_registry_indexer(registry_subgraph, address.to_string()).await;
 
                         println!(
                             "{} {}\n Operator for indexer {}",
@@ -116,7 +114,8 @@ async fn main() {
                     }
                     Err(e) => {
                         println!("Waku message not interpretated as a Graphcast message\nError occurred: {:?}", e);
-                    }}
+                    }
+                }
             }
             waku::Event::Unrecognized(data) => {
                 println!("Unrecognized event!\n {:?}", data);
@@ -158,113 +157,105 @@ async fn main() {
 
         // Send POI message every 1 block for now
         //if block_number % 1 == 0 {
-            compare_block = block_number + 3;
+        compare_block = block_number + 3;
 
-            let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
-            let block_hash = format!("{:#x}", block.hash.unwrap());
-            println!("{} {:?}", "Block hash: ".cyan(), block_hash);
+        let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
+        let block_hash = format!("{:#x}", block.hash.unwrap());
+        println!("{} {:?}", "Block hash: ".cyan(), block_hash);
 
-            let mut res: Vec<WakuPubSubTopic> = Vec::new();
+        let mut res: Vec<WakuPubSubTopic> = Vec::new();
 
-            println!("\n{}", "Constructing message".bold().green());
-            //CONSTRUCTING MESSAGE
-            // Might make more sense to loop through indexer_allocation st we don't need to parse ipfs hash
-            // for ipfs_hash in indexer_allocations { - but would need topic generation, can refactor this later
-            for topic in topics.clone() {
-                println!(
-                    "Waku node id: {:#?} \nsubscribe to topics {:#?}",
-                    node_handle.peer_id(),
-                    topic.clone()
-                );
-                let topic_title = topic.clone().unwrap().topic_name;
-                let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
+        println!("\n{}", "Constructing message".bold().green());
+        //CONSTRUCTING MESSAGE
+        // Might make more sense to loop through indexer_allocation st we don't need to parse ipfs hash
+        // for ipfs_hash in indexer_allocations { - but would need topic generation, can refactor this later
+        for topic in topics.clone() {
+            println!(
+                "Waku node id: {:#?} \nsubscribe to topics {:#?}",
+                node_handle.peer_id(),
+                topic.clone()
+            );
+            let topic_title = topic.clone().unwrap().topic_name;
+            let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
 
-                // now sending topic name (somehow a hash)
-                // query block number and block hash
-                // get graph-node queries
-                match query_graph_node_poi(
-                    graph_node_endpoint.clone(),
-                    ipfs_hash.to_string(),
-                    block_hash.to_string(),
-                    block_number.try_into().unwrap(),
-                )
-                .await
-                {
-                    Ok(poi) => {
-                        // CONSTRUCT MESSAGE
-                        let npoi = poi.data.proof_of_indexing;
-                        let nonce = Utc::now().timestamp();
+            // now sending topic name (somehow a hash)
+            // query block number and block hash
+            // get graph-node queries
+            match query_graph_node_poi(
+                graph_node_endpoint.clone(),
+                ipfs_hash.to_string(),
+                block_hash.to_string(),
+                block_number.try_into().unwrap(),
+            )
+            .await
+            {
+                Ok(poi) => {
+                    // CONSTRUCT MESSAGE
+                    let npoi = poi.data.proof_of_indexing;
+                    let nonce = Utc::now().timestamp();
 
-                        let radio_payload_message =
-                            RadioPayloadMessage::new(ipfs_hash.to_string(), npoi.clone());
-                        let msg = radio_payload_message.encode_eip712().unwrap();
+                    let radio_payload_message =
+                        RadioPayloadMessage::new(ipfs_hash.to_string(), npoi.clone());
+                    let msg = radio_payload_message.encode_eip712().unwrap();
 
-                        let sig = wallet
-                            .sign_typed_data(&radio_payload_message)
-                            .await
-                            .unwrap();
-                        let address = sig.recover(msg).unwrap();
+                    let sig = wallet
+                        .sign_typed_data(&radio_payload_message)
+                        .await
+                        .unwrap();
+                    let address = sig.recover(msg).unwrap();
 
-                        println!(
-                            "{}{}\n{}{}\n{}{:?}",
-                            "Signature: ".cyan(),
-                            sig,
-                            "Recovered address: ".cyan(),
-                            address,
-                            "Radio payload: ".cyan(),
-                            radio_payload_message.clone()
-                        );
+                    println!(
+                        "{}{}\n{}{}\n{}{:?}",
+                        "Signature: ".cyan(),
+                        sig,
+                        "Recovered address: ".cyan(),
+                        address,
+                        "Radio payload: ".cyan(),
+                        radio_payload_message.clone()
+                    );
 
-                        let message = GraphcastMessage::new(
-                            ipfs_hash.to_string(),
-                            npoi,
-                            nonce,
-                            block_number.try_into().unwrap(),
-                            block_hash.to_string(),
-                            sig.to_string(),
-                        );
+                    let message = GraphcastMessage::new(
+                        ipfs_hash.to_string(),
+                        npoi,
+                        nonce,
+                        block_number.try_into().unwrap(),
+                        block_hash.to_string(),
+                        sig.to_string(),
+                    );
 
-                        // Encode the graphcast message in buff and construct waku message
-                        let mut buff = Vec::new();
-                        Message::encode(&message, &mut buff).expect("Could not encode :(");
+                    // Encode the graphcast message in buff and construct waku message
+                    let mut buff = Vec::new();
+                    Message::encode(&message, &mut buff).expect("Could not encode :(");
 
-                        println!("\n{}", "Sending message".bold().green());
+                    println!("\n{}", "Sending message".bold().green());
 
-                        let waku_message = WakuMessage::new(
-                            buff,
-                            poi_content_topic.clone(),
-                            2,
-                            Utc::now().timestamp() as usize,
-                        );
-                        let sent =
-                            node_handle.relay_publish_message(&waku_message, topic.clone(), None);
+                    let waku_message = WakuMessage::new(
+                        buff,
+                        poi_content_topic.clone(),
+                        2,
+                        Utc::now().timestamp() as usize,
+                    );
+                    let sent =
+                        node_handle.relay_publish_message(&waku_message, topic.clone(), None);
 
-                        match sent {
-                            Ok(message_id) => {
-                                println!("{} {}", "Message sent! Id:".cyan(), message_id);
-                            }
-                            Err(e) => {
-                                println!(
-                                    "{}\n{:?}",
-                                    "An error occurred! More information:".red(),
-                                    e
-                                );
-                            }
+                    match sent {
+                        Ok(message_id) => {
+                            println!("{} {}", "Message sent! Id:".cyan(), message_id);
                         }
-                        println!("{} {:#?}", "Topic:".cyan(), topic.clone());
+                        Err(e) => {
+                            println!("{}\n{:?}", "An error occurred! More information:".red(), e);
+                        }
+                    }
+                    println!("{} {:#?}", "Topic:".cyan(), topic.clone());
 
-                        // Save result to attest later
-                        res.push(topic.clone().unwrap());
-                    }
-                    Err(error) => {
-                        println!(
-                            "No data for topic {}, more context: {}",
-                            ipfs_hash,
-                            error
-                        );
-                    }
-                };
-            }
+                    // Save result to attest later
+                    res.push(topic.clone().unwrap());
+                }
+                Err(error) => {
+                    println!("No data for topic {}, more context: {}", ipfs_hash, error);
+                }
+            };
+        }
         if block_number == compare_block {
             println!("{}", "Compare attestations here".red());
         }

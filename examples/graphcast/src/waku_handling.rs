@@ -29,7 +29,7 @@ pub fn setup_node_handle(
         advertise_addr: None,
         node_key: None,
         keep_alive_interval: None,
-        relay: None, //default is True
+        relay: None,                   //default is True
         min_peers_to_publish: Some(1), // Require other peers in the network
         filter: None,
         log_level: Some(WakuLogLevel::Error),

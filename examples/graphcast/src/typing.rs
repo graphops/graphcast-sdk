@@ -1,10 +1,9 @@
+use ethers::types::RecoveryMessage;
 use ethers_contract::EthAbiType;
 use ethers_core::types::transaction::eip712::Eip712;
 use ethers_derive_eip712::*;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use ethers::types::RecoveryMessage;
-
 
 #[derive(Debug, Eip712, EthAbiType, Serialize, Deserialize)]
 #[eip712(
