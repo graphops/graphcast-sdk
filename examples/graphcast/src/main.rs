@@ -1,329 +1,247 @@
+use chrono::Utc;
+use colored::*;
+use ethers::types::Block;
+use ethers::types::transaction::eip712::Eip712;
 use ethers::{
+    providers::{Http, Middleware, Provider},
     signers::{LocalWallet, Signer},
-    types::{RecoveryMessage, Signature},
+    types::{Signature, U64},
 };
-use ethers_contract::EthAbiType;
-use ethers_core::types::transaction::eip712::Eip712;
-use ethers_derive_eip712::*;
-
 use prost::Message;
-use serde::{Deserialize, Serialize};
-
-use client_graph_node::query_graph_node_poi;
-use client_network::{
-    query_indexer_allocations, query_indexer_stake, query_stake_minimum_requirement,
-};
-use client_registry::query_registry_indexer;
-
 use std::env;
 use std::{str::FromStr, thread::sleep, time::Duration};
 use waku::{
-    waku_new, waku_set_event_callback, Encoding, Multiaddr, ProtocolId, Running, Signal,
-    WakuNodeHandle, WakuPubSubTopic,
+    waku_set_event_callback, Encoding, Running, Signal,
+    WakuPubSubTopic, WakuMessage, WakuContentTopic,
 };
+
+use client_graph_node::query_graph_node_poi;
+use client_network::{
+    query_indexer_stake,
+    query_indexer_allocations,
+};
+use client_registry::query_registry_indexer;
+use typing::*;
+use data_request::*;
+use waku_handling::setup_node_handle;
+
 mod client_graph_node;
 mod client_network;
 mod client_registry;
 mod query_network;
 mod query_proof_of_indexing;
 mod query_registry;
+mod typing;
+mod data_request;
+mod waku_handling;
 
-#[derive(Debug, Eip712, EthAbiType, Serialize, Deserialize)]
-#[eip712(
-    name = "RadioPaylod",
-    version = "1",
-    chain_id = 1,
-    verifying_contract = "0x0000000000000000000000000000000000000000"
-)]
-pub struct RadioPayload {
-    ipfs_hash: String,
-    npoi: String,
-}
-
-impl RadioPayload {
-    pub fn new(ipfs_hash: String, npoi: String) -> Self {
-        RadioPayload { ipfs_hash, npoi }
-    }
-}
-
-impl Clone for RadioPayload {
-    fn clone(&self) -> Self {
-        Self {
-            ipfs_hash: self.ipfs_hash.clone(),
-            npoi: self.npoi.clone(),
-        }
-    }
-}
-
-unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
-    ::std::slice::from_raw_parts((p as *const T) as *const u8, ::std::mem::size_of::<T>())
-}
-
-impl From<RadioPayloadMessage> for RecoveryMessage {
-    fn from(m: RadioPayloadMessage) -> RecoveryMessage {
-        RecoveryMessage::Data(unsafe { any_as_u8_slice(&m).to_vec() })
-    }
-}
-
-#[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
-#[eip712(
-    name = "GraphcastMessage",
-    version = "1",
-    chain_id = 1,
-    verifying_contract = "0x0000000000000000000000000000000000000000"
-)]
-pub struct GraphcastMessage {
-    #[prost(string, tag = "1")]
-    subgraph_hash: String,
-    #[prost(string, tag = "2")]
-    npoi: String,
-    #[prost(uint32, tag = "3")]
-    nonce: u32,
-    #[prost(uint32, tag = "4")]
-    block_number: u32,
-    #[prost(string, tag = "5")]
-    block_hash: String,
-    #[prost(string, tag = "6")]
-    signature: String,
-}
-
-impl GraphcastMessage {
-    fn new(
-        subgraph_hash: String,
-        npoi: String,
-        nonce: u32,
-        block_number: u32,
-        block_hash: String,
-        signature: String,
-    ) -> Self {
-        GraphcastMessage {
-            subgraph_hash,
-            npoi,
-            nonce,
-            block_number,
-            block_hash,
-            signature,
-        }
-    }
-}
-
-#[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
-#[eip712(
-    name = "radio payload",
-    version = "1",
-    chain_id = 1,
-    verifying_contract = "0x0000000000000000000000000000000000000000"
-)]
-pub struct RadioPayloadMessage {
-    #[prost(string, tag = "1")]
-    subgraph_hash: String,
-    #[prost(string, tag = "2")]
-    npoi: String,
-}
-
-impl RadioPayloadMessage {
-    fn new(subgraph_hash: String, npoi: String) -> Self {
-        RadioPayloadMessage {
-            subgraph_hash,
-            npoi,
-        }
-    }
-}
-
-fn setup_node_handle(graphcast_topics: Vec<Option<WakuPubSubTopic>>) -> WakuNodeHandle<Running> {
-    const NODES: &[&str] = &[
-    "/dns4/node-01.ac-cn-hongkong-c.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAkvWiyFsgRhuJEb9JfjYxEkoHLgnUQmr1N5mKWnYjxYRVm",
-    "/dns4/node-01.do-ams3.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ",
-    "/dns4/node-01.gc-us-central1-a.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmJb2e28qLXxT5kZxVUUoJt72EMzNGXB47Rxx5hw3q4YjS"
-];
-
-    let node_handle = waku_new(None).unwrap();
-    let node_handle = node_handle.start().unwrap();
-    for address in NODES
-        .iter()
-        .map(|a| Multiaddr::from_str(a).expect("Could not parse address"))
-    {
-        let peerid = node_handle.add_peer(&address, ProtocolId::Relay).unwrap();
-        node_handle.connect_peer_with_id(peerid, None).unwrap();
-    }
-    // node_handle.relay_subscribe(graphcast_topic)?;
-
-    for topic in graphcast_topics {
-        node_handle.relay_subscribe(topic).unwrap();
-    }
-
-    node_handle
-}
 
 #[tokio::main]
 async fn main() {
-    let test_topic = String::from("QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB");
-    let app_name: String = String::from("graphcast");
-
+    // Common inputs - refactor to a set-up function?
+    let graph_node_endpoint = String::from("http://localhost:8030/graphql");
     let registry_subgraph =
         String::from("https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test");
-    let received_from_address = String::from("0x2bc5349585cbbf924026d25a520ffa9e8b51a39b");
-    let indexer_address = query_registry_indexer(registry_subgraph, received_from_address).await;
-    println!(
-        "fetch registry indexer_address, used as local indexer: {:#?}",
-        indexer_address
-    );
-
     let network_subgraph = String::from("https://gateway.testnet.thegraph.com/network");
+    let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
+    let wallet = private_key.parse::<LocalWallet>().unwrap();
+    let app_name: String = String::from("graphcast");
+    let poi_content_topic: WakuContentTopic = WakuContentTopic {
+        application_name: app_name.clone(),
+        version: 0,
+        content_topic_name: String::from("poi-crosschecker"),
+        encoding: Encoding::Proto,
+    };
+
+    let indexer_address = query_registry_indexer(registry_subgraph, format!("{:?}", wallet.address())).await;
     let indexer_stake =
         query_indexer_stake(network_subgraph.clone(), indexer_address.clone()).await;
-    println!("fetch network subgraph indexer_stake: {:#?}", indexer_stake);
-    let indexer_allocations_temp =
+    println!("{} {}\n{} {}", "Indexer address: ".cyan(), indexer_address, "Indexer stake: ".cyan(), indexer_stake);
+
+
+    // For testing
+    let test_topic = String::from("QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U");//Temp: test topic for local poi
+    // let indexer_allocations: Vec<String> = [String::from(&test_topic)].to_vec();
+    println!("testing functionalities: {:#?} ", testing_functionalities().await);
+    let indexer_allocations =
         query_indexer_allocations(network_subgraph.clone(), indexer_address.clone()).await;
-    //Temp: test topic for local poi
-    let indexer_allocations = [String::from(&test_topic)];
-    println!(
-        "fetch network subgraph indexer_allocations: {:#?}\nAdd test topic: {:#?}",
-        indexer_allocations_temp, indexer_allocations,
-    );
-    let minimum_req =
-        query_stake_minimum_requirement(network_subgraph.clone(), indexer_address.clone()).await;
-    println!("fetch minimum indexer requirement: {:#?}", minimum_req);
-
-    //TODO: refactor topic generation
-    let topics: Vec<Option<WakuPubSubTopic>> = indexer_allocations
-        .into_iter()
-        .map(|hash| {
-            let borrowed_hash: &str = &hash;
-            let topic = app_name.clone() + "-poi-crosschecker-" + borrowed_hash;
-            Some(WakuPubSubTopic {
-                topic_name: topic,
-                encoding: Encoding::Proto,
-            })
-        })
-        .collect::<Vec<Option<WakuPubSubTopic>>>();
-
-    // pretend that we have message topic (ipfsHash), block number and block hash, we then query graph node for POI
-    let graph_node_endpoint = String::from("http://localhost:8030/graphql");
-    let ipfs_hash = &test_topic;
-    let block_hash =
-        String::from("9462869694a6b2cffef2615cdb3cfb45c03b113c54a4422d071dadb5aa571395");
-    let block_number = 7534805;
-    let poi = query_graph_node_poi(
-        graph_node_endpoint,
-        ipfs_hash.to_string(),
-        block_hash,
-        block_number,
-    )
-    .await;
-    println!("fetch graph node poi ---- {:#?}", poi);
-
+    
+    //TEMP: using None will let message flow through default-waku peer nodes and filtered by graphcast poi-crosschecker as content topic
+    // let topics: Vec<Option<WakuPubSubTopic>> = [None].to_vec();
+    let topics: Vec<Option<WakuPubSubTopic>> = generate_pubsub_topics(app_name.clone(), indexer_allocations).await;
+    let node_handle = setup_node_handle(topics.clone());
     //TODO: add Dispute query to the network subgraph endpoint
-    //TODO: add setCostModels mutation to the indexer management server url
-    // let indexer_management_endpoint = String::from("http://localhost::18000");
-
-    setup_node_handle(topics.clone());
 
     // HANDLE RECEIVED MESSAGE
-    waku_set_event_callback(move |signal: Signal| match signal.event() {
-        waku::Event::WakuMessage(event) => {
-            match <GraphcastMessage as Message>::decode(event.waku_message().payload()) {
-                Ok(graphcast_message) => {
-                    println!("New message received! \n{:?}", graphcast_message);
+    waku_set_event_callback(move |signal: Signal| {
+        println!("{}", "New message received!".bold().red());
+        match signal.event() {
+            waku::Event::WakuMessage(event) => {
+                match <GraphcastMessage as Message>::decode(event.waku_message().payload()) {
+                    Ok(graphcast_message) => {
+                        println!(
+                            "{} {:?}",
+                            "Graphcast message:".cyan(),
+                            graphcast_message
+                        );
 
-                    let ipfs_hash = String::from("hash");
-                    let npoi = String::from("npoi");
-                    let signature = Signature::from_str(&graphcast_message.signature).unwrap();
-                    let radio_payload = RadioPayloadMessage::new(ipfs_hash, npoi);
+                        let signature = Signature::from_str(&graphcast_message.signature).unwrap();
+                        let radio_payload = RadioPayloadMessage::new(
+                            graphcast_message.subgraph_hash,
+                            graphcast_message.npoi,
+                        );
 
-                    let encoded_message = radio_payload.encode_eip712().unwrap();
-                    let address = signature.recover(encoded_message).unwrap();
+                        let encoded_message = radio_payload.encode_eip712().unwrap();
+                        let address = signature.recover(encoded_message).unwrap();
+                        //TODO: Async typing needed for the block for all the data requests
+                        // let indexer_address = query_registry_indexer(registry_subgraph, address.clone()).await;
 
-                    println!("{:?}", address);
-                }
-                Err(e) => {
-                    println!("Error occurred!\n {:?}", e);
-                }
+                        println!(
+                            "{} {}\n Operator for indexer {}",
+                            "Recovered address from incoming message:".cyan(),
+                            address,
+                            indexer_address,
+                        );
+                    }
+                    Err(e) => {
+                        println!("Waku message not interpretated as a Graphcast message\nError occurred: {:?}", e);
+                    }}
             }
-        }
-        waku::Event::Unrecognized(data) => {
-            println!("Unrecognized event!\n {:?}", data);
-        }
-        _ => {
-            println!("signal! {:?}", serde_json::to_string(&signal));
+            waku::Event::Unrecognized(data) => {
+                println!("Unrecognized event!\n {:?}", data);
+            }
+            _ => {
+                println!("signal! {:?}", serde_json::to_string(&signal));
+            }
         }
     });
 
-    let mut res: Vec<WakuPubSubTopic> = Vec::new();
-
-    //SENDING MESSAGE
-    for topic in topics {
-        let graph_node_endpoint = String::from("http://localhost:8030/graphql");
-        let payload = topic.clone().unwrap().topic_name;
-        let npoi = String::from("npoi");
-        let nonce = 55;
-
-        let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
-
-        let wallet = private_key.parse::<LocalWallet>().unwrap();
-
-        let topic_title = topic.clone().unwrap().topic_name;
-        let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
-
-        //TEMP block info, add when eth node connect and event loop for new blocks
-        let block_hash =
-            String::from("9462869694a6b2cffef2615cdb3cfb45c03b113c54a4422d071dadb5aa571395");
-        let block_number = 7534805;
-
-        // now sending topic name (somehow a hash)
-        // query block number and block hash
-        // get graph-node queries
-        match query_graph_node_poi(
-            graph_node_endpoint,
-            ipfs_hash.to_string(),
-            block_hash.clone(),
-            block_number,
-        )
-        .await
-        {
-            Ok(_) => {
-                // CONSTRUCT MESSAGE
-                let radio_payload_message =
-                    RadioPayloadMessage::new(ipfs_hash.to_string(), npoi.clone());
-                let msg = radio_payload_message.encode_eip712().unwrap();
-                let sig = wallet
-                    .sign_typed_data(&radio_payload_message)
-                    .await
-                    .unwrap();
-                let address = sig.recover(msg).unwrap();
-                println!(
-            "constructing the message when {:#?} ; \n signature {:#?}\n recover address {:#?}",
-            radio_payload_message.clone(),
-            sig.to_string(),
-            address,
-        );
-                let message = GraphcastMessage::new(
-                    ipfs_hash.to_string(),
-                    npoi,
-                    nonce,
-                    block_number,
-                    block_hash,
-                    sig.to_string(),
-                );
-
-                // Encode the graphcast message in buff and construct waku message
-                let mut buff = Vec::new();
-                Message::encode(&message, &mut buff).expect("Could not encode :(");
-
-                println!("{:#?}", payload.clone());
-                println!("{:#?}", topic.clone());
-
-                res.push(topic.unwrap())
-            }
-            Err(error) => {
-                println!("No data for topic {}, more context: {}", payload, error);
-            }
-        };
-    }
-
-    println!("welp  {:#?}", poi);
-
+    // This endpoint should be kept private as much as possible
+    let provider =
+        Provider::<Http>::try_from("_____")
+            .unwrap();
+    let mut compare_block = 0;
+    let mut curr_block = 0;
+    
+    // Main loop to process Ethereum Blocks
     loop {
-        sleep(Duration::new(1, 0));
+        let block_number = U64::as_u64(&provider.get_block_number().await.unwrap()) - 5;
+
+        if curr_block == block_number {
+            sleep(Duration::from_secs(6));
+            continue;
+        }
+
+        println!("{} {}", "🔗 Block number:".cyan(), block_number);
+        curr_block = block_number;
+
+        // Send POI message every 1 block for now
+        if block_number % 1 == 0 {
+            compare_block = block_number + 3;
+
+            let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
+            let block_hash = format!("{:#x}", block.hash.unwrap());
+            println!("{} {:?}", "Block hash: ".cyan(), block_hash);
+
+            let mut res: Vec<WakuPubSubTopic> = Vec::new();
+
+            println!("\n{}", "Constructing message".bold().green());
+            //CONSTRUCTING MESSAGE
+            // Might make more sense to loop through indexer_allocation st we don't need to parse ipfs hash
+            // for ipfs_hash in indexer_allocations { - but would need topic generation, can refactor this later
+            for topic in topics.clone() {
+                println!("Waku node id: {:#?} \nsubscribe to topics {:#?}", node_handle.peer_id(), topic.clone());
+                let topic_title = topic.clone().unwrap().topic_name;
+                let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
+
+                // now sending topic name (somehow a hash)
+                // query block number and block hash
+                // get graph-node queries
+                match query_graph_node_poi(
+                    graph_node_endpoint.clone(),
+                    ipfs_hash.to_string(),
+                    block_hash.to_string(),
+                    block_number.try_into().unwrap(),
+                )
+                .await
+                {
+                    Ok(poi) => {
+                        // CONSTRUCT MESSAGE
+                        let npoi = poi.data.proof_of_indexing;
+                        let nonce = Utc::now().timestamp();
+
+                        let radio_payload_message =
+                            RadioPayloadMessage::new(ipfs_hash.to_string(), npoi.clone());
+                        let msg = radio_payload_message.encode_eip712().unwrap();
+
+                        let sig = wallet
+                            .sign_typed_data(&radio_payload_message)
+                            .await
+                            .unwrap();
+                        let address = sig.recover(msg).unwrap();
+
+                        println!(
+                            "{}{}\n{}{}\n{}{:?}",
+                            "Signature: ".cyan(),
+                            sig,
+                            "Recovered address: ".cyan(),
+                            address,
+                            "Radio payload: ".cyan(),
+                            radio_payload_message.clone()
+                        );
+
+                        let message = GraphcastMessage::new(
+                            ipfs_hash.to_string(),
+                            npoi,
+                            nonce,
+                            block_number.try_into().unwrap(),
+                            block_hash.to_string(),
+                            sig.to_string(),
+                        );
+
+                        // Encode the graphcast message in buff and construct waku message
+                        let mut buff = Vec::new();
+                        Message::encode(&message, &mut buff).expect("Could not encode :(");
+
+                        println!("\n{}", "Sending message".bold().green());
+
+                        let waku_message = WakuMessage::new(
+                            buff,
+                            poi_content_topic.clone(),
+                            2,
+                            Utc::now().timestamp() as usize,
+                        );
+                        let sent = node_handle.relay_publish_message(
+                            &waku_message,
+                            topic.clone(),
+                            None,
+                        );
+
+                        match sent {
+                            Ok(message_id) => {
+                                println!("{} {}", "Message sent! Id:".cyan(), message_id);
+                            }
+                            Err(e) => {
+                                println!(
+                                    "{}\n{:?}",
+                                    "An error occurred! More information:".red(),
+                                    e
+                                );
+                            }
+                        }
+                        println!("{} {:#?}", "Topic:".cyan(), topic.clone());
+
+                        // Save result to attest later
+                        res.push(topic.clone().unwrap());
+                    }
+                    Err(error) => {
+                        println!("No data for topic {}, more context: {}", ipfs_hash.clone(), error);
+                    }
+                };
+            }
+        }
+        if block_number == compare_block {
+            println!("{}", "Compare attestations here".red());
+        }
     }
 }
