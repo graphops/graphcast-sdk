@@ -54,6 +54,7 @@ pub async fn query_graph_node_poi(
         indexer: None,
     };
     let queried_result = &perform_proof_of_indexing(graph_node_endpoint, variables).await;
-
+    // let queried_result = "{\"data\":{\"proofOfIndexing\":\"0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae\"}}";
+    println!("queried result {}", queried_result);
     serde_json::from_str(queried_result)
 }
