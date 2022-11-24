@@ -103,7 +103,7 @@ async fn main() {
             file.read_to_string(&mut boot_node_id).unwrap();
 
             let node_handle = setup_node_handle(topics.clone(), boot_node_id);
-            
+
             //TODO: add Dispute query to the network subgraph endpoint
             async fn handle_signal(signal: Signal) {
                 println!("{}", "New message received!".bold().red());
@@ -113,8 +113,7 @@ async fn main() {
                         {
                             Ok(graphcast_message) => {
                                 println!(
-                                    "{}{}\n{} {:?}",
-                                    "Message id: ",
+                                    "Message id: {}\n{} {:?}",
                                     event.message_id(),
                                     "Graphcast message:".cyan(),
                                     graphcast_message
