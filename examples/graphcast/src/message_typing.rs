@@ -100,3 +100,9 @@ impl RadioPayloadMessage {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SenderMap{
+    sender: String,
+    nonce: u32,
+}

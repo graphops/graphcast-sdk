@@ -5,24 +5,25 @@ use ethers::types::Block;
 use ethers::{
     providers::{Http, Middleware, Provider},
     signers::{LocalWallet, Signer},
-    types::{Signature, U64},
+    types::{U64},
 };
 use prost::Message;
 use std::env;
-use std::{str::FromStr, thread::sleep, time::Duration};
+use std::{thread::sleep, time::Duration};
 use tokio::runtime::Runtime;
 use waku::{
     waku_set_event_callback, Encoding, Signal, WakuContentTopic, WakuMessage, WakuPubSubTopic,
 };
 
-use crate::waku_handling::setup_boot_node_handle;
+use crate::client_network::query_indexer_allocations;
+use crate::waku_handling::{setup_boot_node_handle, handle_signal};
 use client_graph_node::query_graph_node_poi;
-use client_network::{query_indexer_allocations, query_indexer_stake};
+use client_network::query_indexer_stake;
 use client_registry::query_registry_indexer;
 use data_request::*;
 use std::fs::File;
 use std::io::prelude::*;
-use typing::*;
+use message_typing::*;
 use waku_handling::setup_node_handle;
 
 mod client_graph_node;
@@ -32,7 +33,7 @@ mod data_request;
 mod query_network;
 mod query_proof_of_indexing;
 mod query_registry;
-mod typing;
+mod message_typing;
 mod waku_handling;
 
 #[tokio::main]
@@ -44,8 +45,10 @@ async fn main() {
     let network_subgraph = String::from("https://gateway.testnet.thegraph.com/network");
     let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
     let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
+    // let mut local_nonces: HashMap<String, SenderMap> = HashMap::new();
 
     let wallet = private_key.parse::<LocalWallet>().unwrap();
+    let provider: Provider::<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
     let app_name: String = String::from("graphcast");
     let poi_content_topic: WakuContentTopic = WakuContentTopic {
         application_name: app_name.clone(),
@@ -83,6 +86,16 @@ async fn main() {
 
     let is_boot = std::env::args().nth(1);
 
+
+    let handle_async = move |signal: Signal| {
+        let rt = Runtime::new().unwrap();
+        let provider: Provider::<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
+
+        rt.block_on(async move {
+            handle_signal(provider, signal).await;
+        });
+    };
+
     match is_boot {
         Some(_) => {
             let boot_node_handle = setup_boot_node_handle(topics.clone());
@@ -98,80 +111,17 @@ async fn main() {
             }
         }
         None => {
+            //TODO: Boot id shouldn't need to be generated locally for a regular radio
             let mut file = File::open("./boot_node_id.conf").unwrap();
             let mut boot_node_id = String::new();
             file.read_to_string(&mut boot_node_id).unwrap();
 
             let node_handle = setup_node_handle(topics.clone(), boot_node_id);
 
-            //TODO: add Dispute query to the network subgraph endpoint
-            async fn handle_signal(signal: Signal) {
-                println!("{}", "New message received!".bold().red());
-                match signal.event() {
-                    waku::Event::WakuMessage(event) => {
-                        match <GraphcastMessage as Message>::decode(event.waku_message().payload())
-                        {
-                            Ok(graphcast_message) => {
-                                println!(
-                                    "Message id: {}\n{} {:?}",
-                                    event.message_id(),
-                                    "Graphcast message:".cyan(),
-                                    graphcast_message
-                                );
-
-                                let signature =
-                                    Signature::from_str(&graphcast_message.signature).unwrap();
-                                let radio_payload = RadioPayloadMessage::new(
-                                    graphcast_message.subgraph_hash,
-                                    graphcast_message.npoi,
-                                );
-
-                                let encoded_message = radio_payload.encode_eip712().unwrap();
-                                let address = signature.recover(encoded_message).unwrap();
-                                let address = format!("{:#x}", address);
-
-                                let registry_subgraph = String::from(
-                            "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
-                        );
-
-                                let indexer_address =
-                                    query_registry_indexer(registry_subgraph, address.to_string())
-                                        .await;
-
-                                println!(
-                                    "{} {}\n Operator for indexer {}",
-                                    "Recovered address from incoming message:".cyan(),
-                                    address,
-                                    indexer_address,
-                                );
-                            }
-                            Err(e) => {
-                                println!("Waku message not interpretated as a Graphcast message\nError occurred: {:?}", e);
-                            }
-                        }
-                    }
-                    waku::Event::Unrecognized(data) => {
-                        println!("Unrecognized event!\n {:?}", data);
-                    }
-                    _ => {
-                        println!("signal! {:?}", serde_json::to_string(&signal));
-                    }
-                }
-            }
-
-            let handle_async = |signal: Signal| {
-                let rt = Runtime::new().unwrap();
-
-                rt.block_on(async move {
-                    handle_signal(signal).await;
-                });
-            };
-
             // HANDLE RECEIVED MESSAGE
             waku_set_event_callback(handle_async);
 
             // This endpoint should be kept private as much as possible
-            let provider = Provider::<Http>::try_from(eth_node).unwrap();
             let mut curr_block = 0;
             let mut compare_block;
 
