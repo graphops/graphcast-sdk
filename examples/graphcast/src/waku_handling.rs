@@ -1,17 +1,15 @@
-use std::{net::IpAddr, str::FromStr};
-
-use chrono::Utc;
+use crate::message_typing::{self, GraphcastMessage};
 use colored::*;
-use ethers::{types::{Block, Signature, transaction::eip712::Eip712}, providers::{Provider, Http, Middleware}};
-use prost::Message;
-use waku::{
-    waku_new, Multiaddr, ProtocolId, Running, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
-    WakuPubSubTopic, Signal,
+use ethers::{
+    providers::{Http, Middleware, Provider},
+    types::Block,
 };
-
-use crate::{message_typing, client_registry::query_registry_indexer};
-
-const MSG_REPLAY_LIMIT: i64 = 3_600_000;
+use prost::Message;
+use std::{collections::HashMap, net::IpAddr, str::FromStr};
+use waku::{
+    waku_new, Multiaddr, ProtocolId, Running, Signal, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
+    WakuPubSubTopic,
+};
 
 fn gen_handle() -> WakuNodeHandle<Running> {
     let constants = WakuNodeConfig {
@@ -96,12 +94,18 @@ pub fn setup_boot_node_handle(
 }
 
 //TODO: add Dispute query to the network subgraph endpoint
-pub async fn handle_signal(provider:Provider<Http>, signal: Signal) {
+//Curryify if possible - factor out param on provider,
+pub async fn handle_signal(
+    provider: Provider<Http>,
+    local_nonces: &mut HashMap<String, &mut HashMap<String, &mut i64>>,
+    signal: Signal,
+) {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
-            match <message_typing::GraphcastMessage as Message>::decode(event.waku_message().payload())
-            {
+            match <message_typing::GraphcastMessage as Message>::decode(
+                event.waku_message().payload(),
+            ) {
                 Ok(graphcast_message) => {
                     println!(
                         "Message id: {}\n{} {:?}",
@@ -109,63 +113,20 @@ pub async fn handle_signal(provider:Provider<Http>, signal: Signal) {
                         "Graphcast message:".cyan(),
                         graphcast_message
                     );
-
-                    let signature =
-                        Signature::from_str(&graphcast_message.signature).unwrap();
-                    let block: Block<_> = provider.get_block(graphcast_message.block_number).await.unwrap().unwrap();
-                        
-                    let radio_payload = message_typing::RadioPayloadMessage::new(
-                        graphcast_message.subgraph_hash.clone(),
-                        graphcast_message.npoi.clone(),
-                    );
-
-                    let encoded_message = radio_payload.encode_eip712().unwrap();
-                    let address = signature.recover(encoded_message).unwrap();
-                    let address = format!("{:#x}", address);
-
-                    let registry_subgraph = String::from(
-                "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
-            );
-
-                    let indexer_address =
-                        query_registry_indexer(registry_subgraph, address.to_string())
-                            .await;
-                    //TODO: handle Error if sender didn't have indexer address registered with 
-
-                    println!(
-                        "{} {}\n Operator for indexer {}",
-                        "Recovered address from incoming message:".cyan(),
-                        address,
-                        indexer_address,
-                    );
-
-                    // MESSAGE VALIDITY
-                    // Assert for timestamp: prevent past message replay
-                    let valid_time = |graphcast_message: message_typing::GraphcastMessage| -> bool {
-                        //Can store for measuring overall gossip message latency
-                        let message_age =
-                            Utc::now().timestamp() - graphcast_message.nonce;
-                        println!("message age: {}\nmsg limit: {}", message_age, MSG_REPLAY_LIMIT);
-                        (0..MSG_REPLAY_LIMIT).contains(&message_age)
-                    }; 
-                    if !valid_time(graphcast_message.clone()){
-                        println!("{}", "Message timestamp outside acceptable range, drop message".yellow());
-                        return 
+                    let block: Block<_> = provider
+                        .get_block(graphcast_message.block_number)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let block_hash = format!("{:#x}", block.hash.unwrap());
+                    //TODO: Add message handler after checking message validity
+                    match check_message_validity(graphcast_message, local_nonces, block_hash).await
+                    {
+                        Ok(msg) => println!("Decoded valid message: {:#?}", msg),
+                        Err(err) => {
+                            println!("{}{:#?}", "Could not handle the message: ".yellow(), err)
+                        }
                     }
-                    
-                    // Assert for block hash (maybe just pass the hash in?)
-                    let valid_hash = |graphcast_message: message_typing::GraphcastMessage| -> bool {
-                        let block_hash = format!("{:#x}", block.hash.unwrap());
-                        println!("generated block hash: {}\ngraphcastMessageHash: {}", block_hash, graphcast_message.block_hash);
-                        graphcast_message.block_hash == block_hash
-                    };
-                    if !valid_hash(graphcast_message.clone()){
-                        println!("{}", "Message hash differ from trusted provider response, drop message".yellow());
-                        return
-                    };
-
-                    println!("{}", "Valid message!".bold().green());
-                    // Store message
                 }
                 Err(e) => {
                     println!("Waku message not interpretated as a Graphcast message\nError occurred: {:?}", e);
@@ -179,4 +140,21 @@ pub async fn handle_signal(provider:Provider<Http>, signal: Signal) {
             println!("signal! {:?}", serde_json::to_string(&signal));
         }
     }
+}
+
+pub async fn check_message_validity(
+    graphcast_message: GraphcastMessage,
+    _local_nonces: &mut HashMap<String, &mut HashMap<String, &mut i64>>,
+    block_hash: String,
+) -> Result<GraphcastMessage, anyhow::Error> {
+    graphcast_message
+        .valid_sender()
+        .await?
+        .valid_time()?
+        .valid_hash(block_hash)?;
+
+    println!("{}", "Valid message!".bold().green());
+    // Store message (group POI and sum stake, best to keep track of sender vec) to attest later
+
+    Ok(graphcast_message.clone())
 }
