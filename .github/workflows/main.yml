@@ -1,10 +1,9 @@
 # copy of https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches:
-      - "*"
+    branches: [main]
 
 name: CI
 

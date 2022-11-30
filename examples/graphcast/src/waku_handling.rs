@@ -62,9 +62,7 @@ fn connect_and_subscribe(
     node_handle
 }
 
-pub fn setup_node_handle(
-    graphcast_topics: &Vec<Option<WakuPubSubTopic>>,
-) -> WakuNodeHandle<Running> {
+pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNodeHandle<Running> {
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             let nodes = Vec::from([
