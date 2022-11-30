@@ -5,40 +5,40 @@ use serde_derive::{Deserialize, Serialize};
 use crate::query_network::indexer::Variables;
 use crate::query_network::Indexer as indexer_query;
 
-#[derive(Debug, Deserialize, Serialize)]
-struct SubgraphDeployment {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SubgraphDeployment {
     #[serde(rename = "ipfsHash")]
     pub ipfs_hash: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Allocation {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Allocation {
     #[serde(rename = "subgraphDeployment")]
     pub subgraph_deployment: SubgraphDeployment,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct IndexerJSON {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IndexerJSON {
     #[serde(rename = "stakedTokens")]
     staked_tokens: String,
     allocations: Vec<Allocation>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct GraphNetworkJSON {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct GraphNetworkJSON {
     #[serde(rename = "minimumIndexerStake")]
     pub minimum_indexer_stake: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct IndexerData {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IndexerData {
     pub indexer: IndexerJSON,
     #[serde(rename = "graphNetwork")]
     pub graph_network: GraphNetworkJSON,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct IndexerResponse {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IndexerResponse {
     pub data: IndexerData,
 }
 
@@ -52,8 +52,11 @@ pub struct Indexer;
 
 pub async fn perform_indexer_query(
     graph_network_endpoint: String,
-    variables: Variables,
-) -> Result<String, anyhow::Error> {
+    indexer_address: String,
+) -> Result<IndexerResponse, anyhow::Error> {
+    let variables: Variables = Variables {
+        address: indexer_address,
+    };
     let request_body = indexer_query::build_query(variables);
     let client = reqwest::Client::new();
     let res = client
@@ -63,21 +66,15 @@ pub async fn perform_indexer_query(
         .await?
         .text()
         .await?;
-    Ok(res)
+    let formatted_res: IndexerResponse = serde_json::from_str(&res)?;
+    Ok(formatted_res)
 }
 
 // Query indexer staking infomation, namely staked tokens and active allocations
 pub async fn query_indexer_stake(
-    graph_network_endpoint: String,
-    indexer_address: String,
+    indexer_response: &IndexerResponse,
 ) -> Result<BigUint, anyhow::Error> {
-    let variables: Variables = Variables {
-        address: indexer_address,
-    };
-    let queried_result = perform_indexer_query(graph_network_endpoint, variables).await?;
-
-    let perform_indexer_query: IndexerResponse = serde_json::from_str(&queried_result)?;
-    let tokens = perform_indexer_query
+    let tokens = indexer_response
         .data
         .indexer
         .staked_tokens
@@ -87,36 +84,23 @@ pub async fn query_indexer_stake(
 
 // Query indexer staking infomation, namely staked tokens and active allocations
 pub async fn query_indexer_allocations(
-    graph_network_endpoint: String,
-    indexer_address: String,
+    indexer_response: IndexerResponse,
 ) -> Result<Vec<String>, anyhow::Error> {
-    let variables: Variables = Variables {
-        address: indexer_address,
-    };
-    let queried_result = perform_indexer_query(graph_network_endpoint, variables).await?;
-
-    let perform_indexer_query: IndexerResponse = serde_json::from_str(&queried_result)?;
-    let allocations = perform_indexer_query
+    let allocations = indexer_response
         .data
         .indexer
         .allocations
         .into_iter()
         .map(|a| a.subgraph_deployment.ipfs_hash)
-        .collect();
+        .collect::<Vec<String>>();
     Ok(allocations)
 }
 
 // Query indexer staking infomation, namely staked tokens and active allocations
 pub async fn query_stake_minimum_requirement(
-    graph_network_endpoint: String,
+    indexer_response: &IndexerResponse,
 ) -> Result<BigUint, anyhow::Error> {
-    let variables: Variables = Variables {
-        address: "".to_string(),
-    };
-    let queried_result = perform_indexer_query(graph_network_endpoint, variables).await?;
-
-    let perform_indexer_query: IndexerResponse = serde_json::from_str(&queried_result)?;
-    let min_req: BigUint = perform_indexer_query
+    let min_req: BigUint = indexer_response
         .data
         .graph_network
         .minimum_indexer_stake

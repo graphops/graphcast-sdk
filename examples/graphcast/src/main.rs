@@ -16,15 +16,14 @@ use waku::{
     waku_set_event_callback, Encoding, Signal, WakuContentTopic, WakuMessage, WakuPubSubTopic,
 };
 
-use crate::client_network::query_indexer_allocations;
-use crate::waku_handling::{handle_signal, setup_boot_node_handle};
+use crate::client_network::{query_indexer_allocations, query_indexer_stake};
+use crate::constants::NETWORK_SUBGRAPH;
+use crate::waku_handling::handle_signal;
 use client_graph_node::query_graph_node_poi;
-use client_network::query_indexer_stake;
+use client_network::perform_indexer_query;
 use client_registry::query_registry_indexer;
 use data_request::*;
 use message_typing::*;
-use std::fs::File;
-use std::io::prelude::*;
 use waku_handling::setup_node_handle;
 
 mod client_graph_node;
@@ -75,49 +74,44 @@ async fn main() {
             "".to_string()
         }
     };
-    let indexer_stake = match query_indexer_stake(
-        constants::NETWORK_SUBGRAPH.to_string(),
-        indexer_address.clone(),
-    )
-    .await
-    {
-        Ok(stake) => {
-            println!("Current stake: {:#?}", stake);
-            stake
-        }
-        Err(err) => {
-            println!("Error querying current stake: {:#?}", err);
-            Zero::zero()
-        }
-    };
-    println!(
-        "{} {}\n{} {:#?}",
-        "Indexer address: ".cyan(),
-        indexer_address,
-        "Indexer stake: ".cyan(),
-        indexer_stake
-    );
+    let test_topic = String::from("QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U");
+    let indexer_allocations =
+        match perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await {
+            Ok(response) => {
+                match query_indexer_stake(&response).await {
+                    Ok(stake) => {
+                        println!("Current indexer stake: {:#?}", stake);
+                        stake
+                    }
+                    Err(err) => {
+                        println!("Error querying current stake: {:#?}", err);
+                        Zero::zero()
+                    }
+                };
 
-    // Temp: test topic for local poi
-    let indexer_allocations = match query_indexer_allocations(
-        constants::NETWORK_SUBGRAPH.to_string(),
-        indexer_address.clone(),
-    )
-    .await
-    {
-        Ok(allocations) => {
-            println!("Current allocations: {:#?}", allocations);
-            allocations
-        }
-        Err(err) => {
-            let test_topic = String::from("QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U");
-            println!(
-                "Error fetching current allocations : {},\nUse test topic : {}",
-                err, test_topic
-            );
-            [String::from(&test_topic)].to_vec()
-        }
-    };
+                // Temp: test topic for local poi
+                match query_indexer_allocations(response.clone()).await {
+                    Ok(allocations) => {
+                        println!("Current allocations: {:#?}", allocations);
+                        // allocations
+                        [String::from(&test_topic)].to_vec()
+                    }
+                    Err(err) => {
+                        let test_topic =
+                            String::from("QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U");
+                        println!(
+                            "Error fetching current allocations : {},\nUse test topic : {}",
+                            err, test_topic
+                        );
+                        [String::from(&test_topic)].to_vec()
+                    }
+                }
+            }
+            Err(err) => {
+                println!("Failed to initialize with allocations: {}", err);
+                [String::from(&test_topic)].to_vec()
+            }
+        };
 
     //Note: using None will let message flow through default-waku peer nodes and filtered by graphcast poi-crosschecker as content topic
     let topics: Vec<Option<WakuPubSubTopic>> =
@@ -133,24 +127,7 @@ async fn main() {
 
     // Boot node spawning isn't ideal
     //TODO: Boot id shouldn't need to be generated locally for a regular radio, factor to 3LA or the like
-    let node_handle = match std::env::args().nth(1) {
-        Some(x) if x == *"boot" => {
-            let boot_node_handle = setup_boot_node_handle(topics.clone());
-            let boot_node_id = boot_node_handle.peer_id().unwrap();
-            println!("Boot node id {}", boot_node_id);
-
-            let mut file = File::create("./boot_node_id.conf").unwrap();
-            file.write_all(boot_node_id.as_bytes()).unwrap();
-            boot_node_handle
-        }
-        _ => {
-            let mut file = File::open("./boot_node_id.conf").unwrap();
-            let mut boot_node_id = String::new();
-            file.read_to_string(&mut boot_node_id).unwrap();
-
-            setup_node_handle(topics.clone(), boot_node_id)
-        }
-    };
+    let node_handle = setup_node_handle(&topics);
 
     // HANDLE RECEIVED MESSAGE
     waku_set_event_callback(handle_async);
@@ -227,10 +204,9 @@ async fn main() {
                             2,
                             Utc::now().timestamp() as usize,
                         );
-                        let sent =
-                            node_handle.relay_publish_message(&waku_message, topic.clone(), None);
 
-                        match sent {
+                        match node_handle.relay_publish_message(&waku_message, topic.clone(), None)
+                        {
                             Ok(message_id) => {
                                 println!("{} {}", "Message sent! Id:".cyan(), message_id);
                             }

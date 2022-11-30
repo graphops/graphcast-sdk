@@ -10,9 +10,10 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client_network::{query_indexer_stake, query_stake_minimum_requirement},
+    client_network::{perform_indexer_query, query_indexer_stake, query_stake_minimum_requirement},
     client_registry::query_registry_indexer,
-    constants, message_typing,
+    constants::{self, NETWORK_SUBGRAPH},
+    message_typing,
 };
 use anyhow::anyhow;
 
@@ -92,25 +93,19 @@ impl GraphcastMessage {
     pub async fn valid_sender(&self) -> Result<&GraphcastMessage, anyhow::Error> {
         let radio_payload =
             message_typing::RadioPayloadMessage::new(self.subgraph_hash.clone(), self.npoi.clone());
-        let encoded_message = radio_payload.encode_eip712()?;
         let address = format!(
             "{:#x}",
-            Signature::from_str(&self.signature)?.recover(encoded_message)?
+            Signature::from_str(&self.signature)?.recover(radio_payload.encode_eip712()?)?
         );
-        println!("Recovered address from incoming message: {}", address);
-
         let indexer_address = query_registry_indexer(
             constants::REGISTRY_SUBGRAPH.to_string(),
             address.to_string(),
         )
         .await?;
-        let min_req: BigUint =
-            query_stake_minimum_requirement(constants::NETWORK_SUBGRAPH.to_string()).await?;
-        let sender_stake: BigUint = query_indexer_stake(
-            constants::NETWORK_SUBGRAPH.to_string(),
-            indexer_address.clone(),
-        )
-        .await?;
+        let indexer_query =
+            perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await?;
+        let min_req: BigUint = query_stake_minimum_requirement(&indexer_query).await?;
+        let sender_stake: BigUint = query_indexer_stake(&indexer_query).await?;
         if sender_stake >= min_req {
             println!(
                 "Valid Indexer:  {} : stake {}",
