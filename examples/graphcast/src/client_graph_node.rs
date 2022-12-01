@@ -1,5 +1,6 @@
 use graphql_client::GraphQLQuery;
 use serde_derive::{Deserialize, Serialize};
+use std::error::Error;
 
 use crate::query_proof_of_indexing::proof_of_indexing::Variables;
 use crate::query_proof_of_indexing::ProofOfIndexing as proof_of_indexing_query;
@@ -27,18 +28,16 @@ pub struct ProofOfIndexing;
 pub async fn perform_proof_of_indexing(
     graph_node_endpoint: String,
     variables: Variables,
-) -> std::string::String {
+) -> Result<String, reqwest::Error> {
     let request_body = proof_of_indexing_query::build_query(variables);
     let client = reqwest::Client::new();
     client
         .post(graph_node_endpoint)
         .json(&request_body)
         .send()
-        .await
-        .unwrap()
+        .await?
         .text()
         .await
-        .unwrap()
 }
 
 pub async fn query_graph_node_poi(
@@ -46,15 +45,15 @@ pub async fn query_graph_node_poi(
     ipfs_hash: String,
     block_hash: String,
     block_number: i64,
-) -> Result<ProofOfIndexingResponse, serde_json::Error> {
+) -> Result<ProofOfIndexingResponse, Box<dyn Error>> {
     let variables: Variables = Variables {
         subgraph: ipfs_hash.clone(),
         block_hash: block_hash.clone(),
         block_number,
         indexer: None,
     };
-    let queried_result = &perform_proof_of_indexing(graph_node_endpoint, variables).await;
+    let queried_result = &perform_proof_of_indexing(graph_node_endpoint, variables).await?;
     // let queried_result = "{\"data\":{\"proofOfIndexing\":\"0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae\"}}";
     println!("queried result {}", queried_result);
-    serde_json::from_str(queried_result)
+    Ok(serde_json::from_str(queried_result)?)
 }
