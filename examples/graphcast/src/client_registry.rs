@@ -37,35 +37,34 @@ pub struct GraphAccount;
 pub async fn perform_operator_indexer_query(
     registry_subgraph_endpoint: String,
     variables: Variables,
-) -> std::string::String {
+) -> Result<String, anyhow::Error> {
     let request_body = registry_query::build_query(variables);
     let client = reqwest::Client::new();
-    client
+    let res = client
         .post(registry_subgraph_endpoint)
         .json(&request_body)
         .send()
-        .await
-        .unwrap()
+        .await?
         .text()
-        .await
-        .unwrap()
+        .await?;
+    Ok(res)
 }
 
 pub async fn query_registry_indexer(
     registry_subgraph_endpoint: String,
     operator_address: String,
-) -> String {
+) -> Result<String, anyhow::Error> {
     let variables: Variables = Variables {
         address: operator_address,
     };
     let queried_result =
-        &perform_operator_indexer_query(registry_subgraph_endpoint, variables).await;
+        perform_operator_indexer_query(registry_subgraph_endpoint, variables).await?;
 
     let perform_operator_indexer_query: GraphAccountResponse =
-        serde_json::from_str(queried_result).unwrap();
-    perform_operator_indexer_query
+        serde_json::from_str(&queried_result)?;
+    Ok(perform_operator_indexer_query
         .data
         .graph_account
         .gossip_operator_of
-        .id
+        .id)
 }

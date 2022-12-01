@@ -1448,7 +1448,10 @@ dependencies = [
  "ethers-core",
  "ethers-derive-eip712",
  "graphql_client",
+ "num-bigint",
+ "num-traits",
  "once_cell",
+ "partial_application",
  "prost",
  "reqwest",
  "serde",
@@ -2029,6 +2032,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
+dependencies = [
+ "autocfg",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-integer"
 version = "0.1.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2233,6 +2247,12 @@ dependencies = [
  "smallvec",
  "windows-sys 0.42.0",
 ]
+
+[[package]]
+name = "partial_application"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f926567968c32d22274b8eb721210363e54dcd8d2c960dd8533aa3be78143081"
 
 [[package]]
 name = "password-hash"
