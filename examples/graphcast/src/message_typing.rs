@@ -200,3 +200,56 @@ impl RadioPayloadMessage {
 // struct NonceMap {
 //     topic_sender_nonce_map: HashMap<String, HashMap<String, i32>>,
 //   }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_dummy_message() {
+        let hash: String = "Qmtest".to_string();
+        let npoi: String = "0x0000".to_string();
+        let nonce: i64 = 123321;
+        let block_number: i64 = 0;
+        let block_hash: String = "0xblahh".to_string();
+        let sig: String = "signhere".to_string();
+        let msg = GraphcastMessage::new(
+            hash,
+            npoi,
+            nonce,
+            block_number,
+            block_hash.clone(),
+            sig.clone(),
+        );
+
+        assert_eq!(msg.block_number, 0);
+        assert!(msg.valid_sender().await.is_err());
+        assert!(msg.valid_time().is_err());
+        assert!(msg.valid_hash("weeelp".to_string()).is_err());
+        assert_eq!(
+            msg.valid_hash("0xblahh".to_string()).unwrap().signature,
+            sig
+        );
+    }
+
+    #[tokio::test]
+    async fn test_signed_message() {
+        let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
+        let npoi: String =
+            "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
+        let nonce: i64 = 123321;
+        let block_number: i64 = 0;
+        let block_hash: String = "0xblahh".to_string();
+        let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
+        let msg = GraphcastMessage::new(
+            hash,
+            npoi.clone(),
+            nonce,
+            block_number,
+            block_hash.clone(),
+            sig,
+        );
+
+        assert_eq!(msg.valid_sender().await.unwrap().npoi, npoi);
+    }
+}

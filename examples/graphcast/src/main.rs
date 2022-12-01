@@ -115,7 +115,7 @@ async fn main() {
 
     //Note: using None will let message flow through default-waku peer nodes and filtered by graphcast poi-crosschecker as content topic
     let topics: Vec<Option<WakuPubSubTopic>> =
-        generate_pubsub_topics(app_name.clone(), indexer_allocations).await;
+        generate_pubsub_topics(app_name.clone(), &indexer_allocations);
 
     let handle_async = move |signal: Signal| {
         let rt = Runtime::new().unwrap();
