@@ -1448,6 +1448,7 @@ dependencies = [
  "ethers-core",
  "ethers-derive-eip712",
  "graphql_client",
+ "lazy_static",
  "num-bigint",
  "num-traits",
  "once_cell",

@@ -1,4 +1,7 @@
-use crate::message_typing::{self, GraphcastMessage};
+use crate::{
+    message_typing::{self, GraphcastMessage},
+    NONCES,
+};
 use colored::*;
 use ethers::{
     providers::{Http, Middleware, Provider},
@@ -6,7 +9,7 @@ use ethers::{
 };
 use prost::Message;
 use std::io::prelude::*;
-use std::{collections::HashMap, fs::File, net::IpAddr, str::FromStr};
+use std::{fs::File, net::IpAddr, str::FromStr};
 use waku::{
     waku_new, Multiaddr, ProtocolId, Running, Signal, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
     WakuPubSubTopic,
@@ -104,11 +107,7 @@ pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNo
 
 //TODO: add Dispute query to the network subgraph endpoint
 //Curryify if possible - factor out param on provider,
-pub async fn handle_signal(
-    provider: Provider<Http>,
-    local_nonces: &mut HashMap<String, &mut HashMap<String, &mut i64>>,
-    signal: Signal,
-) {
+pub async fn handle_signal(provider: Provider<Http>, signal: Signal, nonces: &NONCES) {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -129,7 +128,13 @@ pub async fn handle_signal(
                         .unwrap();
                     let block_hash = format!("{:#x}", block.hash.unwrap());
                     //TODO: Add message handler after checking message validity
-                    match check_message_validity(graphcast_message, local_nonces, block_hash).await
+                    match check_message_validity(
+                        graphcast_message,
+                        block_hash,
+                        nonces,
+                        event.pubsub_topic().to_string(),
+                    )
+                    .await
                     {
                         Ok(msg) => println!("Decoded valid message: {:#?}", msg),
                         Err(err) => {
@@ -153,14 +158,16 @@ pub async fn handle_signal(
 
 pub async fn check_message_validity(
     graphcast_message: GraphcastMessage,
-    _local_nonces: &mut HashMap<String, &mut HashMap<String, &mut i64>>,
     block_hash: String,
+    nonces: &NONCES,
+    topic: String,
 ) -> Result<GraphcastMessage, anyhow::Error> {
     graphcast_message
         .valid_sender()
         .await?
         .valid_time()?
-        .valid_hash(block_hash)?;
+        .valid_hash(block_hash)?
+        .valid_nonce(nonces, topic)?;
 
     println!("{}", "Valid message!".bold().green());
     // Store message (group POI and sum stake, best to keep track of sender vec) to attest later

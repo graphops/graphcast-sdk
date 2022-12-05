@@ -10,6 +10,7 @@ use num_traits::identities::Zero;
 use prost::Message;
 use std::collections::HashMap;
 use std::env;
+use std::sync::Mutex;
 use std::{thread::sleep, time::Duration};
 use tokio::runtime::Runtime;
 use waku::{
@@ -23,6 +24,7 @@ use client_graph_node::query_graph_node_poi;
 use client_network::perform_indexer_query;
 use client_registry::query_registry_indexer;
 use data_request::*;
+use lazy_static::lazy_static;
 use message_typing::*;
 use waku_handling::setup_node_handle;
 
@@ -40,17 +42,29 @@ mod waku_handling;
 #[macro_use]
 extern crate partial_application;
 
+// Leaving nonce as i64 to match the nonce type on GraphcastMessage
+type NoncesMap = HashMap<String, HashMap<String, i64>>;
+
+lazy_static! {
+    pub static ref NONCES: Mutex<NoncesMap> = {
+        let m = HashMap::new();
+        Mutex::new(m)
+    };
+}
+
 #[tokio::main]
 async fn main() {
     // Common inputs - refactor to a set-up function?
     let graph_node_endpoint = String::from("http://localhost:8030/graphql");
     let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
     let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
+
+    // TODO: Remove at some point
+    let test_topic = env::var("TEST_TOPIC").expect("No TEST_TOPIC provided.");
+
     // Send message every x blocks for which wait y blocks before attestations
     let examination_frequency = 2;
     let wait_block_duration = 1;
-
-    let mut local_nonces: HashMap<String, &mut HashMap<String, &mut i64>> = HashMap::new();
 
     let wallet = private_key.parse::<LocalWallet>().unwrap();
     let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
@@ -74,7 +88,6 @@ async fn main() {
             "".to_string()
         }
     };
-    let test_topic = String::from("QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U");
     let indexer_allocations =
         match perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await {
             Ok(response) => {
@@ -97,8 +110,6 @@ async fn main() {
                         [String::from(&test_topic)].to_vec()
                     }
                     Err(err) => {
-                        let test_topic =
-                            String::from("QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U");
                         println!(
                             "Error fetching current allocations : {},\nUse test topic : {}",
                             err, test_topic
@@ -121,7 +132,7 @@ async fn main() {
         let rt = Runtime::new().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
         rt.block_on(async {
-            handle_signal(provider, &mut local_nonces, signal).await;
+            handle_signal(provider, signal, &NONCES).await;
         });
     };
 
