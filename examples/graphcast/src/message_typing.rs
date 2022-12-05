@@ -178,10 +178,10 @@ impl GraphcastMessage {
                         );
 
                         if nonce > &self.nonce {
-                            return Err(anyhow!(
+                            Err(anyhow!(
                             // TODO: Better error message
                             "Invalid nonce! Received nonce is smaller than currently saved one, skipping message..."
-                        ));
+                        ))
                         } else {
                             // Happy path
                             // TODO: Extract to function
@@ -200,10 +200,10 @@ impl GraphcastMessage {
                         updated_nonces.insert(topic, self.nonce);
                         nonces.insert(address, updated_nonces);
 
-                        return Err(anyhow!(
+                        Err(anyhow!(
                             // TODO: Better error message
                             "No saved nonce for this address on this topic, saving this one and skipping message..."
-                        ));
+                        ))
                     }
                 }
             }
@@ -213,10 +213,10 @@ impl GraphcastMessage {
                 nonces_to_add.insert(topic, self.nonce);
                 nonces.insert(address, nonces_to_add);
 
-                return Err(anyhow!(
+                Err(anyhow!(
                     // TODO: Better error message
                     "First time meeting sender, saving and skipping message..."
-                ));
+                ))
             }
         }
     }
