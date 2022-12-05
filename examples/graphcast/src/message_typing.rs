@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use chrono::Utc;
 use ethers::types::RecoveryMessage;
@@ -13,7 +13,7 @@ use crate::{
     client_network::{perform_indexer_query, query_indexer_stake, query_stake_minimum_requirement},
     client_registry::query_registry_indexer,
     constants::{self, NETWORK_SUBGRAPH},
-    message_typing,
+    message_typing, NONCES,
 };
 use anyhow::anyhow;
 
@@ -148,29 +148,77 @@ impl GraphcastMessage {
         }
     }
 
-    //TODO: FIND A GOOD SOLUTION FOR KEEPING LOCAL NONCES
-    //The function signature is required to only take Signal  (FnMut(Signal) + Send + Sync + 'static>(f: F))
-    //How to include a nonce map
-    // match local_nonces.get(&radio_payload.subgraph_hash.clone()) {
-    //     Some(&channel_map) => {
-    //         for (sender, nonce) in channel_map.iter_mut() {
-    //             println!("Calling {}: {}", sender, nonce);
-    //         }
-    //         match channel_map.get(&address.to_string()) {
-    //             Some(&nonce) if *nonce <= graphcast_message.nonce.clone() => {
-    //                 println!("---------------------\nGood nonce good stuff");
-    //                 // Update nonce in the map *my_map.get_mut("a").unwrap() += 10;
-    //                 // *nonce = graphcast_message.nonce.clone()
-    //                 // **channel_map.get_mut(&address.to_string()).unwrap() += graphcast_message.nonce.clone();
-    //             },
-    //             Some(_) => return Err(anyhow!("---------------------: Message nonce less than local cached nonce, drop message")),
-    //             _ => {
-    //                 return Err(anyhow!("---------------------: Error parsing local nonce check, drop message"))
-    //             }
-    //         };
-    //     },
-    //     None => return Err(anyhow!("Initialize channel map, drop first message")),
-    // };
+    fn prepare_nonces(
+        nonces_per_subgraph: &HashMap<String, i64>,
+        address: String,
+        nonce: i64,
+    ) -> HashMap<std::string::String, i64> {
+        let mut updated_nonces = HashMap::new();
+        updated_nonces.clone_from(nonces_per_subgraph);
+        updated_nonces.insert(address, nonce);
+        updated_nonces
+    }
+
+    pub fn valid_nonce(&self, nonces: &NONCES) -> Result<&GraphcastMessage, anyhow::Error> {
+        let radio_payload =
+            message_typing::RadioPayloadMessage::new(self.subgraph_hash.clone(), self.npoi.clone());
+        let address = format!(
+            "{:#x}",
+            Signature::from_str(&self.signature)
+                .unwrap()
+                .recover(radio_payload.encode_eip712().unwrap())
+                .unwrap()
+        );
+
+        let mut nonces = nonces.lock().unwrap();
+        let nonces_per_subgraph = nonces.get(self.subgraph_hash.clone().as_str());
+
+        match nonces_per_subgraph {
+            Some(nonces_per_subgraph) => {
+                let nonce = nonces_per_subgraph.get(&address);
+                match nonce {
+                    Some(nonce) => {
+                        println!(
+                            "Latest saved nonce for subgraph {} and address {}: {}",
+                            self.subgraph_hash, address, nonce
+                        );
+
+                        if nonce > &self.nonce {
+                            Err(anyhow!(
+                            "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
+                            self.subgraph_hash, address, self.nonce, nonce
+                        ))
+                        } else {
+                            let updated_nonces = Self::prepare_nonces(
+                                nonces_per_subgraph,
+                                address.clone(),
+                                self.nonce,
+                            );
+                            nonces.insert(self.subgraph_hash.clone(), updated_nonces);
+                            Ok(self)
+                        }
+                    }
+                    None => {
+                        let updated_nonces =
+                            Self::prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
+                        nonces.insert(self.subgraph_hash.clone(), updated_nonces);
+                        Err(anyhow!(
+                            "No saved nonce for address {} on topic {}, saving this one and skipping message...",
+                            address, self.subgraph_hash
+                        ))
+                    }
+                }
+            }
+            None => {
+                let updated_nonces = Self::prepare_nonces(&HashMap::new(), address, self.nonce);
+                nonces.insert(self.subgraph_hash.clone(), updated_nonces);
+                Err(anyhow!(
+                    "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
+                    self.subgraph_hash
+                ))
+            }
+        }
+    }
 }
 
 #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
