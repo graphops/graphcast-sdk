@@ -223,7 +223,7 @@ impl GraphcastMessage {
                     nonces,
                     &HashMap::new(),
                     self.subgraph_hash.clone(),
-                    address.clone(),
+                    address,
                     self.nonce,
                 );
                 Err(anyhow!(

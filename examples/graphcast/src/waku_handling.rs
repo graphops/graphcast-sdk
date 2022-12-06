@@ -128,13 +128,7 @@ pub async fn handle_signal(provider: Provider<Http>, signal: Signal, nonces: &NO
                         .unwrap();
                     let block_hash = format!("{:#x}", block.hash.unwrap());
                     //TODO: Add message handler after checking message validity
-                    match check_message_validity(
-                        graphcast_message,
-                        block_hash,
-                        nonces,
-                    )
-                    .await
-                    {
+                    match check_message_validity(graphcast_message, block_hash, nonces).await {
                         Ok(msg) => println!("Decoded valid message: {:#?}", msg),
                         Err(err) => {
                             println!("{}{:#?}", "Could not handle the message: ".yellow(), err)
