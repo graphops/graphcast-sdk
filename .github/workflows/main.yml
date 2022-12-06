@@ -2,14 +2,15 @@
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  pull_request_review:
+    types: [submitted]
 
 name: CI
 
 jobs:
   check:
     name: Check
+    if: github.event.review.state == 'approved'
     strategy:
       matrix:
         include:
@@ -42,6 +43,7 @@ jobs:
 
   test:
     name: Test Suite
+    if: github.event.review.state == 'approved'
     strategy:
       matrix:
         include:
@@ -79,6 +81,7 @@ jobs:
 
   lints:
     name: Rust lints
+    if: github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
