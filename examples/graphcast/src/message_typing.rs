@@ -148,19 +148,15 @@ impl GraphcastMessage {
         }
     }
 
-    fn save_nonce(
-        nonces: &NONCES,
+    fn prepare_nonces(
         nonces_per_subgraph: &HashMap<String, i64>,
-        subgraph_hash: String,
         address: String,
         nonce: i64,
-    ) {
-        let mut nonces = nonces.lock().unwrap();
-
+    ) -> HashMap<std::string::String, i64> {
         let mut updated_nonces = HashMap::new();
         updated_nonces.clone_from(nonces_per_subgraph);
-        updated_nonces.insert(subgraph_hash, nonce);
-        nonces.insert(address, updated_nonces);
+        updated_nonces.insert(address, nonce);
+        updated_nonces
     }
 
     pub fn valid_nonce(&self, nonces: &NONCES) -> Result<&GraphcastMessage, anyhow::Error> {
@@ -174,8 +170,8 @@ impl GraphcastMessage {
                 .unwrap()
         );
 
-        let nonces_inner = nonces.lock().unwrap();
-        let nonces_per_subgraph = nonces_inner.get(self.subgraph_hash.clone().as_str());
+        let mut nonces = nonces.lock().unwrap();
+        let nonces_per_subgraph = nonces.get(self.subgraph_hash.clone().as_str());
 
         match nonces_per_subgraph {
             Some(nonces_per_subgraph) => {
@@ -193,24 +189,19 @@ impl GraphcastMessage {
                             self.subgraph_hash, address, self.nonce, nonce
                         ))
                         } else {
-                            Self::save_nonce(
-                                nonces,
+                            let updated_nonces = Self::prepare_nonces(
                                 nonces_per_subgraph,
-                                self.subgraph_hash.clone(),
-                                address,
+                                address.clone(),
                                 self.nonce,
                             );
+                            nonces.insert(self.subgraph_hash.clone(), updated_nonces);
                             Ok(self)
                         }
                     }
                     None => {
-                        Self::save_nonce(
-                            nonces,
-                            nonces_per_subgraph,
-                            self.subgraph_hash.clone(),
-                            address.clone(),
-                            self.nonce,
-                        );
+                        let updated_nonces =
+                            Self::prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
+                        nonces.insert(self.subgraph_hash.clone(), updated_nonces);
                         Err(anyhow!(
                             "No saved nonce for adress {} on topic {}, saving this one and skipping message...",
                             address, self.subgraph_hash
@@ -219,13 +210,8 @@ impl GraphcastMessage {
                 }
             }
             None => {
-                Self::save_nonce(
-                    nonces,
-                    &HashMap::new(),
-                    self.subgraph_hash.clone(),
-                    address,
-                    self.nonce,
-                );
+                let updated_nonces = Self::prepare_nonces(&HashMap::new(), address, self.nonce);
+                nonces.insert(self.subgraph_hash.clone(), updated_nonces);
                 Err(anyhow!(
                     "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
                     self.subgraph_hash
