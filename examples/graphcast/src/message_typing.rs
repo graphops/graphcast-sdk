@@ -203,7 +203,7 @@ impl GraphcastMessage {
                             Self::prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
                         nonces.insert(self.subgraph_hash.clone(), updated_nonces);
                         Err(anyhow!(
-                            "No saved nonce for adress {} on topic {}, saving this one and skipping message...",
+                            "No saved nonce for address {} on topic {}, saving this one and skipping message...",
                             address, self.subgraph_hash
                         ))
                     }
