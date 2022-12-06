@@ -42,7 +42,6 @@ mod waku_handling;
 #[macro_use]
 extern crate partial_application;
 
-// Leaving nonce as i64 to match the nonce type on GraphcastMessage
 type NoncesMap = HashMap<String, HashMap<String, i64>>;
 
 lazy_static! {

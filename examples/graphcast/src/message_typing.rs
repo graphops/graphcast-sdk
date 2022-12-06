@@ -148,11 +148,22 @@ impl GraphcastMessage {
         }
     }
 
-    pub fn valid_nonce(
-        &self,
+    fn save_nonce(
         nonces: &NONCES,
-        topic: String,
-    ) -> Result<&GraphcastMessage, anyhow::Error> {
+        nonces_per_subgraph: &HashMap<String, i64>,
+        subgraph_hash: String,
+        address: String,
+        nonce: i64,
+    ) {
+        let mut nonces = nonces.lock().unwrap();
+
+        let mut updated_nonces = HashMap::new();
+        updated_nonces.clone_from(nonces_per_subgraph);
+        updated_nonces.insert(subgraph_hash, nonce);
+        nonces.insert(address, updated_nonces);
+    }
+
+    pub fn valid_nonce(&self, nonces: &NONCES) -> Result<&GraphcastMessage, anyhow::Error> {
         let radio_payload =
             message_typing::RadioPayloadMessage::new(self.subgraph_hash.clone(), self.npoi.clone());
         let address = format!(
@@ -163,59 +174,61 @@ impl GraphcastMessage {
                 .unwrap()
         );
 
-        let mut nonces = nonces.lock().unwrap();
-        let nonces_per_address = nonces.get(address.as_str());
+        let nonces_inner = nonces.lock().unwrap();
+        let nonces_per_subgraph = nonces_inner.get(self.subgraph_hash.clone().as_str());
 
-        match nonces_per_address {
-            Some(nonces_per_address) => {
-                let nonce = nonces_per_address.get(topic.as_str());
+        match nonces_per_subgraph {
+            Some(nonces_per_subgraph) => {
+                let nonce = nonces_per_subgraph.get(&address);
                 match nonce {
-                    // Happy path
                     Some(nonce) => {
                         println!(
-                            "Latest saved nonce for address {} on topic {}: {}",
-                            address, topic, nonce
+                            "Latest saved nonce for subgraph {} and address {}: {}",
+                            self.subgraph_hash, address, nonce
                         );
 
                         if nonce > &self.nonce {
                             Err(anyhow!(
-                            // TODO: Better error message
-                            "Invalid nonce! Received nonce is smaller than currently saved one, skipping message..."
+                            "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
+                            self.subgraph_hash, address, self.nonce, nonce
                         ))
                         } else {
-                            // Happy path
-                            // TODO: Extract to function
-                            let mut updated_nonces = HashMap::new();
-                            updated_nonces.clone_from(nonces_per_address);
-                            updated_nonces.insert(topic, self.nonce);
-                            nonces.insert(address, updated_nonces);
+                            Self::save_nonce(
+                                nonces,
+                                nonces_per_subgraph,
+                                self.subgraph_hash.clone(),
+                                address,
+                                self.nonce,
+                            );
                             Ok(self)
                         }
                     }
                     None => {
-                        // TODO: Save incoming nonce before skipping
-                        // TODO: Extract to function
-                        let mut updated_nonces = HashMap::new();
-                        updated_nonces.clone_from(nonces_per_address);
-                        updated_nonces.insert(topic, self.nonce);
-                        nonces.insert(address, updated_nonces);
-
+                        Self::save_nonce(
+                            nonces,
+                            nonces_per_subgraph,
+                            self.subgraph_hash.clone(),
+                            address.clone(),
+                            self.nonce,
+                        );
                         Err(anyhow!(
-                            // TODO: Better error message
-                            "No saved nonce for this address on this topic, saving this one and skipping message..."
+                            "No saved nonce for adress {} on topic {}, saving this one and skipping message...",
+                            address, self.subgraph_hash
                         ))
                     }
                 }
             }
             None => {
-                // TODO: Save incoming sender & nonce before skipping
-                let mut nonces_to_add = HashMap::new();
-                nonces_to_add.insert(topic, self.nonce);
-                nonces.insert(address, nonces_to_add);
-
+                Self::save_nonce(
+                    nonces,
+                    &HashMap::new(),
+                    self.subgraph_hash.clone(),
+                    address.clone(),
+                    self.nonce,
+                );
                 Err(anyhow!(
-                    // TODO: Better error message
-                    "First time meeting sender, saving and skipping message..."
+                    "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
+                    self.subgraph_hash
                 ))
             }
         }

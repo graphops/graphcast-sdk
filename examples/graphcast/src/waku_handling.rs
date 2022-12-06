@@ -132,7 +132,6 @@ pub async fn handle_signal(provider: Provider<Http>, signal: Signal, nonces: &NO
                         graphcast_message,
                         block_hash,
                         nonces,
-                        event.pubsub_topic().to_string(),
                     )
                     .await
                     {
@@ -160,14 +159,13 @@ pub async fn check_message_validity(
     graphcast_message: GraphcastMessage,
     block_hash: String,
     nonces: &NONCES,
-    topic: String,
 ) -> Result<GraphcastMessage, anyhow::Error> {
     graphcast_message
         .valid_sender()
         .await?
         .valid_time()?
         .valid_hash(block_hash)?
-        .valid_nonce(nonces, topic)?;
+        .valid_nonce(nonces)?;
 
     println!("{}", "Valid message!".bold().green());
     // Store message (group POI and sum stake, best to keep track of sender vec) to attest later
