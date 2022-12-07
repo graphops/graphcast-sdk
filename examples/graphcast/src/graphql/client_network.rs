@@ -2,8 +2,8 @@ use graphql_client::GraphQLQuery;
 use num_bigint::BigUint;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::query_network::indexer::Variables;
-use crate::query_network::Indexer as indexer_query;
+use crate::graphql::query_network::indexer::Variables;
+use crate::graphql::query_network::Indexer as indexer_query;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubgraphDeployment {
@@ -44,8 +44,8 @@ pub struct IndexerResponse {
 
 #[derive(GraphQLQuery, Serialize, Deserialize, Debug)]
 #[graphql(
-    schema_path = "src/schema_network.graphql",
-    query_path = "src/query_network.graphql",
+    schema_path = "src/graphql/schema_network.graphql",
+    query_path = "src/graphql/query_network.graphql",
     response_derives = "Debug, Serialize, Deserialize"
 )]
 pub struct Indexer;

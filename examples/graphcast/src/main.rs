@@ -17,26 +17,20 @@ use waku::{
     waku_set_event_callback, Encoding, Signal, WakuContentTopic, WakuMessage, WakuPubSubTopic,
 };
 
-use crate::client_network::{query_indexer_allocations, query_indexer_stake};
 use crate::constants::NETWORK_SUBGRAPH;
+use crate::graphql::client_network::{
+    perform_indexer_query, query_indexer_allocations, query_indexer_stake,
+};
+use crate::graphql::client_registry::query_registry_indexer;
+use crate::graphql::query_graph_node_poi;
 use crate::waku_handling::handle_signal;
-use client_graph_node::query_graph_node_poi;
-use client_network::perform_indexer_query;
-use client_registry::query_registry_indexer;
-use data_request::*;
 use lazy_static::lazy_static;
 use message_typing::*;
-use waku_handling::setup_node_handle;
+use waku_handling::{generate_pubsub_topics, setup_node_handle};
 
-mod client_graph_node;
-mod client_network;
-mod client_registry;
 mod constants;
-mod data_request;
+mod graphql;
 mod message_typing;
-mod query_network;
-mod query_proof_of_indexing;
-mod query_registry;
 mod waku_handling;
 
 #[macro_use]
@@ -177,59 +171,64 @@ async fn main() {
                 match poi_query(ipfs_hash.to_string()).await {
                     Ok(poi) => {
                         println!("\n{}", "Constructing POI message".bold().green());
-                        let npoi = poi.data.proof_of_indexing;
+                        if let Some(npoi) = poi.proof_of_indexing {
+                            let sig = wallet
+                                .sign_typed_data(&RadioPayloadMessage::new(
+                                    ipfs_hash.to_string(),
+                                    npoi.clone(),
+                                ))
+                                .await
+                                .unwrap();
 
-                        let sig = wallet
-                            .sign_typed_data(&RadioPayloadMessage::new(
+                            let message = GraphcastMessage::new(
                                 ipfs_hash.to_string(),
-                                npoi.clone(),
-                            ))
-                            .await
-                            .unwrap();
+                                npoi,
+                                Utc::now().timestamp(),
+                                block_number.try_into().unwrap(),
+                                block_hash.to_string(),
+                                sig.to_string(),
+                            );
 
-                        let message = GraphcastMessage::new(
-                            ipfs_hash.to_string(),
-                            npoi,
-                            Utc::now().timestamp(),
-                            block_number.try_into().unwrap(),
-                            block_hash.to_string(),
-                            sig.to_string(),
-                        );
+                            println!(
+                                "{}{:#?}\n{}{:#?}",
+                                "Encode message: ".cyan(),
+                                message.clone(),
+                                "and send on pubsub topic: ".cyan(),
+                                topic.clone().unwrap().topic_name,
+                            );
 
-                        println!(
-                            "{}{:#?}\n{}{:#?}",
-                            "Encode message: ".cyan(),
-                            message.clone(),
-                            "and send on pubsub topic: ".cyan(),
-                            topic.clone().unwrap().topic_name,
-                        );
+                            // Encode the graphcast message in buff and construct waku message
+                            let mut buff = Vec::new();
+                            Message::encode(&message, &mut buff).expect("Could not encode :(");
 
-                        // Encode the graphcast message in buff and construct waku message
-                        let mut buff = Vec::new();
-                        Message::encode(&message, &mut buff).expect("Could not encode :(");
+                            let waku_message = WakuMessage::new(
+                                buff,
+                                poi_content_topic.clone(),
+                                2,
+                                Utc::now().timestamp() as usize,
+                            );
 
-                        let waku_message = WakuMessage::new(
-                            buff,
-                            poi_content_topic.clone(),
-                            2,
-                            Utc::now().timestamp() as usize,
-                        );
-
-                        match node_handle.relay_publish_message(&waku_message, topic.clone(), None)
-                        {
-                            Ok(message_id) => {
-                                println!("{} {}", "Message sent! Id:".cyan(), message_id);
+                            match node_handle.relay_publish_message(
+                                &waku_message,
+                                topic.clone(),
+                                None,
+                            ) {
+                                Ok(message_id) => {
+                                    println!("{} {}", "Message sent! Id:".cyan(), message_id);
+                                }
+                                Err(e) => {
+                                    println!(
+                                        "{}\n{:?}",
+                                        "An error occurred! More information:".red(),
+                                        e
+                                    );
+                                }
                             }
-                            Err(e) => {
-                                println!(
-                                    "{}\n{:?}",
-                                    "An error occurred! More information:".red(),
-                                    e
-                                );
-                            }
+                            // Save result as local attestament to attest later
+                            res.push(topic.clone().unwrap());
+                        } else {
+                            println!("POI for {} is unavailable from graph node", ipfs_hash);
                         }
-                        // Save result as local attestament to attest later
-                        res.push(topic.clone().unwrap());
                     }
                     Err(error) => {
                         println!("No data for topic {}, more context: {}", ipfs_hash, error);

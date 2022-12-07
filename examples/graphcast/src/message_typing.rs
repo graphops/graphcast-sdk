@@ -10,9 +10,11 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client_network::{perform_indexer_query, query_indexer_stake, query_stake_minimum_requirement},
-    client_registry::query_registry_indexer,
     constants::{self, NETWORK_SUBGRAPH},
+    graphql::client_network::{
+        perform_indexer_query, query_indexer_stake, query_stake_minimum_requirement,
+    },
+    graphql::client_registry::query_registry_indexer,
     message_typing, NONCES,
 };
 use anyhow::anyhow;
@@ -243,11 +245,6 @@ impl RadioPayloadMessage {
         }
     }
 }
-
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// struct NonceMap {
-//     topic_sender_nonce_map: HashMap<String, HashMap<String, i32>>,
-//   }
 
 #[cfg(test)]
 mod tests {
