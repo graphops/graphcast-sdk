@@ -1,19 +1,24 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, error::Error, str::FromStr};
 
 use chrono::Utc;
-use ethers::types::RecoveryMessage;
+use colored::Colorize;
+use ethers::{
+    signers::{Signer, Wallet},
+    types::RecoveryMessage,
+};
 use ethers_contract::EthAbiType;
-use ethers_core::types::{transaction::eip712::Eip712, Signature};
+use ethers_core::{
+    k256::ecdsa::SigningKey,
+    types::{transaction::eip712::Eip712, Signature},
+};
 use ethers_derive_eip712::*;
-use num_bigint::BigUint;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
     constants::{self, NETWORK_SUBGRAPH},
-    graphql::client_network::{
-        perform_indexer_query, query_indexer_stake, query_stake_minimum_requirement,
-    },
+    graphql::client_network::query_network_subgraph,
     graphql::client_registry::query_registry_indexer,
     message_typing, NONCES,
 };
@@ -91,6 +96,49 @@ impl GraphcastMessage {
         }
     }
 
+    pub async fn build(
+        wallet: &Wallet<SigningKey>,
+        subgraph_hash: String,
+        npoi: String,
+        block_number: i64,
+        block_hash: String,
+    ) -> Result<Self, Box<dyn Error>> {
+        println!("\n{}", "Constructing POI message".green());
+        let sig = wallet
+            .sign_typed_data(&RadioPayloadMessage::new(
+                subgraph_hash.clone(),
+                npoi.clone(),
+            ))
+            .await?;
+
+        let message = GraphcastMessage::new(
+            subgraph_hash.clone(),
+            npoi,
+            Utc::now().timestamp(),
+            block_number,
+            block_hash.to_string(),
+            sig.to_string(),
+        );
+
+        println!("{}{:#?}", "Encode message: ".cyan(), message,);
+        Ok(message)
+    }
+
+    pub fn send_to_waku(
+        &self,
+        node_handle: &WakuNodeHandle<Running>,
+        pub_sub_topic: Option<WakuPubSubTopic>,
+        poi_content_topic: WakuContentTopic,
+    ) -> Result<String, Box<dyn Error>> {
+        let mut buff = Vec::new();
+        Message::encode(self, &mut buff).expect("Could not encode :(");
+
+        let waku_message =
+            WakuMessage::new(buff, poi_content_topic, 2, Utc::now().timestamp() as usize);
+
+        Ok(node_handle.relay_publish_message(&waku_message, pub_sub_topic, None)?)
+    }
+
     // Check message from valid sender: resolve indexer address and self stake
     pub async fn valid_sender(&self) -> Result<&GraphcastMessage, anyhow::Error> {
         let radio_payload =
@@ -104,15 +152,11 @@ impl GraphcastMessage {
             address.to_string(),
         )
         .await?;
-        let indexer_query =
-            perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await?;
-        let min_req: BigUint = query_stake_minimum_requirement(&indexer_query).await?;
-        let sender_stake: BigUint = query_indexer_stake(&indexer_query).await?;
-        if sender_stake >= min_req {
-            println!(
-                "Valid Indexer:  {} : stake {}",
-                indexer_address, sender_stake
-            );
+        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
+            .await?
+            .stake_satisfy_requirement()
+        {
+            println!("Valid Indexer:  {}", indexer_address);
             Ok(self)
         } else {
             Err(anyhow!(

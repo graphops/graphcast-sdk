@@ -1,4 +1,3 @@
-use chrono::Utc;
 use colored::*;
 use ethers::types::Block;
 use ethers::{
@@ -6,21 +5,17 @@ use ethers::{
     signers::{LocalWallet, Signer},
     types::U64,
 };
-use num_traits::identities::Zero;
-use prost::Message;
+
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
 use std::{thread::sleep, time::Duration};
 use tokio::runtime::Runtime;
-use waku::{
-    waku_set_event_callback, Encoding, Signal, WakuContentTopic, WakuMessage, WakuPubSubTopic,
-};
+use waku::{waku_set_event_callback, Encoding, Signal, WakuContentTopic, WakuPubSubTopic};
 
 use crate::constants::NETWORK_SUBGRAPH;
-use crate::graphql::client_network::{
-    perform_indexer_query, query_indexer_allocations, query_indexer_stake,
-};
+use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::graphql::query_graph_node_poi;
 use crate::waku_handling::handle_signal;
@@ -61,11 +56,11 @@ async fn main() {
 
     let wallet = private_key.parse::<LocalWallet>().unwrap();
     let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
-    let app_name: String = String::from("graphcast");
+    let app_name = Cow::from("graphcast");
     let poi_content_topic: WakuContentTopic = WakuContentTopic {
         application_name: app_name.clone(),
         version: 0,
-        content_topic_name: String::from("poi-crosschecker"),
+        content_topic_name: Cow::from("poi-crosschecker"),
         encoding: Encoding::Proto,
     };
 
@@ -82,35 +77,8 @@ async fn main() {
         }
     };
     let indexer_allocations =
-        match perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await {
-            Ok(response) => {
-                match query_indexer_stake(&response).await {
-                    Ok(stake) => {
-                        println!("Current indexer stake: {:#?}", stake);
-                        stake
-                    }
-                    Err(err) => {
-                        println!("Error querying current stake: {:#?}", err);
-                        Zero::zero()
-                    }
-                };
-
-                // Temp: test topic for local poi
-                match query_indexer_allocations(response.clone()).await {
-                    Ok(allocations) => {
-                        println!("Current allocations: {:#?}", allocations);
-                        // allocations
-                        [String::from(&test_topic)].to_vec()
-                    }
-                    Err(err) => {
-                        println!(
-                            "Error fetching current allocations : {},\nUse test topic : {}",
-                            err, test_topic
-                        );
-                        [String::from(&test_topic)].to_vec()
-                    }
-                }
-            }
+        match query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await {
+            Ok(response) => response.indexer_allocations(),
             Err(err) => {
                 println!("Failed to initialize with allocations: {}", err);
                 [String::from(&test_topic)].to_vec()
@@ -157,7 +125,6 @@ async fn main() {
 
             let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
             let block_hash = format!("{:#x}", block.hash.unwrap());
-            let mut res: Vec<WakuPubSubTopic> = Vec::new();
 
             //CONSTRUCTING MESSAGE
             let poi_query = partial!( query_graph_node_poi => graph_node_endpoint.clone(), _, block_hash.to_string(),block_number.try_into().unwrap());
@@ -167,71 +134,52 @@ async fn main() {
                 let topic_title = topic.clone().unwrap().topic_name;
                 let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
 
-                // Query POI and handle
                 match poi_query(ipfs_hash.to_string()).await {
-                    Ok(poi) => {
-                        println!("\n{}", "Constructing POI message".bold().green());
-                        if let Some(npoi) = poi.proof_of_indexing {
-                            let sig = wallet
-                                .sign_typed_data(&RadioPayloadMessage::new(
-                                    ipfs_hash.to_string(),
-                                    npoi.clone(),
-                                ))
-                                .await
-                                .unwrap();
-
-                            let message = GraphcastMessage::new(
-                                ipfs_hash.to_string(),
-                                npoi,
-                                Utc::now().timestamp(),
-                                block_number.try_into().unwrap(),
-                                block_hash.to_string(),
-                                sig.to_string(),
-                            );
-
-                            println!(
-                                "{}{:#?}\n{}{:#?}",
-                                "Encode message: ".cyan(),
-                                message.clone(),
-                                "and send on pubsub topic: ".cyan(),
-                                topic.clone().unwrap().topic_name,
-                            );
-
-                            // Encode the graphcast message in buff and construct waku message
-                            let mut buff = Vec::new();
-                            Message::encode(&message, &mut buff).expect("Could not encode :(");
-
-                            let waku_message = WakuMessage::new(
-                                buff,
-                                poi_content_topic.clone(),
-                                2,
-                                Utc::now().timestamp() as usize,
-                            );
-
-                            match node_handle.relay_publish_message(
-                                &waku_message,
-                                topic.clone(),
-                                None,
-                            ) {
-                                Ok(message_id) => {
-                                    println!("{} {}", "Message sent! Id:".cyan(), message_id);
-                                }
-                                Err(e) => {
-                                    println!(
-                                        "{}\n{:?}",
-                                        "An error occurred! More information:".red(),
-                                        e
-                                    );
-                                }
+                    Ok(Some(npoi)) => {
+                        // Refactor/hide waku stuff
+                        match GraphcastMessage::build(
+                            &wallet,
+                            ipfs_hash.to_string(),
+                            npoi,
+                            block_number.try_into().unwrap(),
+                            block_hash.to_string(),
+                        )
+                        .await
+                        {
+                            Ok(message) => {
+                                match message.send_to_waku(
+                                    &node_handle,
+                                    topic.clone(),
+                                    poi_content_topic.clone(),
+                                ) {
+                                    Ok(message_id) => {
+                                        println!("Message sent: {}", message_id);
+                                    }
+                                    Err(e) => {
+                                        println!(
+                                            "Failed to send on pub sub topic {:#?}\nError: {}",
+                                            topic.clone(),
+                                            e
+                                        );
+                                    }
+                                };
                             }
-                            // Save result as local attestament to attest later
-                            res.push(topic.clone().unwrap());
-                        } else {
-                            println!("POI for {} is unavailable from graph node", ipfs_hash);
+                            Err(e) => {
+                                println!("Could not build Graphcast message: {}", e);
+                            }
                         }
                     }
+                    Ok(None) => {
+                        println!(
+                            "Skipping send - Empty data returned for topic {}",
+                            ipfs_hash
+                        );
+                    }
                     Err(error) => {
-                        println!("No data for topic {}, more context: {}", ipfs_hash, error);
+                        println!(
+                            "Skipping send - No data for topic {}, more context: {}",
+                            ipfs_hash, error
+                        );
                     }
                 };
             }

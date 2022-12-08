@@ -1,5 +1,5 @@
 type GraphNetwork {
-  minimumIndexerStake: Int!
+  minimumIndexerStake: String!
 }
 
 type SubgraphDeployment {
@@ -11,7 +11,7 @@ type Allocation {
 }
 
 type Indexer {
-  stakedTokens: Int
+  stakedTokens: String!
   allocations: [Allocation!]
 }
 
