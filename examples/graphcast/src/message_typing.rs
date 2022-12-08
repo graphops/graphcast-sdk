@@ -11,9 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     constants::{self, NETWORK_SUBGRAPH},
-    graphql::client_network::{
-        perform_indexer_query, query_indexer_stake, query_stake_minimum_requirement,
-    },
+    graphql::client_network::query_network_subgraph,
     graphql::client_registry::query_registry_indexer,
     message_typing, NONCES,
 };
@@ -104,10 +102,10 @@ impl GraphcastMessage {
             address.to_string(),
         )
         .await?;
-        let indexer_query =
-            perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await?;
-        let min_req: BigUint = query_stake_minimum_requirement(&indexer_query).await?;
-        let sender_stake: BigUint = query_indexer_stake(&indexer_query).await?;
+        let network_subgraph =
+            query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await?;
+        let min_req: BigUint = network_subgraph.minimum_stake_requirement();
+        let sender_stake: BigUint = network_subgraph.indexer_stake();
         if sender_stake >= min_req {
             println!(
                 "Valid Indexer:  {} : stake {}",
