@@ -104,12 +104,8 @@ impl Network {
     }
 
     // Query indexer staking infomation, namely staked tokens and active allocations
-    pub fn minimum_stake_requirement(&self) -> BigUint {
-        self.graph_network.minimum_indexer_stake.clone()
-    }
-
-    // Query indexer staking infomation, namely staked tokens and active allocations
     pub fn indexer_allocations(&self) -> Vec<String> {
+        // let test_topic = "Qmdsp5yyFzMVUdSv5N9KndTisjXHrGDEXNaBxjyCTvDfPs".to_string();
         self.indexer
             .as_ref()
             .map(|i| {
@@ -118,7 +114,11 @@ impl Network {
                     .map(|a| a.subgraph_deployment.ipfs_hash.clone())
                     .collect::<Vec<String>>()
             })
-            .unwrap()
+            .unwrap_or_else(|| [].to_vec())
+    }
+
+    pub fn stake_satisfy_requirement(&self) -> bool {
+        self.indexer_stake() >= self.graph_network.minimum_indexer_stake.clone()
     }
 }
 
@@ -128,22 +128,84 @@ pub struct SubgraphDeployment {
     pub ipfs_hash: String,
 }
 
-// #[serde(rename = "subgraphDeployment")]
-// Can later add - who else is allocating to this, allocatedTokens, signalTokens
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Allocation {
     pub subgraph_deployment: SubgraphDeployment,
 }
 
-// #[serde(rename = "stakedTokens")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Indexer {
     staked_tokens: BigUint,
     allocations: Vec<Allocation>,
 }
 
-// #[serde(rename = "minimumIndexerStake")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphNetwork {
     pub minimum_indexer_stake: BigUint,
+}
+
+#[cfg(test)]
+mod tests {
+    use num_traits::One;
+
+    use super::*;
+
+    fn dummy_allocations() -> Vec<Allocation> {
+        [Allocation {
+            subgraph_deployment: SubgraphDeployment {
+                ipfs_hash: "Qmdsp5yyFzMVUdSv5N9KndTisjXHrGDEXNaBxjyCTvDfPs".to_string(),
+            },
+        }]
+        .to_vec()
+    }
+
+    #[tokio::test]
+    async fn stake_minimum_requirement_pass() {
+        let network = Network {
+            indexer: Some(Indexer {
+                staked_tokens: One::one(),
+                allocations: dummy_allocations(),
+            }),
+            graph_network: GraphNetwork {
+                minimum_indexer_stake: Zero::zero(),
+            },
+        };
+        assert_eq!(network.indexer_allocations().len(), 1);
+        assert_eq!(network.indexer_stake(), One::one());
+        assert!(network.stake_satisfy_requirement());
+    }
+
+    #[tokio::test]
+    async fn stake_minimum_requirement_fail() {
+        let network = Network {
+            indexer: Some(Indexer {
+                staked_tokens: Zero::zero(),
+                allocations: dummy_allocations(),
+            }),
+            graph_network: GraphNetwork {
+                minimum_indexer_stake: One::one(),
+            },
+        };
+        assert!(!network.stake_satisfy_requirement());
+    }
+
+    #[tokio::test]
+    async fn stake_minimum_requirement_none() {
+        let network = Network {
+            indexer: None,
+            graph_network: GraphNetwork {
+                minimum_indexer_stake: One::one(),
+            },
+        };
+        println!(
+            "indexer stake {:#?}\nreq {:#?}",
+            network.indexer_stake(),
+            network.stake_satisfy_requirement()
+        );
+
+        assert_eq!(network.indexer_allocations().len(), 0);
+        assert!(network.indexer_stake().is_zero());
+        assert!(network.indexer.is_none());
+        assert!(!network.stake_satisfy_requirement());
+    }
 }

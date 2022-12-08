@@ -5,7 +5,6 @@ use ethers::types::RecoveryMessage;
 use ethers_contract::EthAbiType;
 use ethers_core::types::{transaction::eip712::Eip712, Signature};
 use ethers_derive_eip712::*;
-use num_bigint::BigUint;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -102,15 +101,11 @@ impl GraphcastMessage {
             address.to_string(),
         )
         .await?;
-        let network_subgraph =
-            query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await?;
-        let min_req: BigUint = network_subgraph.minimum_stake_requirement();
-        let sender_stake: BigUint = network_subgraph.indexer_stake();
-        if sender_stake >= min_req {
-            println!(
-                "Valid Indexer:  {} : stake {}",
-                indexer_address, sender_stake
-            );
+        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
+            .await?
+            .stake_satisfy_requirement()
+        {
+            println!("Valid Indexer:  {}", indexer_address);
             Ok(self)
         } else {
             Err(anyhow!(
