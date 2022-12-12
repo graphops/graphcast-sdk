@@ -5,15 +5,12 @@ use ethers::types::RecoveryMessage;
 use ethers_contract::EthAbiType;
 use ethers_core::types::{transaction::eip712::Eip712, Signature};
 use ethers_derive_eip712::*;
-use num_bigint::BigUint;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     constants::{self, NETWORK_SUBGRAPH},
-    graphql::client_network::{
-        perform_indexer_query, query_indexer_stake, query_stake_minimum_requirement,
-    },
+    graphql::client_network::query_network_subgraph,
     graphql::client_registry::query_registry_indexer,
     message_typing, NONCES,
 };
@@ -104,15 +101,11 @@ impl GraphcastMessage {
             address.to_string(),
         )
         .await?;
-        let indexer_query =
-            perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await?;
-        let min_req: BigUint = query_stake_minimum_requirement(&indexer_query).await?;
-        let sender_stake: BigUint = query_indexer_stake(&indexer_query).await?;
-        if sender_stake >= min_req {
-            println!(
-                "Valid Indexer:  {} : stake {}",
-                indexer_address, sender_stake
-            );
+        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
+            .await?
+            .stake_satisfy_requirement()
+        {
+            println!("Valid Indexer:  {}", indexer_address);
             Ok(self)
         } else {
             Err(anyhow!(

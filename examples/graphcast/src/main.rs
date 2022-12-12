@@ -6,7 +6,7 @@ use ethers::{
     signers::{LocalWallet, Signer},
     types::U64,
 };
-use num_traits::identities::Zero;
+
 use prost::Message;
 use std::collections::HashMap;
 use std::env;
@@ -18,9 +18,7 @@ use waku::{
 };
 
 use crate::constants::NETWORK_SUBGRAPH;
-use crate::graphql::client_network::{
-    perform_indexer_query, query_indexer_allocations, query_indexer_stake,
-};
+use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::graphql::query_graph_node_poi;
 use crate::waku_handling::handle_signal;
@@ -82,35 +80,8 @@ async fn main() {
         }
     };
     let indexer_allocations =
-        match perform_indexer_query(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await {
-            Ok(response) => {
-                match query_indexer_stake(&response).await {
-                    Ok(stake) => {
-                        println!("Current indexer stake: {:#?}", stake);
-                        stake
-                    }
-                    Err(err) => {
-                        println!("Error querying current stake: {:#?}", err);
-                        Zero::zero()
-                    }
-                };
-
-                // Temp: test topic for local poi
-                match query_indexer_allocations(response.clone()).await {
-                    Ok(allocations) => {
-                        println!("Current allocations: {:#?}", allocations);
-                        // allocations
-                        [String::from(&test_topic)].to_vec()
-                    }
-                    Err(err) => {
-                        println!(
-                            "Error fetching current allocations : {},\nUse test topic : {}",
-                            err, test_topic
-                        );
-                        [String::from(&test_topic)].to_vec()
-                    }
-                }
-            }
+        match query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone()).await {
+            Ok(response) => response.indexer_allocations(),
             Err(err) => {
                 println!("Failed to initialize with allocations: {}", err);
                 [String::from(&test_topic)].to_vec()
@@ -171,6 +142,7 @@ async fn main() {
                 match poi_query(ipfs_hash.to_string()).await {
                     Ok(poi) => {
                         println!("\n{}", "Constructing POI message".bold().green());
+
                         if let Some(npoi) = poi.proof_of_indexing {
                             let sig = wallet
                                 .sign_typed_data(&RadioPayloadMessage::new(

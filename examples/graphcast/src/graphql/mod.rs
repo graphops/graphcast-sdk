@@ -1,4 +1,5 @@
 use graphql_client::{GraphQLQuery, Response};
+use num_bigint::ParseBigIntError;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 
@@ -6,6 +7,18 @@ pub mod client_network;
 pub mod client_registry;
 // refactor at a later time
 pub mod query_network;
+
+#[derive(Debug, thiserror::Error)]
+pub enum QueryError {
+    #[error(transparent)]
+    Transport(#[from] reqwest::Error),
+    #[error("Failed to parse")]
+    ParsingError(#[from] ParseBigIntError),
+    #[error("The subgraph is in a failed state")]
+    IndexingError,
+    #[error("Unknown error: {0}")]
+    Other(anyhow::Error),
+}
 
 //TODO: refactor ProofOfIndexing typing for build query
 #[derive(GraphQLQuery, Serialize, Deserialize, Debug)]
