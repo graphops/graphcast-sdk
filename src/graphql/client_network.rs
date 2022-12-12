@@ -29,17 +29,12 @@ pub async fn query_network_subgraph(
     let response = request.send().await?.error_for_status()?;
     let response_body: Response<network_subgraph::ResponseData> = response.json().await?;
 
-    match response_body.errors.as_deref() {
-        Some([]) | None => {
-            println!("response body all good");
-        }
-        Some(errors) => {
-            let e = &errors[0];
-            if e.message == "indexing_error" {
-                return Err(QueryError::IndexingError);
-            } else {
-                return Err(QueryError::Other(anyhow::anyhow!("{}", e.message)));
-            }
+    if let Some(errors) = response_body.errors.as_deref() {
+        let e = &errors[0];
+        if e.message == "indexing_error" {
+            return Err(QueryError::IndexingError);
+        } else {
+            return Err(QueryError::Other(anyhow::anyhow!("{}", e.message)));
         }
     }
     let data = if let Some(data) = response_body.data {
@@ -122,7 +117,6 @@ impl Network {
     }
 }
 
-// #[serde(rename = "ipfsHash")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubgraphDeployment {
     pub ipfs_hash: String,

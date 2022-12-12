@@ -1,12 +1,20 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, error::Error, str::FromStr};
 
 use chrono::Utc;
-use ethers::types::RecoveryMessage;
+use colored::Colorize;
+use ethers::{
+    signers::{Signer, Wallet},
+    types::RecoveryMessage,
+};
 use ethers_contract::EthAbiType;
-use ethers_core::types::{transaction::eip712::Eip712, Signature};
+use ethers_core::{
+    k256::ecdsa::SigningKey,
+    types::{transaction::eip712::Eip712, Signature},
+};
 use ethers_derive_eip712::*;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
     constants::{self, NETWORK_SUBGRAPH},
@@ -86,6 +94,49 @@ impl GraphcastMessage {
             block_hash,
             signature,
         }
+    }
+
+    pub async fn build(
+        wallet: &Wallet<SigningKey>,
+        subgraph_hash: String,
+        npoi: String,
+        block_number: i64,
+        block_hash: String,
+    ) -> Result<Self, Box<dyn Error>> {
+        println!("\n{}", "Constructing POI message".green());
+        let sig = wallet
+            .sign_typed_data(&RadioPayloadMessage::new(
+                subgraph_hash.clone(),
+                npoi.clone(),
+            ))
+            .await?;
+
+        let message = GraphcastMessage::new(
+            subgraph_hash.clone(),
+            npoi,
+            Utc::now().timestamp(),
+            block_number,
+            block_hash.to_string(),
+            sig.to_string(),
+        );
+
+        println!("{}{:#?}", "Encode message: ".cyan(), message,);
+        Ok(message)
+    }
+
+    pub fn send_to_waku(
+        &self,
+        node_handle: &WakuNodeHandle<Running>,
+        pub_sub_topic: Option<WakuPubSubTopic>,
+        poi_content_topic: WakuContentTopic,
+    ) -> Result<String, Box<dyn Error>> {
+        let mut buff = Vec::new();
+        Message::encode(self, &mut buff).expect("Could not encode :(");
+
+        let waku_message =
+            WakuMessage::new(buff, poi_content_topic, 2, Utc::now().timestamp() as usize);
+
+        Ok(node_handle.relay_publish_message(&waku_message, pub_sub_topic, None)?)
     }
 
     // Check message from valid sender: resolve indexer address and self stake
