@@ -8,7 +8,7 @@ use ethers::{
     types::Block,
 };
 use prost::Message;
-use std::io::prelude::*;
+use std::{borrow::Cow, io::prelude::*};
 use std::{fs::File, net::IpAddr, str::FromStr};
 use waku::{
     waku_new, Encoding, Multiaddr, ProtocolId, Running, Signal, WakuLogLevel, WakuNodeConfig,
@@ -17,17 +17,17 @@ use waku::{
 
 //TODO: refactor topic generation
 pub fn generate_pubsub_topics(
-    app_name: String,
+    app_name: Cow<'static, str>,
     subtopic: &[String],
 ) -> Vec<Option<WakuPubSubTopic>> {
     (*subtopic
         .iter()
         .map(|hash| {
             let borrowed_hash: &str = hash;
-            let topic = app_name.clone() + "-poi-crosschecker-" + borrowed_hash;
+            let topic = app_name.to_string() + "-poi-crosschecker-" + borrowed_hash;
 
             Some(WakuPubSubTopic {
-                topic_name: topic,
+                topic_name: Cow::from(topic),
                 encoding: Encoding::Proto,
             })
         })
@@ -196,7 +196,7 @@ mod tests {
         let empty_vec = [].to_vec();
         let empty_topic_vec: Vec<Option<WakuPubSubTopic>> = [].to_vec();
         assert_eq!(
-            generate_pubsub_topics(String::from("test"), &empty_vec).len(),
+            generate_pubsub_topics(Cow::from("test"), &empty_vec).len(),
             empty_topic_vec.len()
         );
     }
@@ -204,12 +204,12 @@ mod tests {
     #[test]
     fn test_generate_pubsub_topics() {
         let basics = ["Qmyumyum".to_string(), "Ymqumqum".to_string()].to_vec();
-        let basics_generated: Vec<String> = [
-            "test-poi-crosschecker-Qmyumyum".to_string(),
-            "test-poi-crosschecker-Ymqumqum".to_string(),
+        let basics_generated: Vec<Cow<'static, str>> = [
+            Cow::from("test-poi-crosschecker-Qmyumyum"),
+            Cow::from("test-poi-crosschecker-Ymqumqum"),
         ]
         .to_vec();
-        let res = generate_pubsub_topics(String::from("test"), &basics);
+        let res = generate_pubsub_topics(Cow::from("test"), &basics);
         for i in 0..res.len() {
             assert_eq!(res[i].as_ref().unwrap().topic_name, basics_generated[i]);
         }

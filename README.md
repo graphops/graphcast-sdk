@@ -1,2 +1,2 @@
 # graphcast-rs
-Implementation of Graphcast in Rust (Hackathon)
+Implementation of Graphcast SDK in Rust

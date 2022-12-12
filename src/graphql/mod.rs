@@ -5,8 +5,6 @@ use std::error::Error;
 
 pub mod client_network;
 pub mod client_registry;
-// refactor at a later time
-pub mod query_network;
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueryError {
@@ -48,7 +46,7 @@ pub async fn query_graph_node_poi(
     ipfs_hash: String,
     block_hash: String,
     block_number: i64,
-) -> Result<proof_of_indexing::ResponseData, Box<dyn Error>> {
+) -> Result<Option<String>, Box<dyn Error>> {
     let variables: proof_of_indexing::Variables = proof_of_indexing::Variables {
         subgraph: ipfs_hash.clone(),
         block_hash: block_hash.clone(),
@@ -60,7 +58,7 @@ pub async fn query_graph_node_poi(
     let response_body: Response<proof_of_indexing::ResponseData> = queried_result.json().await?;
 
     if let Some(data) = response_body.data {
-        Ok(data)
+        Ok(data.proof_of_indexing)
     } else {
         Err(format!(
             "{} failed to return data for {}",
