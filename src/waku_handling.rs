@@ -1,5 +1,9 @@
 use crate::{
+    attestation::Attestation,
+    constants::NETWORK_SUBGRAPH,
+    graphql::client_network::query_network_subgraph,
     message_typing::{self, GraphcastMessage},
+    utils::resolve_indexer_address,
     NONCES,
 };
 use colored::*;
@@ -147,9 +151,61 @@ pub async fn handle_signal(provider: Provider<Http>, signal: Signal, nonces: &NO
                         .unwrap()
                         .unwrap();
                     let block_hash = format!("{:#x}", block.hash.unwrap());
-                    //TODO: Add message handler after checking message validity
+
                     match check_message_validity(graphcast_message, block_hash, nonces).await {
-                        Ok(msg) => println!("Decoded valid message: {:#?}", msg),
+                        Ok(msg) => {
+                            println!("Decoded valid message: {:#?}", msg);
+                            let connection = sqlite::open("./attestations.db").unwrap();
+
+                            let GraphcastMessage {
+                                subgraph_hash,
+                                npoi,
+                                nonce,
+                                block_number,
+                                ..
+                            } = msg.clone();
+
+                            let indexer = resolve_indexer_address(&msg)
+                                .await
+                                .expect("Could not resolve indexer address.");
+
+                            let stake = query_network_subgraph(
+                                NETWORK_SUBGRAPH.to_string(),
+                                indexer.clone(),
+                            )
+                            .await
+                            .expect("Could not perform query.")
+                            .indexer_stake();
+
+                            let attestation = Attestation::new(
+                                subgraph_hash,
+                                block_number,
+                                npoi,
+                                indexer,
+                                stake.to_string(),
+                                nonce,
+                            );
+
+                            let Attestation {
+                                subgraph,
+                                block,
+                                npoi,
+                                indexer,
+                                stake_weight,
+                                nonce,
+                            } = attestation;
+
+                            let insert_attestation_query = format!(
+                                "
+                                INSERT INTO attestations VALUES (
+                                    '{}',{},'{}','{}',{},{}
+                                );
+                                ",
+                                subgraph, block, npoi, indexer, stake_weight, nonce
+                            );
+
+                            connection.execute(insert_attestation_query).unwrap();
+                        }
                         Err(err) => {
                             println!("{}{:#?}", "Could not handle the message: ".yellow(), err)
                         }
@@ -182,8 +238,6 @@ pub async fn check_message_validity(
         .valid_nonce(nonces)?;
 
     println!("{}", "Valid message!".bold().green());
-    // Store message (group POI and sum stake, best to keep track of sender vec) to attest later
-
     Ok(graphcast_message.clone())
 }
 

@@ -27,4 +27,4 @@ num-bigint = "0.4.3"
 num-traits = "0.2.15"
 lazy_static = "1.4.0"
 thiserror = "1.0.30"
-
+sqlite = "0.30.1"

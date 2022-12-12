@@ -23,9 +23,11 @@ use lazy_static::lazy_static;
 use message_typing::*;
 use waku_handling::{generate_pubsub_topics, setup_node_handle};
 
+mod attestation;
 mod constants;
 mod graphql;
 mod message_typing;
+mod utils;
 mod waku_handling;
 
 #[macro_use]
@@ -107,6 +109,19 @@ async fn main() {
     let mut curr_block = 0;
     let mut compare_block = 0;
 
+    let connection = sqlite::open("./attestations.db").unwrap();
+
+    let create_table_query = "CREATE TABLE IF NOT EXISTS attestations (
+        subgraph VARCHAR,
+        block BIGINT,
+        npoi VARCHAR,
+        indexer VARCHAR,
+        stake_weight VARCHAR,
+        nonce BIGINT
+    );";
+
+    connection.execute(create_table_query).unwrap();
+
     // Main loop for sending messages
     loop {
         let block_number = U64::as_u64(&provider.get_block_number().await.unwrap()) - 5;
@@ -121,6 +136,10 @@ async fn main() {
 
         // Send POI message at a fixed frequency
         if block_number % examination_frequency == 0 {
+            let connection = sqlite::open("./attestations.db").unwrap();
+            let delete_table_query = "DELETE FROM attestations";
+            connection.execute(delete_table_query).unwrap();
+
             compare_block = block_number + wait_block_duration;
 
             let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
@@ -186,6 +205,18 @@ async fn main() {
         };
         if block_number == compare_block {
             println!("{}", "Compare attestations here".red());
+
+            let connection = sqlite::open("./attestations.db").unwrap();
+            let query = "SELECT * FROM attestations";
+
+            connection
+                .iterate(query, |pairs| {
+                    for &(name, value) in pairs.iter() {
+                        println!("{} = {}", name, value.unwrap());
+                    }
+                    true
+                })
+                .unwrap();
         }
     }
 }

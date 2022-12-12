@@ -19,8 +19,9 @@ use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTop
 use crate::{
     constants::{self, NETWORK_SUBGRAPH},
     graphql::client_network::query_network_subgraph,
-    graphql::client_registry::query_registry_indexer,
-    message_typing, NONCES,
+    message_typing,
+    utils::resolve_indexer_address,
+    NONCES,
 };
 use anyhow::anyhow;
 
@@ -141,17 +142,10 @@ impl GraphcastMessage {
 
     // Check message from valid sender: resolve indexer address and self stake
     pub async fn valid_sender(&self) -> Result<&GraphcastMessage, anyhow::Error> {
-        let radio_payload =
-            message_typing::RadioPayloadMessage::new(self.subgraph_hash.clone(), self.npoi.clone());
-        let address = format!(
-            "{:#x}",
-            Signature::from_str(&self.signature)?.recover(radio_payload.encode_eip712()?)?
-        );
-        let indexer_address = query_registry_indexer(
-            constants::REGISTRY_SUBGRAPH.to_string(),
-            address.to_string(),
-        )
-        .await?;
+        let indexer_address = resolve_indexer_address(&self)
+            .await
+            .expect("Could not resolve indexer address.");
+
         if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
             .await?
             .stake_satisfy_requirement()
