@@ -1,5 +1,5 @@
 use crate::{
-    message_typing::{self, GraphcastMessage},
+    gossip_agent::message_typing::{self, GraphcastMessage},
     NONCES,
 };
 use colored::*;
@@ -17,14 +17,14 @@ use waku::{
 
 //TODO: refactor topic generation
 pub fn generate_pubsub_topics(
-    app_name: Cow<'static, str>,
-    subtopic: &[String],
+    radio_name: &str,
+    subtopics: &[String],
 ) -> Vec<Option<WakuPubSubTopic>> {
-    (*subtopic
+    (*subtopics
         .iter()
-        .map(|hash| {
-            let borrowed_hash: &str = hash;
-            let topic = app_name.to_string() + "-poi-crosschecker-" + borrowed_hash;
+        .map(|subtopic| {
+            let borrowed_subtopic: &str = subtopic;
+            let topic = "graphcast-".to_string() + radio_name + "-" + borrowed_subtopic;
 
             Some(WakuPubSubTopic {
                 topic_name: Cow::from(topic),
@@ -127,7 +127,7 @@ pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNo
 
 //TODO: add Dispute query to the network subgraph endpoint
 //Curryify if possible - factor out param on provider,
-pub async fn handle_signal(provider: Provider<Http>, signal: Signal, nonces: &NONCES) {
+pub async fn handle_signal(provider: &Provider<Http>, signal: Signal, nonces: &NONCES) {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -182,7 +182,6 @@ pub async fn check_message_validity(
         .valid_nonce(nonces)?;
 
     println!("{}", "Valid message!".bold().green());
-    // Store message (group POI and sum stake, best to keep track of sender vec) to attest later
 
     Ok(graphcast_message.clone())
 }
@@ -196,7 +195,7 @@ mod tests {
         let empty_vec = [].to_vec();
         let empty_topic_vec: Vec<Option<WakuPubSubTopic>> = [].to_vec();
         assert_eq!(
-            generate_pubsub_topics(Cow::from("test"), &empty_vec).len(),
+            generate_pubsub_topics("test", &empty_vec).len(),
             empty_topic_vec.len()
         );
     }
@@ -205,11 +204,11 @@ mod tests {
     fn test_generate_pubsub_topics() {
         let basics = ["Qmyumyum".to_string(), "Ymqumqum".to_string()].to_vec();
         let basics_generated: Vec<Cow<'static, str>> = [
-            Cow::from("test-poi-crosschecker-Qmyumyum"),
-            Cow::from("test-poi-crosschecker-Ymqumqum"),
+            Cow::from("graphcast-some-radio-Qmyumyum"),
+            Cow::from("graphcast-some-radio-Ymqumqum"),
         ]
         .to_vec();
-        let res = generate_pubsub_topics(Cow::from("test"), &basics);
+        let res = generate_pubsub_topics("some-radio", &basics);
         for i in 0..res.len() {
             assert_eq!(res[i].as_ref().unwrap().topic_name, basics_generated[i]);
         }

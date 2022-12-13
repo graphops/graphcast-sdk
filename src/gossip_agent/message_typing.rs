@@ -17,12 +17,12 @@ use serde::{Deserialize, Serialize};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
-    constants::{self, NETWORK_SUBGRAPH},
     graphql::client_network::query_network_subgraph,
-    graphql::client_registry::query_registry_indexer,
-    message_typing, NONCES,
+    graphql::client_registry::query_registry_indexer, NONCES,
 };
 use anyhow::anyhow;
+
+use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH, REGISTRY_SUBGRAPH};
 
 #[derive(Debug, Eip712, EthAbiType, Serialize, Deserialize)]
 #[eip712(
@@ -32,15 +32,15 @@ use anyhow::anyhow;
     verifying_contract = "0x0000000000000000000000000000000000000000"
 )]
 pub struct RadioPayload {
-    pub ipfs_hash: String,
-    pub npoi: String,
+    pub identifier: String,
+    pub content: String,
 }
 
 impl Clone for RadioPayload {
     fn clone(&self) -> Self {
         Self {
-            ipfs_hash: self.ipfs_hash.clone(),
-            npoi: self.npoi.clone(),
+            identifier: self.identifier.clone(),
+            content: self.content.clone(),
         }
     }
 }
@@ -64,9 +64,9 @@ impl From<RadioPayloadMessage> for RecoveryMessage {
 )]
 pub struct GraphcastMessage {
     #[prost(string, tag = "1")]
-    pub subgraph_hash: String,
+    pub identifier: String,
     #[prost(string, tag = "2")]
-    pub npoi: String,
+    pub content: String,
     #[prost(int64, tag = "3")]
     pub nonce: i64,
     #[prost(uint64, tag = "4")]
@@ -79,16 +79,16 @@ pub struct GraphcastMessage {
 
 impl GraphcastMessage {
     pub fn new(
-        subgraph_hash: String,
-        npoi: String,
+        identifier: String,
+        content: String,
         nonce: i64,
         block_number: i64,
         block_hash: String,
         signature: String,
     ) -> Self {
         GraphcastMessage {
-            subgraph_hash,
-            npoi,
+            identifier,
+            content,
             nonce,
             block_number: block_number.try_into().unwrap(),
             block_hash,
@@ -98,22 +98,22 @@ impl GraphcastMessage {
 
     pub async fn build(
         wallet: &Wallet<SigningKey>,
-        subgraph_hash: String,
-        npoi: String,
+        identifier: String,
+        content: String,
         block_number: i64,
         block_hash: String,
     ) -> Result<Self, Box<dyn Error>> {
-        println!("\n{}", "Constructing POI message".green());
+        println!("\n{}", "Constructing message".green());
         let sig = wallet
             .sign_typed_data(&RadioPayloadMessage::new(
-                subgraph_hash.clone(),
-                npoi.clone(),
+                identifier.clone(),
+                content.clone(),
             ))
             .await?;
 
         let message = GraphcastMessage::new(
-            subgraph_hash.clone(),
-            npoi,
+            identifier.clone(),
+            content,
             Utc::now().timestamp(),
             block_number,
             block_hash.to_string(),
@@ -124,34 +124,31 @@ impl GraphcastMessage {
         Ok(message)
     }
 
+    /// Send graphcast message to the Waku relay network
     pub fn send_to_waku(
         &self,
         node_handle: &WakuNodeHandle<Running>,
         pub_sub_topic: Option<WakuPubSubTopic>,
-        poi_content_topic: WakuContentTopic,
+        content_topic: WakuContentTopic,
     ) -> Result<String, Box<dyn Error>> {
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
         let waku_message =
-            WakuMessage::new(buff, poi_content_topic, 2, Utc::now().timestamp() as usize);
+            WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
 
         Ok(node_handle.relay_publish_message(&waku_message, pub_sub_topic, None)?)
     }
 
-    // Check message from valid sender: resolve indexer address and self stake
+    /// Check message from valid sender: resolve indexer address and self stake
     pub async fn valid_sender(&self) -> Result<&GraphcastMessage, anyhow::Error> {
-        let radio_payload =
-            message_typing::RadioPayloadMessage::new(self.subgraph_hash.clone(), self.npoi.clone());
+        let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
         let address = format!(
             "{:#x}",
             Signature::from_str(&self.signature)?.recover(radio_payload.encode_eip712()?)?
         );
-        let indexer_address = query_registry_indexer(
-            constants::REGISTRY_SUBGRAPH.to_string(),
-            address.to_string(),
-        )
-        .await?;
+        let indexer_address =
+            query_registry_indexer(REGISTRY_SUBGRAPH.to_string(), address.to_string()).await?;
         if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
             .await?
             .stake_satisfy_requirement()
@@ -165,23 +162,23 @@ impl GraphcastMessage {
         }
     }
 
-    // Check timestamp: prevent past message replay
+    /// Check timestamp: prevent past message replay
     pub fn valid_time(&self) -> Result<&GraphcastMessage, anyhow::Error> {
         //Can store for measuring overall gossip message latency
         let message_age = Utc::now().timestamp() - self.nonce;
         // 0 allow instant atomic messaging, use 1 to exclude them
-        if (0..constants::MSG_REPLAY_LIMIT).contains(&message_age) {
+        if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
             Ok(self)
         } else {
             Err(anyhow!(
                 "Message timestamp {} outside acceptable range {}, drop message",
                 message_age,
-                constants::MSG_REPLAY_LIMIT
+                MSG_REPLAY_LIMIT
             ))
         }
     }
 
-    // Check timestamp: prevent messages with incorrect provider
+    /// Check timestamp: prevent messages with incorrect provider
     pub fn valid_hash(&self, block_hash: String) -> Result<&GraphcastMessage, anyhow::Error> {
         if self.block_hash == block_hash {
             Ok(self)
@@ -194,6 +191,7 @@ impl GraphcastMessage {
         }
     }
 
+    /// Prepare sender:nonce to update
     fn prepare_nonces(
         nonces_per_subgraph: &HashMap<String, i64>,
         address: String,
@@ -205,9 +203,9 @@ impl GraphcastMessage {
         updated_nonces
     }
 
+    /// Check historic nonce: ensure message sequencing
     pub fn valid_nonce(&self, nonces: &NONCES) -> Result<&GraphcastMessage, anyhow::Error> {
-        let radio_payload =
-            message_typing::RadioPayloadMessage::new(self.subgraph_hash.clone(), self.npoi.clone());
+        let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
         let address = format!(
             "{:#x}",
             Signature::from_str(&self.signature)
@@ -217,7 +215,7 @@ impl GraphcastMessage {
         );
 
         let mut nonces = nonces.lock().unwrap();
-        let nonces_per_subgraph = nonces.get(self.subgraph_hash.clone().as_str());
+        let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());
 
         match nonces_per_subgraph {
             Some(nonces_per_subgraph) => {
@@ -226,13 +224,13 @@ impl GraphcastMessage {
                     Some(nonce) => {
                         println!(
                             "Latest saved nonce for subgraph {} and address {}: {}",
-                            self.subgraph_hash, address, nonce
+                            self.identifier, address, nonce
                         );
 
                         if nonce > &self.nonce {
                             Err(anyhow!(
                             "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
-                            self.subgraph_hash, address, self.nonce, nonce
+                            self.identifier, address, self.nonce, nonce
                         ))
                         } else {
                             let updated_nonces = Self::prepare_nonces(
@@ -240,27 +238,27 @@ impl GraphcastMessage {
                                 address.clone(),
                                 self.nonce,
                             );
-                            nonces.insert(self.subgraph_hash.clone(), updated_nonces);
+                            nonces.insert(self.identifier.clone(), updated_nonces);
                             Ok(self)
                         }
                     }
                     None => {
                         let updated_nonces =
                             Self::prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
-                        nonces.insert(self.subgraph_hash.clone(), updated_nonces);
+                        nonces.insert(self.identifier.clone(), updated_nonces);
                         Err(anyhow!(
                             "No saved nonce for address {} on topic {}, saving this one and skipping message...",
-                            address, self.subgraph_hash
+                            address, self.identifier
                         ))
                     }
                 }
             }
             None => {
                 let updated_nonces = Self::prepare_nonces(&HashMap::new(), address, self.nonce);
-                nonces.insert(self.subgraph_hash.clone(), updated_nonces);
+                nonces.insert(self.identifier.clone(), updated_nonces);
                 Err(anyhow!(
                     "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
-                    self.subgraph_hash
+                    self.identifier
                 ))
             }
         }
@@ -297,14 +295,14 @@ mod tests {
     #[tokio::test]
     async fn test_dummy_message() {
         let hash: String = "Qmtest".to_string();
-        let npoi: String = "0x0000".to_string();
+        let content: String = "0x0000".to_string();
         let nonce: i64 = 123321;
         let block_number: i64 = 0;
         let block_hash: String = "0xblahh".to_string();
         let sig: String = "signhere".to_string();
         let msg = GraphcastMessage::new(
             hash,
-            npoi,
+            content,
             nonce,
             block_number,
             block_hash.clone(),
@@ -324,7 +322,7 @@ mod tests {
     #[tokio::test]
     async fn test_signed_message() {
         let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
-        let npoi: String =
+        let content: String =
             "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
         let nonce: i64 = 123321;
         let block_number: i64 = 0;
@@ -332,13 +330,13 @@ mod tests {
         let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
         let msg = GraphcastMessage::new(
             hash,
-            npoi.clone(),
+            content.clone(),
             nonce,
             block_number,
             block_hash.clone(),
             sig,
         );
 
-        assert_eq!(msg.valid_sender().await.unwrap().npoi, npoi);
+        assert_eq!(msg.valid_sender().await.unwrap().content, content);
     }
 }

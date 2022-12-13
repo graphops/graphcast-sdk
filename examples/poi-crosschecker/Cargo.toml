@@ -1,9 +1,10 @@
 [package]
-name = "graphcast"
+name = "poi-crosschecker"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+graphcast = { path = "../.." }
 waku = { package = "waku-bindings", git = "https://github.com/waku-org/waku-rust-bindings" }
 prost = "0.11"
 once_cell = "1.15"
@@ -25,8 +26,3 @@ num-bigint = "0.4.3"
 num-traits = "0.2.15"
 lazy_static = "1.4.0"
 thiserror = "1.0.30"
-
-[[example]]
-name = "poi-crosschecker"
-path = "examples/poi-crosschecker/src/main.rs"
-crate-type = ["bin"]
