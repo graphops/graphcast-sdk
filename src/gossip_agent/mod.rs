@@ -2,6 +2,8 @@ use anyhow::anyhow;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::Block;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, error::Error};
 use tokio::runtime::Runtime;
 use waku::{
@@ -13,7 +15,7 @@ use self::message_typing::GraphcastMessage;
 use self::waku_handling::{generate_pubsub_topics, handle_signal, setup_node_handle};
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
-use crate::NONCES;
+use crate::NoncesMap;
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -33,6 +35,7 @@ pub struct GossipAgent {
     // pubsub_topics: Vec<Option<WakuPubSubTopic>>,
     content_topic: WakuContentTopic,
     node_handle: WakuNodeHandle<Running>,
+    pub nonces: Arc<Mutex<NoncesMap>>,
 }
 
 impl GossipAgent {
@@ -41,7 +44,7 @@ impl GossipAgent {
         private_key: String,
         eth_node: String,
         radio_name: &str,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<GossipAgent, Box<dyn Error>> {
         let app_name: Cow<str> = Cow::from("graphcast");
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
@@ -76,18 +79,19 @@ impl GossipAgent {
             indexer_allocations,
             content_topic,
             node_handle,
+            nonces: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
     // Note: Would be nice to factor out provider with eth_node, maybe impl Copy trait
     /// Given custom message handler, feed into waku event callback
-    pub fn message_handler(&self) {
+    pub fn message_handler(&'static self) {
         let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone()).unwrap();
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async {
-                handle_signal(&provider, signal, &NONCES).await;
+                handle_signal(&provider, signal, &self.nonces).await;
             });
         };
         // HANDLE RECEIVED MESSAGE

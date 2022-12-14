@@ -1,6 +1,6 @@
 use crate::{
     gossip_agent::message_typing::{self, GraphcastMessage},
-    NONCES,
+    NoncesMap,
 };
 use colored::*;
 use ethers::{
@@ -8,7 +8,8 @@ use ethers::{
     types::Block,
 };
 use prost::Message;
-use std::{borrow::Cow, io::prelude::*};
+use std::sync::Mutex;
+use std::{borrow::Cow, io::prelude::*, sync::Arc};
 use std::{fs::File, net::IpAddr, str::FromStr};
 use waku::{
     waku_new, Encoding, Multiaddr, ProtocolId, Running, Signal, WakuLogLevel, WakuNodeConfig,
@@ -127,7 +128,11 @@ pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNo
 
 //TODO: add Dispute query to the network subgraph endpoint
 //Curryify if possible - factor out param on provider,
-pub async fn handle_signal(provider: &Provider<Http>, signal: Signal, nonces: &NONCES) {
+pub async fn handle_signal(
+    provider: &Provider<Http>,
+    signal: Signal,
+    nonces: &Arc<Mutex<NoncesMap>>,
+) {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -172,7 +177,7 @@ pub async fn handle_signal(provider: &Provider<Http>, signal: Signal, nonces: &N
 pub async fn check_message_validity(
     graphcast_message: GraphcastMessage,
     block_hash: String,
-    nonces: &NONCES,
+    nonces: &Arc<Mutex<NoncesMap>>,
 ) -> Result<GraphcastMessage, anyhow::Error> {
     graphcast_message
         .valid_sender()

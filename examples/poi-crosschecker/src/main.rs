@@ -4,6 +4,7 @@ use ethers::{
     providers::{Http, Middleware, Provider},
     types::U64,
 };
+use once_cell::sync::OnceCell;
 use std::env;
 
 use graphcast::gossip_agent::waku_handling::generate_pubsub_topics;
@@ -14,6 +15,8 @@ use waku::WakuPubSubTopic;
 
 #[macro_use]
 extern crate partial_application;
+
+pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
 
 #[tokio::main]
 async fn main() {
@@ -39,8 +42,12 @@ async fn main() {
     let topics: Vec<Option<WakuPubSubTopic>> =
         generate_pubsub_topics(radio_name, indexer_allocations);
 
-    // Can be hidden away but leave attestation fn factored out
-    gossip_agent.message_handler();
+    match GOSSIP_AGENT.set(gossip_agent) {
+        Ok(_) => {
+            GOSSIP_AGENT.get().unwrap().message_handler();
+        }
+        _ => {}
+    }
 
     let mut curr_block = 0;
     let mut compare_block;
@@ -77,7 +84,9 @@ async fn main() {
 
                 if let Ok(Some(content)) = poi_query(ipfs_hash.to_string()).await {
                     {
-                        let res = &gossip_agent
+                        let res = GOSSIP_AGENT
+                            .get()
+                            .unwrap()
                             .gossip_message(topic, block_number, content)
                             .await;
 
