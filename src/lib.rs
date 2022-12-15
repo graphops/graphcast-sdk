@@ -1,5 +1,8 @@
 use once_cell::sync::OnceCell;
-use std::{collections::HashMap, sync::{Mutex, Arc}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 pub mod gossip_agent;
 pub mod graphql;

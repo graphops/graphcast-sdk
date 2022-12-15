@@ -1,4 +1,9 @@
-use std::{collections::HashMap, error::Error, str::FromStr, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    error::Error,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
 use chrono::Utc;
 use colored::Colorize;
@@ -18,11 +23,7 @@ use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTop
 
 use crate::{
     graphql::client_network::query_network_subgraph,
-<<<<<<< HEAD
     graphql::client_registry::query_registry_indexer, NoncesMap,
-=======
-    graphql::client_registry::query_registry_indexer, NONCES,
->>>>>>> main
 };
 use anyhow::anyhow;
 
@@ -208,7 +209,10 @@ impl GraphcastMessage {
     }
 
     /// Check historic nonce: ensure message sequencing
-    pub fn valid_nonce(&self, nonces: &Arc<Mutex<NoncesMap>>) -> Result<&GraphcastMessage, anyhow::Error> {
+    pub fn valid_nonce(
+        &self,
+        nonces: &Arc<Mutex<NoncesMap>>,
+    ) -> Result<&GraphcastMessage, anyhow::Error> {
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
         let address = format!(
             "{:#x}",
