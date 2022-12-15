@@ -1,4 +1,9 @@
 #![allow(clippy::await_holding_lock)]
+mod compare_attestations;
+mod utils;
+
+use crate::compare_attestations::compare_attestations;
+use crate::utils::{clone_blocks, Attestation};
 use colored::*;
 use ethers::types::Block;
 use ethers::{
@@ -6,72 +11,20 @@ use ethers::{
     types::U64,
 };
 use graphcast::gossip_agent::message_typing::GraphcastMessage;
+use graphcast::gossip_agent::waku_handling::generate_pubsub_topics;
+use graphcast::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
 use graphcast::graphql::client_network::query_network_subgraph;
+use graphcast::graphql::query_graph_node_poi;
 use graphcast::Sender;
-use num_bigint::BigUint;
-use once_cell::sync::OnceCell;
+use utils::{REMOTE_ATTESTATIONS, LOCAL_ATTESTATIONS, GOSSIP_AGENT};
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
-
-use graphcast::gossip_agent::waku_handling::generate_pubsub_topics;
-use graphcast::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
-use graphcast::graphql::query_graph_node_poi;
 use std::{thread::sleep, time::Duration};
 use waku::WakuPubSubTopic;
 
 #[macro_use]
 extern crate partial_application;
-
-pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
-
-#[derive(Clone, Debug)]
-pub struct Attestation {
-    pub npoi: String,
-    pub stake_weight: BigUint,
-    pub senders: Option<Vec<String>>,
-}
-
-impl Attestation {
-    pub fn new(npoi: String, stake_weight: BigUint, senders: Option<Vec<String>>) -> Self {
-        Attestation {
-            npoi,
-            stake_weight,
-            senders,
-        }
-    }
-
-    pub fn update(base: &Self, address: String, stake: BigUint) -> Self {
-        let senders = Some([base.senders.as_ref().unwrap().clone(), vec![address]].concat());
-        Self::new(
-            base.npoi.clone(),
-            base.stake_weight.clone() + stake,
-            senders,
-        )
-    }
-}
-
-fn clone_blocks(
-    block_number: u64,
-    blocks: &HashMap<u64, Vec<Attestation>>,
-    ipfs_hash: String,
-    stake: BigUint,
-    address: String,
-) -> HashMap<u64, Vec<Attestation>> {
-    let mut blocks_clone: HashMap<u64, Vec<Attestation>> = HashMap::new();
-    blocks_clone.extend(blocks.clone());
-    blocks_clone.insert(
-        block_number,
-        vec![Attestation::new(ipfs_hash, stake, Some(vec![address]))],
-    );
-    blocks_clone
-}
-
-type RemoteAttestationsMap = HashMap<String, HashMap<u64, Vec<Attestation>>>;
-type LocalAttestationsMap = HashMap<String, HashMap<u64, Attestation>>;
-
-pub static REMOTE_ATTESTATIONS: OnceCell<Arc<Mutex<RemoteAttestationsMap>>> = OnceCell::new();
-pub static LOCAL_ATTESTATIONS: OnceCell<Arc<Mutex<LocalAttestationsMap>>> = OnceCell::new();
 
 #[tokio::main]
 async fn main() {
@@ -95,7 +48,6 @@ async fn main() {
         .unwrap();
 
     _ = GOSSIP_AGENT.set(gossip_agent);
-
     let indexer_allocations = &GOSSIP_AGENT.get().unwrap().indexer_allocations;
 
     //Note: using None will let message flow through default-waku peer nodes and filtered by graphcast poi-crosschecker as content topic
@@ -224,65 +176,16 @@ async fn main() {
 
         if block_number == compare_block {
             println!("{}", "Comparing attestations".magenta());
-            let attestation_block = &(compare_block - wait_block_duration);
-
-            let remote = REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap();
-            let local = LOCAL_ATTESTATIONS.get().unwrap().lock().unwrap();
-
-            // Iterate & compare
-            for (ipfs_hash, blocks) in local.iter() {
-                let attestations = blocks.get(attestation_block);
-                match attestations {
-                    Some(local_attestation) => {
-                        let remote_blocks = remote.get(ipfs_hash);
-                        match remote_blocks {
-                            Some(remote_blocks) => {
-                                // Unwrapping because we're sure that if there's an entry for the subgraph there will also be at least one attestation
-                                let remote_attestations =
-                                    remote_blocks.get(attestation_block).unwrap();
-
-                                let remote_attestations_clone: Vec<Attestation> = Vec::new();
-                                let mut remote_attestations_clone =
-                                    [remote_attestations_clone, remote_attestations.to_vec()]
-                                        .concat();
-
-                                // Sort remote
-                                remote_attestations_clone.sort_by(|a, b| {
-                                    a.stake_weight.partial_cmp(&b.stake_weight).unwrap()
-                                });
-
-                                let most_attested_npoi = &remote_attestations.last().unwrap().npoi;
-                                if most_attested_npoi == &local_attestation.npoi {
-                                    println!(
-                                        "{}",
-                                        format!(
-                                            "POIs match for subgraph {} on block {}!",
-                                            ipfs_hash, attestation_block
-                                        )
-                                        .green()
-                                        .bold()
-                                    );
-                                } else {
-                                    println!(
-                                        "{}",
-                                        format!(
-                                            "POIs don't match for subgraph {} on block {}!",
-                                            ipfs_hash, attestation_block
-                                        )
-                                        .red()
-                                        .bold()
-                                    );
-                                    // Take some action - send alert, close allocations, etc
-                                }
-                            }
-                            None => {
-                                println!("{}", format!("No attestations for subgraph {} on block {} found in remote attestations store. Continuing...", ipfs_hash, attestation_block, ).yellow());
-                            }
-                        }
-                    }
-                    None => {
-                        println!("{}", format!("No attestation for subgraph {} on block {} found in local attestations store. Continuing...", ipfs_hash, attestation_block, ).yellow());
-                    }
+            match compare_attestations(
+                compare_block - wait_block_duration,
+                Arc::clone(REMOTE_ATTESTATIONS.get().unwrap()),
+                Arc::clone(LOCAL_ATTESTATIONS.get().unwrap()),
+            ) {
+                Ok(msg) => {
+                    println!("{}", msg.green().bold());
+                }
+                Err(err) => {
+                    println!("{}", err);
                 }
             }
         }
