@@ -10,21 +10,19 @@
 //! Graphcast messages regardless of specific radio use cases
 //!
 
-use anyhow::anyhow;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::Block;
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::{borrow::Cow, error::Error};
 use tokio::runtime::Runtime;
-use waku::{
-    waku_set_event_callback, Encoding, Running, Signal, WakuContentTopic, WakuNodeHandle,
-    WakuPubSubTopic,
-};
+use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
 use self::message_typing::GraphcastMessage;
-use self::waku_handling::{generate_pubsub_topics, handle_signal, setup_node_handle};
+use self::waku_handling::{
+    handle_signal, pubsub_topic, setup_node_handle,
+};
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::NoncesMap;
@@ -52,7 +50,7 @@ pub struct GossipAgent {
     pub indexer_allocations: Vec<String>,
     // #[allow(dead_code)]
     // pubsub_topics: Vec<Option<WakuPubSubTopic>>,
-    content_topic: WakuContentTopic,
+    // content_topics: Vec<WakuContentTopic>,
     node_handle: WakuNodeHandle<Running>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
@@ -66,17 +64,10 @@ impl GossipAgent {
     pub async fn new(
         private_key: String,
         eth_node: String,
-        radio_name: &str,
+        _radio_name: &str,
     ) -> Result<GossipAgent, Box<dyn Error>> {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
-        let content_topic: WakuContentTopic = WakuContentTopic {
-            application_name: crate::app_name(),
-            version: 0,
-            content_topic_name: Cow::from(radio_name.to_string()),
-            encoding: Encoding::Proto,
-        };
-
         let indexer_address = query_registry_indexer(
             REGISTRY_SUBGRAPH.to_string(),
             format!("{:?}", wallet.address()),
@@ -88,18 +79,20 @@ impl GossipAgent {
             query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
                 .await?
                 .indexer_allocations();
-        let pubsub_topics: Vec<Option<WakuPubSubTopic>> =
-            generate_pubsub_topics(radio_name, &indexer_allocations);
-        let node_handle = setup_node_handle(&pubsub_topics);
-
+        // let subtopics = indexer_allocations
+        //     .iter()
+        //     .map(|s| &**s)
+        //     .collect::<Vec<&str>>();
+        let node_handle = setup_node_handle();
+        // let _content_topics = generate_content_topics(radio_name, 0, &subtopics);
         Ok(GossipAgent {
             wallet,
             eth_node,
             provider,
             indexer_address,
             // pubsub_topics,
+            // content_topics,
             indexer_allocations,
-            content_topic,
             node_handle,
             nonces: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -122,7 +115,7 @@ impl GossipAgent {
     /// Construct a Graphcast message and send to the Waku Relay network with custom topic
     pub async fn gossip_message(
         &self,
-        topic: Option<WakuPubSubTopic>,
+        content_topic: &WakuContentTopic,
         block_number: u64,
         content: String,
     ) -> Result<String, Box<dyn Error>> {
@@ -133,11 +126,7 @@ impl GossipAgent {
             .unwrap()
             .unwrap();
         let block_hash = format!("{:#x}", block.hash.unwrap());
-        let topic_title = match topic.clone() {
-            Some(x) => x.topic_name,
-            None => return Err(anyhow!("Could not parse topic title"))?,
-        };
-        let identifier: &str = topic_title.split('-').collect::<Vec<_>>()[3];
+        let identifier = &content_topic.content_topic_name;
 
         GraphcastMessage::build(
             &self.wallet,
@@ -147,6 +136,6 @@ impl GossipAgent {
             block_hash.to_string(),
         )
         .await?
-        .send_to_waku(&self.node_handle, topic.clone(), self.content_topic.clone())
+        .send_to_waku(&self.node_handle, pubsub_topic("1"), content_topic)
     }
 }

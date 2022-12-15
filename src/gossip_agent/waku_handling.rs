@@ -1,4 +1,5 @@
 use crate::{
+    app_name,
     gossip_agent::message_typing::{self, GraphcastMessage},
     NoncesMap,
 };
@@ -12,27 +13,35 @@ use std::sync::Mutex;
 use std::{borrow::Cow, io::prelude::*, sync::Arc};
 use std::{fs::File, net::IpAddr, str::FromStr};
 use waku::{
-    waku_new, Encoding, Multiaddr, ProtocolId, Running, Signal, WakuLogLevel, WakuNodeConfig,
-    WakuNodeHandle, WakuPubSubTopic,
+    waku_new, Encoding, Multiaddr, ProtocolId, Running, Signal, WakuContentTopic, WakuLogLevel,
+    WakuNodeConfig, WakuNodeHandle, WakuPubSubTopic,
 };
 
-/// Generate and format pubsub topics based on recommendations from https://rfc.vac.dev/spec/23/
-pub fn generate_pubsub_topics(
+/// Get pubsub topic based on recommendations from https://rfc.vac.dev/spec/23/
+pub fn pubsub_topic(versioning: &str) -> Option<WakuPubSubTopic> {
+    let topic = app_name().to_string() + "-v" + versioning;
+    Some(WakuPubSubTopic {
+        topic_name: Cow::from(topic),
+        encoding: Encoding::Proto,
+    })
+}
+
+//TODO: update to content topics
+/// Generate and format content topics based on recommendations from https://rfc.vac.dev/spec/23/
+pub fn generate_content_topics(
     radio_name: &str,
-    subtopics: &[String],
-) -> Vec<Option<WakuPubSubTopic>> {
+    radio_version: usize,
+    subtopics: &[&str],
+) -> Vec<WakuContentTopic> {
     (*subtopics
         .iter()
-        .map(|subtopic| {
-            let borrowed_subtopic: &str = subtopic;
-            let topic = "graphcast-".to_string() + radio_name + "-" + borrowed_subtopic;
-
-            Some(WakuPubSubTopic {
-                topic_name: Cow::from(topic),
-                encoding: Encoding::Proto,
-            })
+        .map(|subtopic| WakuContentTopic {
+            application_name: Cow::from(radio_name.to_string()),
+            version: radio_version,
+            content_topic_name: Cow::from(subtopic.to_string()),
+            encoding: Encoding::Proto,
         })
-        .collect::<Vec<Option<WakuPubSubTopic>>>())
+        .collect::<Vec<WakuContentTopic>>())
     .to_vec()
 }
 
@@ -58,7 +67,7 @@ fn gen_handle() -> WakuNodeHandle<Running> {
 fn connect_and_subscribe(
     nodes: Vec<String>,
     node_handle: WakuNodeHandle<Running>,
-    graphcast_topics: Vec<Option<WakuPubSubTopic>>,
+    graphcast_topic: &Option<WakuPubSubTopic>,
 ) -> WakuNodeHandle<Running> {
     for address in nodes
         .iter()
@@ -70,19 +79,16 @@ fn connect_and_subscribe(
         node_handle.connect_peer_with_id(peerid, None).unwrap();
     }
 
-    for topic in graphcast_topics {
-        node_handle
-            .relay_subscribe(topic.clone())
-            .expect("Could not subscribe to the topic");
-        println!(
-            "PubSub peer readiness: {:#?} -> {:#}",
-            topic.clone().unwrap().topic_name,
-            node_handle.relay_enough_peers(topic).unwrap()
-        );
-    }
+    node_handle
+        .relay_subscribe(graphcast_topic.clone())
+        .expect("Could not subscribe to the topic");
 
     println!(
-        "listening to peers: {:#?}",
+        "PubSub peer readiness: {:#?} -> {:#}\nlistening to peers: {:#?}",
+        graphcast_topic.clone().unwrap().topic_name,
+        node_handle
+            .relay_enough_peers(graphcast_topic.clone())
+            .unwrap(),
         node_handle.listen_addresses().unwrap()
     );
 
@@ -91,7 +97,8 @@ fn connect_and_subscribe(
 
 //TODO: Topic discovery
 /// Set up a waku node given pubsub topics
-pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNodeHandle<Running> {
+pub fn setup_node_handle() -> WakuNodeHandle<Running> {
+    let graphcast_topic: &Option<WakuPubSubTopic> = &pubsub_topic("1");
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             let nodes = Vec::from([
@@ -99,8 +106,7 @@ pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNo
                 "/dns4/node-01.do-ams3.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ".to_string(),
                 "/dns4/node-01.gc-us-central1-a.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmJb2e28qLXxT5kZxVUUoJt72EMzNGXB47Rxx5hw3q4YjS".to_string(),
             ]);
-            let boot_node_handle =
-                connect_and_subscribe(nodes, gen_handle(), graphcast_topics.to_vec());
+            let boot_node_handle = connect_and_subscribe(nodes, gen_handle(), graphcast_topic);
             let boot_node_id = boot_node_handle.peer_id().unwrap();
             println!("Boot node id {}", boot_node_id);
 
@@ -116,8 +122,8 @@ pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNo
             // run default nodes with peers hosted with pubsub to graphcast topics
             println!(
                 "{} {:?}",
-                "Registering the following topics: ".cyan(),
-                graphcast_topics.to_vec()
+                "Registering the following pubsub topics: ".cyan(),
+                graphcast_topic
             );
 
             // Would be nice to refactor this construction with waku topic confi
@@ -126,7 +132,7 @@ pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNo
             "/dns4/node-01.do-ams3.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ".to_string(),
             "/dns4/node-01.gc-us-central1-a.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmJb2e28qLXxT5kZxVUUoJt72EMzNGXB47Rxx5hw3q4YjS".to_string(),]);
 
-            connect_and_subscribe(nodes, gen_handle(), graphcast_topics.to_vec())
+            connect_and_subscribe(nodes, gen_handle(), graphcast_topic)
         }
     }
 }
@@ -209,22 +215,18 @@ mod tests {
         let empty_vec = [].to_vec();
         let empty_topic_vec: Vec<Option<WakuPubSubTopic>> = [].to_vec();
         assert_eq!(
-            generate_pubsub_topics("test", &empty_vec).len(),
+            generate_content_topics("test", 0, &empty_vec).len(),
             empty_topic_vec.len()
         );
     }
 
     #[test]
-    fn test_generate_pubsub_topics() {
-        let basics = ["Qmyumyum".to_string(), "Ymqumqum".to_string()].to_vec();
-        let basics_generated: Vec<Cow<'static, str>> = [
-            Cow::from("graphcast-some-radio-Qmyumyum"),
-            Cow::from("graphcast-some-radio-Ymqumqum"),
-        ]
-        .to_vec();
-        let res = generate_pubsub_topics("some-radio", &basics);
+    fn test_generate_content_topics() {
+        let basics = ["Qmyumyum", "Ymqumqum"].to_vec();
+        let res = generate_content_topics("some-radio", 0, &basics);
         for i in 0..res.len() {
-            assert_eq!(res[i].as_ref().unwrap().topic_name, basics_generated[i]);
+            assert_eq!(res[i].content_topic_name, basics[i]);
+            assert_eq!(res[i].application_name, "some-radio");
         }
     }
 }
