@@ -1,4 +1,9 @@
-use std::{collections::HashMap, error::Error, str::FromStr, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    error::Error,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
 use chrono::Utc;
 use colored::Colorize;
@@ -18,7 +23,7 @@ use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTop
 
 use crate::{
     graphql::client_network::query_network_subgraph,
-    graphql::client_registry::query_registry_indexer, NoncesMap,
+    graphql::client_registry::query_registry_indexer, NoncesMap, Sender,
 };
 use anyhow::anyhow;
 
@@ -141,20 +146,31 @@ impl GraphcastMessage {
     }
 
     /// Check message from valid sender: resolve indexer address and self stake
-    pub async fn valid_sender(&self) -> Result<&GraphcastMessage, anyhow::Error> {
+    pub async fn valid_sender(&self) -> Result<(Sender, &GraphcastMessage), anyhow::Error> {
+        // TODO: Extract to helper func
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
         let address = format!(
             "{:#x}",
             Signature::from_str(&self.signature)?.recover(radio_payload.encode_eip712()?)?
         );
-        let indexer_address =
+        let address =
             query_registry_indexer(REGISTRY_SUBGRAPH.to_string(), address.to_string()).await?;
-        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
+
+        let stake = query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
+            .await?
+            .indexer_stake();
+
+        let indexer = Sender::Indexer {
+            address: address.clone(),
+            stake,
+        };
+
+        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
             .await?
             .stake_satisfy_requirement()
         {
-            println!("Valid Indexer:  {}", indexer_address);
-            Ok(self)
+            println!("Valid Indexer:  {}", address);
+            Ok((indexer, self))
         } else {
             Err(anyhow!(
                 "Sender stake is less than the minimum requirement, drop message"
@@ -204,7 +220,10 @@ impl GraphcastMessage {
     }
 
     /// Check historic nonce: ensure message sequencing
-    pub fn valid_nonce(&self, nonces: &Arc<Mutex<NoncesMap>>) -> Result<&GraphcastMessage, anyhow::Error> {
+    pub fn valid_nonce(
+        &self,
+        nonces: &Arc<Mutex<NoncesMap>>,
+    ) -> Result<&GraphcastMessage, anyhow::Error> {
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
         let address = format!(
             "{:#x}",
@@ -337,6 +356,8 @@ mod tests {
             sig,
         );
 
-        assert_eq!(msg.valid_sender().await.unwrap().content, content);
+        let (_, msg) = msg.valid_sender().await.unwrap();
+
+        assert_eq!(msg.content, content);
     }
 }

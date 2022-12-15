@@ -1,8 +1,15 @@
+use num_bigint::BigUint;
 use once_cell::sync::OnceCell;
-use std::{collections::HashMap, sync::{Mutex, Arc}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 pub mod gossip_agent;
 pub mod graphql;
+pub enum Sender {
+    Indexer { address: String, stake: BigUint },
+}
 
 type NoncesMap = HashMap<String, HashMap<String, i64>>;
 pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();

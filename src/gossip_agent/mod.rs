@@ -15,7 +15,7 @@ use self::message_typing::GraphcastMessage;
 use self::waku_handling::{generate_pubsub_topics, handle_signal, setup_node_handle};
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
-use crate::NoncesMap;
+use crate::{NoncesMap, Sender};
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -85,7 +85,7 @@ impl GossipAgent {
 
     // Note: Would be nice to factor out provider with eth_node, maybe impl Copy trait
     /// Given custom message handler, feed into waku event callback
-    pub fn register_handler<F: FnMut(Result<message_typing::GraphcastMessage, anyhow::Error>) + std::marker::Sync + std::marker::Send + 'static>(
+    pub fn register_handler<F: FnMut(Result<(Sender, GraphcastMessage), anyhow::Error>) + std::marker::Sync + std::marker::Send + 'static>(
         &'static self,
         radio_handler_mutex: Arc<Mutex<F>>,
     ) {
@@ -104,7 +104,7 @@ impl GossipAgent {
     }
 
     /// For each topic, construct with custom write function and send
-    pub async fn gossip_message(
+    pub async fn send_message(
         &self,
         topic: Option<WakuPubSubTopic>,
         block_number: u64,
