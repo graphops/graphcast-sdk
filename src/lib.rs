@@ -1,17 +1,14 @@
-use lazy_static::lazy_static;
-use std::{collections::HashMap, sync::Mutex};
+use once_cell::sync::OnceCell;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 pub mod gossip_agent;
 pub mod graphql;
 
 type NoncesMap = HashMap<String, HashMap<String, i64>>;
-
-lazy_static! {
-    pub static ref NONCES: Mutex<NoncesMap> = {
-        let m = HashMap::new();
-        Mutex::new(m)
-    };
-}
+pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();
 
 #[cfg(test)]
 mod tests {
