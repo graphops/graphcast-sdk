@@ -5,13 +5,14 @@ use ethers::{
     types::U64,
 };
 use once_cell::sync::OnceCell;
+
 use std::env;
 
-use graphcast::gossip_agent::waku_handling::generate_pubsub_topics;
+use graphcast::gossip_agent::waku_handling::generate_content_topics;
 use graphcast::gossip_agent::GossipAgent;
 use graphcast::graphql::query_graph_node_poi;
 use std::{thread::sleep, time::Duration};
-use waku::WakuPubSubTopic;
+use waku::WakuContentTopic;
 
 #[macro_use]
 extern crate partial_application;
@@ -31,16 +32,21 @@ async fn main() {
 
     let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
     let radio_name: &str = "poi-crosschecker";
+    let radio_version: usize = 0;
 
     let gossip_agent = GossipAgent::new(private_key, eth_node, radio_name)
         .await
         .unwrap();
 
-    let indexer_allocations = &gossip_agent.indexer_allocations;
+    let indexer_allocations = &gossip_agent
+        .indexer_allocations
+        .iter()
+        .map(|s| &**s)
+        .collect::<Vec<&str>>();
 
     //Note: using None will let message flow through default-waku peer nodes and filtered by graphcast poi-crosschecker as content topic
-    let topics: Vec<Option<WakuPubSubTopic>> =
-        generate_pubsub_topics(radio_name, indexer_allocations);
+    let topics: Vec<WakuContentTopic> =
+        generate_content_topics(radio_name, radio_version, indexer_allocations);
 
     if GOSSIP_AGENT.set(gossip_agent).is_ok() {
         GOSSIP_AGENT.get().unwrap().message_handler();
@@ -69,18 +75,13 @@ async fn main() {
             let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
             let block_hash = format!("{:#x}", block.hash.unwrap());
 
-            //CONSTRUCTING MESSAGE
             // Radio specific message content query function
             let poi_query = partial!( query_graph_node_poi => graph_node_endpoint.clone(), _, block_hash.to_string(),block_number.try_into().unwrap());
 
-            // Might make more sense to loop through indexer_allocation st we don't need to parse ipfs hash
-            // for ipfs_hash in indexer_allocations { - but would need topic generation, can refactor this later
-            for topic in topics.clone() {
-                let topic_title = topic.clone().unwrap().topic_name;
-                let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
-
-                if let Ok(Some(content)) = poi_query(ipfs_hash.to_string()).await {
-                    {
+            //CONSTRUCTING MESSAGE
+            for topic in &topics {
+                match poi_query(topic.content_topic_name.to_string()).await {
+                    Ok(Some(content)) => {
                         let res = GOSSIP_AGENT
                             .get()
                             .unwrap()
@@ -88,12 +89,16 @@ async fn main() {
                             .await;
 
                         match res {
-                            Ok(sent) => println!("res!!! {}", sent),
-                            Err(e) => println!("eeeer!!! {}", e),
+                            Ok(sent) => println!("Sent message id: {}", sent),
+                            Err(e) => println!("Failed to send message {}", e),
                         };
                     }
+                    Ok(None) => println!("Query returned null"),
+                    Err(e) => println!("Failed to query send message {}", e),
                 }
             }
+
+            //ATTEST
             if block_number == compare_block {
                 println!("{}", "Compare attestations here".red());
             }
