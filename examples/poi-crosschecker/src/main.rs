@@ -42,11 +42,8 @@ async fn main() {
     let topics: Vec<Option<WakuPubSubTopic>> =
         generate_pubsub_topics(radio_name, indexer_allocations);
 
-    match GOSSIP_AGENT.set(gossip_agent) {
-        Ok(_) => {
-            GOSSIP_AGENT.get().unwrap().message_handler();
-        }
-        _ => {}
+    if GOSSIP_AGENT.set(gossip_agent).is_ok() {
+        GOSSIP_AGENT.get().unwrap().message_handler();
     }
 
     let mut curr_block = 0;

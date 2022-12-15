@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
 
+/// Derived Graph Account
 #[derive(GraphQLQuery, Serialize, Deserialize, Debug)]
 #[graphql(
     schema_path = "src/graphql/schema_registry.graphql",
@@ -10,6 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 )]
 pub struct GraphAccount;
 
+/// Query registry subgraph endpoint for resolving gossip operator and indexer address
 pub async fn perform_operator_indexer_query(
     registry_subgraph_endpoint: String,
     variables: graph_account::Variables,
@@ -24,7 +26,7 @@ pub async fn perform_operator_indexer_query(
         .error_for_status()
 }
 
-// directly return indexer address
+/// Construct GraphQL variables and parse result for indexer address
 pub async fn query_registry_indexer(
     registry_subgraph_endpoint: String,
     operator_address: String,

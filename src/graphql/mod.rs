@@ -18,6 +18,7 @@ pub enum QueryError {
     Other(anyhow::Error),
 }
 
+/// Derived GraphQL Query to Proof of Indexing
 //TODO: refactor ProofOfIndexing typing for build query
 #[derive(GraphQLQuery, Serialize, Deserialize, Debug)]
 #[graphql(
@@ -27,6 +28,7 @@ pub enum QueryError {
 )]
 pub struct ProofOfIndexing;
 
+/// Query graph node for Proof of Indexing
 pub async fn perform_proof_of_indexing(
     graph_node_endpoint: String,
     variables: proof_of_indexing::Variables,
@@ -41,6 +43,7 @@ pub async fn perform_proof_of_indexing(
         .error_for_status()
 }
 
+/// Construct GraphQL variables and parse result for Proof of Indexing
 pub async fn query_graph_node_poi(
     graph_node_endpoint: String,
     ipfs_hash: String,

@@ -1,3 +1,15 @@
+//! Type for representing a Gossip agent for interacting with Graphcast.
+//!
+//! A "GossipAgent" has access to
+//! - Gossip operator wallet: resolve Graph Account identity
+//! - Ethereum node provider endpoint: provider access
+//! - Waku Node Instance: interact with the gossip network
+//! - Pubsub and Content filter topics: interaction configurations
+//!
+//! Gossip agent shall be able to construct, send, receive, validate, and attest
+//! Graphcast messages regardless of specific radio use cases
+//!
+
 use anyhow::anyhow;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
@@ -20,36 +32,46 @@ use crate::NoncesMap;
 pub mod message_typing;
 pub mod waku_handling;
 
+/// A constant defining a message expiration limit.
 pub const MSG_REPLAY_LIMIT: i64 = 3_600_000;
+/// A constant defining the goerli registry subgraph endpoint.
 pub const REGISTRY_SUBGRAPH: &str =
     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+/// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
 
+/// A gossip agent representation
 pub struct GossipAgent {
+    /// Gossip operator's wallet, used to sign messages
     pub wallet: LocalWallet,
+    /// Gossip operator's indexer address
     pub indexer_address: String,
     eth_node: String,
     provider: Provider<Http>,
+    /// Gossip operator's indexer allocations, used for default topic generation
     pub indexer_allocations: Vec<String>,
     // #[allow(dead_code)]
     // pubsub_topics: Vec<Option<WakuPubSubTopic>>,
     content_topic: WakuContentTopic,
     node_handle: WakuNodeHandle<Running>,
+    /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
 }
 
 impl GossipAgent {
-    /// Construct a new gossip agent with waku node handle
+    /// Construct a new gossip agent
+    ///
+    /// Private key resolves into wallet and indexer identity.
+    /// Topic is generated based on indexer allocations with waku node set up included
     pub async fn new(
         private_key: String,
         eth_node: String,
         radio_name: &str,
     ) -> Result<GossipAgent, Box<dyn Error>> {
-        let app_name: Cow<str> = Cow::from("graphcast");
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
         let content_topic: WakuContentTopic = WakuContentTopic {
-            application_name: app_name.clone(),
+            application_name: crate::app_name(),
             version: 0,
             content_topic_name: Cow::from(radio_name.to_string()),
             encoding: Encoding::Proto,
@@ -83,22 +105,21 @@ impl GossipAgent {
         })
     }
 
-    // Note: Would be nice to factor out provider with eth_node, maybe impl Copy trait
-    /// Given custom message handler, feed into waku event callback
+    //TODO: Factor out handler
+    /// Establish custom handler for incoming Waku messages
     pub fn message_handler(&'static self) {
         let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone()).unwrap();
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async {
-                handle_signal(&provider, signal, &self.nonces).await;
+                handle_signal(&provider, &self.nonces, signal).await;
             });
         };
-        // HANDLE RECEIVED MESSAGE
         waku_set_event_callback(handle_async);
     }
 
-    /// For each topic, construct with custom write function and send
+    /// Construct a Graphcast message and send to the Waku Relay network with custom topic
     pub async fn gossip_message(
         &self,
         topic: Option<WakuPubSubTopic>,
