@@ -18,7 +18,11 @@ use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTop
 
 use crate::{
     graphql::client_network::query_network_subgraph,
+<<<<<<< HEAD
     graphql::client_registry::query_registry_indexer, NoncesMap,
+=======
+    graphql::client_registry::query_registry_indexer, NONCES,
+>>>>>>> main
 };
 use anyhow::anyhow;
 
