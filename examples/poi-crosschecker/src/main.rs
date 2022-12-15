@@ -26,6 +26,8 @@ use waku::WakuPubSubTopic;
 #[macro_use]
 extern crate partial_application;
 
+pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
+
 #[tokio::main]
 async fn main() {
     // Common inputs - refactor to a set-up function?

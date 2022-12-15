@@ -29,6 +29,8 @@ use anyhow::anyhow;
 
 use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH, REGISTRY_SUBGRAPH};
 
+/// Radio payload that includes an grpah identifier and custom content
+/// In future work, allow dynamic buffers
 #[derive(Debug, Eip712, EthAbiType, Serialize, Deserialize)]
 #[eip712(
     name = "RadioPaylod",
@@ -37,7 +39,9 @@ use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH, REGISTRY_SUBGRAPH};
     verifying_contract = "0x0000000000000000000000000000000000000000"
 )]
 pub struct RadioPayload {
+    /// Graph identifier for the entity the radio is communicating about
     pub identifier: String,
+    /// content to share about the identified entity
     pub content: String,
 }
 
@@ -60,6 +64,7 @@ impl From<RadioPayloadMessage> for RecoveryMessage {
     }
 }
 
+/// GraphcastMessage type casts over radio payload
 #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
 #[eip712(
     name = "GraphcastMessage",
@@ -68,21 +73,28 @@ impl From<RadioPayloadMessage> for RecoveryMessage {
     verifying_contract = "0x0000000000000000000000000000000000000000"
 )]
 pub struct GraphcastMessage {
+    /// Graph identifier for the entity the radio is communicating about
     #[prost(string, tag = "1")]
     pub identifier: String,
+    /// content to share about the identified entity
     #[prost(string, tag = "2")]
     pub content: String,
+    /// nonce cached to check against the next incoming message
     #[prost(int64, tag = "3")]
     pub nonce: i64,
+    /// block relevant to the message
     #[prost(uint64, tag = "4")]
     pub block_number: u64,
+    /// block hash generated from the block number
     #[prost(string, tag = "5")]
     pub block_hash: String,
+    /// signature over radio payload
     #[prost(string, tag = "6")]
     pub signature: String,
 }
 
 impl GraphcastMessage {
+    /// Create a graphcast message
     pub fn new(
         identifier: String,
         content: String,
@@ -101,6 +113,7 @@ impl GraphcastMessage {
         }
     }
 
+    /// Signs the radio payload and construct graphcast message
     pub async fn build(
         wallet: &Wallet<SigningKey>,
         identifier: String,
@@ -109,6 +122,7 @@ impl GraphcastMessage {
         block_hash: String,
     ) -> Result<Self, Box<dyn Error>> {
         println!("\n{}", "Constructing message".green());
+        //Q: move signing to here and over all fields?
         let sig = wallet
             .sign_typed_data(&RadioPayloadMessage::new(
                 identifier.clone(),
@@ -129,7 +143,7 @@ impl GraphcastMessage {
         Ok(message)
     }
 
-    /// Send graphcast message to the Waku relay network
+    /// Send Graphcast message to the Waku relay network
     pub fn send_to_waku(
         &self,
         node_handle: &WakuNodeHandle<Running>,
@@ -224,13 +238,21 @@ impl GraphcastMessage {
         nonces: &Arc<Mutex<NoncesMap>>,
     ) -> Result<&GraphcastMessage, anyhow::Error> {
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
-        let address = format!(
+        format!(
             "{:#x}",
             Signature::from_str(&self.signature)
                 .unwrap()
                 .recover(radio_payload.encode_eip712().unwrap())
                 .unwrap()
-        );
+        )
+    }
+
+    /// Check historic nonce: ensure message sequencing
+    pub fn valid_nonce(
+        &self,
+        nonces: &Arc<Mutex<NoncesMap>>,
+    ) -> Result<&GraphcastMessage, anyhow::Error> {
+        let address = self.recover_sender_address();
 
         let mut nonces = nonces.lock().unwrap();
         let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());

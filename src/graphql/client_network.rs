@@ -3,7 +3,7 @@ use num_bigint::BigUint;
 use num_traits::Zero;
 
 use crate::graphql::QueryError;
-
+/// Derived GraphQL Query to Network Subgraph
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "src/graphql/schema_network.graphql",
@@ -12,6 +12,9 @@ use crate::graphql::QueryError;
 )]
 pub struct NetworkSubgraph;
 
+/// Query network subgraph for Network data
+/// Contains indexer address, stake, allocations
+/// and graph network minimum indexer stake requirement
 pub async fn query_network_subgraph(
     url: String,
     indexer_address: String,
@@ -83,6 +86,7 @@ pub async fn query_network_subgraph(
     })
 }
 
+/// Network tracks the operator's indexer and general Graph network data
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Network {
     pub indexer: Option<Indexer>,
@@ -90,7 +94,7 @@ pub struct Network {
 }
 
 impl Network {
-    // Query indexer staking infomation, namely staked tokens and active allocations
+    /// Fetch indexer staked tokens
     pub fn indexer_stake(&self) -> BigUint {
         self.indexer
             .as_ref()
@@ -98,7 +102,7 @@ impl Network {
             .unwrap_or_else(Zero::zero)
     }
 
-    // Query indexer staking infomation, namely staked tokens and active allocations
+    /// Fetch indexer active allocations subgraph deployment IPFS hashes
     pub fn indexer_allocations(&self) -> Vec<String> {
         // let test_topic = "Qmdsp5yyFzMVUdSv5N9KndTisjXHrGDEXNaBxjyCTvDfPs".to_string();
         self.indexer
