@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use graphcast::gossip_agent::GossipAgent;
 use num_bigint::BigUint;

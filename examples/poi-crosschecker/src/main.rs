@@ -16,11 +16,11 @@ use graphcast::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
 use graphcast::graphql::client_network::query_network_subgraph;
 use graphcast::graphql::query_graph_node_poi;
 use graphcast::Sender;
-use utils::{REMOTE_ATTESTATIONS, LOCAL_ATTESTATIONS, GOSSIP_AGENT};
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::{thread::sleep, time::Duration};
+use utils::{GOSSIP_AGENT, LOCAL_ATTESTATIONS, REMOTE_ATTESTATIONS};
 use waku::WakuPubSubTopic;
 
 #[macro_use]

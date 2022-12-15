@@ -105,7 +105,12 @@ impl GossipAgent {
 
     // Note: Would be nice to factor out provider with eth_node, maybe impl Copy trait
     /// Establish custom handler for incoming Waku messages
-    pub fn register_handler<F: FnMut(Result<(Sender, GraphcastMessage), anyhow::Error>) + std::marker::Sync + std::marker::Send + 'static>(
+    pub fn register_handler<
+        F: FnMut(Result<(Sender, GraphcastMessage), anyhow::Error>)
+            + std::marker::Sync
+            + std::marker::Send
+            + 'static,
+    >(
         &'static self,
         radio_handler_mutex: Arc<Mutex<F>>,
     ) {
