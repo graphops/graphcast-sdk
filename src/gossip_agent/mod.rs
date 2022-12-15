@@ -85,13 +85,18 @@ impl GossipAgent {
 
     // Note: Would be nice to factor out provider with eth_node, maybe impl Copy trait
     /// Given custom message handler, feed into waku event callback
-    pub fn message_handler(&'static self) {
+    pub fn register_handler<F: FnMut(Result<message_typing::GraphcastMessage, anyhow::Error>) + std::marker::Sync + std::marker::Send + 'static>(
+        &'static self,
+        radio_handler_mutex: Arc<Mutex<F>>,
+    ) {
         let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone()).unwrap();
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async {
-                handle_signal(&provider, signal, &self.nonces).await;
+                let msg = handle_signal(&provider, signal, &self.nonces).await;
+                let mut radio_handler = radio_handler_mutex.lock().unwrap();
+                radio_handler(msg);
             });
         };
         // HANDLE RECEIVED MESSAGE

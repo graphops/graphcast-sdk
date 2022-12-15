@@ -4,8 +4,12 @@ use ethers::{
     providers::{Http, Middleware, Provider},
     types::U64,
 };
+use graphcast::gossip_agent::message_typing::GraphcastMessage;
+use num_bigint::BigUint;
 use once_cell::sync::OnceCell;
+use std::collections::HashMap;
 use std::env;
+use std::sync::{Arc, Mutex};
 
 use graphcast::gossip_agent::waku_handling::generate_pubsub_topics;
 use graphcast::gossip_agent::GossipAgent;
@@ -17,6 +21,18 @@ use waku::WakuPubSubTopic;
 extern crate partial_application;
 
 pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
+
+#[derive(Clone)]
+pub struct Attestation {
+    pub npoi: String,
+    pub stake_weight: BigUint,
+}
+
+type RemoteAttestationsMap = HashMap<u64, HashMap<String, Vec<Attestation>>>;
+type LocalAttestationsMap = HashMap<u64, HashMap<String, Attestation>>;
+
+pub static REMOTE_ATTESTATIONS: OnceCell<Arc<Mutex<RemoteAttestationsMap>>> = OnceCell::new();
+pub static LOCAL_ATTESTATIONS: OnceCell<Arc<Mutex<LocalAttestationsMap>>> = OnceCell::new();
 
 #[tokio::main]
 async fn main() {
@@ -42,9 +58,52 @@ async fn main() {
     let topics: Vec<Option<WakuPubSubTopic>> =
         generate_pubsub_topics(radio_name, indexer_allocations);
 
+    let radio_handler = |msg: Result<GraphcastMessage, anyhow::Error>| match msg {
+        Ok(msg) => {
+            println!("Decoded valid message: {:?}", msg);
+            let attestation = Attestation {
+                npoi: msg.content,
+                // TODO: Fetch actual stake
+                stake_weight: BigUint::from(0 as u32),
+            };
+
+            let mut remote_attestations = REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap();
+            let subgraphs = remote_attestations.get(&msg.block_number);
+            match subgraphs {
+                Some(subgraphs) => {
+                    // Already has attestations for that block
+                    let attestations = subgraphs.get(&msg.identifier);
+                    match attestations {
+                        Some(attestations) => {
+                            let mut attestations: Vec<Attestation> = attestations.to_vec();
+                            let mut subgraphs = HashMap::new();
+                            attestations.push(attestation);
+                            subgraphs.insert(msg.identifier.clone(), attestations);
+                            remote_attestations.insert(msg.block_number, subgraphs);
+                        }
+                        None => {
+                            let mut subgraphs = HashMap::new();
+                            subgraphs.insert(msg.identifier.clone(), Vec::from([attestation]));
+                            remote_attestations.insert(msg.block_number, subgraphs);
+                        }
+                    }
+                }
+                None => {
+                    // No attestations
+                    remote_attestations.insert(msg.block_number, HashMap::new());
+                }
+            }
+        }
+        Err(err) => {
+            println!("{}", err);
+        }
+    };
+
+    let radio_handler = Arc::new(Mutex::new(radio_handler));
+
     match GOSSIP_AGENT.set(gossip_agent) {
         Ok(_) => {
-            GOSSIP_AGENT.get().unwrap().message_handler();
+            GOSSIP_AGENT.get().unwrap().register_handler(radio_handler);
         }
         _ => {}
     }
