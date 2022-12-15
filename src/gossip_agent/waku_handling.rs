@@ -16,7 +16,7 @@ use waku::{
     WakuNodeHandle, WakuPubSubTopic,
 };
 
-//TODO: refactor topic generation
+/// Generate and format pubsub topics based on recommendations from https://rfc.vac.dev/spec/23/
 pub fn generate_pubsub_topics(
     radio_name: &str,
     subtopics: &[String],
@@ -36,15 +36,17 @@ pub fn generate_pubsub_topics(
     .to_vec()
 }
 
+/// Initialize a Waku Node with configurations.
+/// Specify the node to use relay network and require at least one peer before publishing
 fn gen_handle() -> WakuNodeHandle<Running> {
     let constants = WakuNodeConfig {
         host: IpAddr::from_str("0.0.0.0").ok(),
         port: Some(6001),
-        advertise_addr: None,
+        advertise_addr: None, // Fill this for boot nodes
         node_key: None,
         keep_alive_interval: None,
-        relay: None,                   //Default True
-        min_peers_to_publish: Some(1), //Default 0
+        relay: None,                   // Default True
+        min_peers_to_publish: Some(1), // Default 0
         filter: None,
         log_level: Some(WakuLogLevel::Error),
     };
@@ -52,6 +54,7 @@ fn gen_handle() -> WakuNodeHandle<Running> {
     waku_new(Some(constants)).unwrap().start().unwrap()
 }
 
+/// Connect waku node to peers and subscribe to topics
 fn connect_and_subscribe(
     nodes: Vec<String>,
     node_handle: WakuNodeHandle<Running>,
@@ -86,6 +89,8 @@ fn connect_and_subscribe(
     node_handle
 }
 
+//TODO: Topic discovery
+/// Set up a waku node given pubsub topics
 pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNodeHandle<Running> {
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
@@ -126,12 +131,11 @@ pub fn setup_node_handle(graphcast_topics: &[Option<WakuPubSubTopic>]) -> WakuNo
     }
 }
 
-//TODO: add Dispute query to the network subgraph endpoint
-//Curryify if possible - factor out param on provider,
+/// Parse and validate incoming message, returns ()
 pub async fn handle_signal(
     provider: &Provider<Http>,
-    signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
+    signal: Signal,
 ) {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
@@ -174,6 +178,11 @@ pub async fn handle_signal(
     }
 }
 
+/// Check validity of the message:
+/// Sender check verifies sender's on-chain identity with gossip registry
+/// Time check verifies that message was from within the acceptable timestamp
+/// Block hash check verifies sender's access to valid Ethereum node provider and blocks
+/// Nonce check ensures the ordering of the messages and avoids past messages
 pub async fn check_message_validity(
     graphcast_message: GraphcastMessage,
     block_hash: String,

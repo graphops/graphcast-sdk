@@ -2,6 +2,12 @@
 name = "graphcast"
 version = "0.1.0"
 edition = "2021"
+authors = ["GraphOps (axiomatic-aardvark, hopeyen)"]
+description="SDK to build Graphcast Radios"
+license="Apache-2.0"
+repository="https://github.com/graphops/graphcast-rs"
+keywords=["graphprotocol", "gossip network", "sdk"]
+categories=["network-programming", "web-programming::http-client"]
 
 [dependencies]
 waku = { package = "waku-bindings", git = "https://github.com/waku-org/waku-rust-bindings" }
