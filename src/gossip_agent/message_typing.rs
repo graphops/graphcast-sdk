@@ -147,7 +147,6 @@ impl GraphcastMessage {
 
     /// Check message from valid sender: resolve indexer address and self stake
     pub async fn valid_sender(&self) -> Result<(Sender, &GraphcastMessage), anyhow::Error> {
-        // TODO: Extract to helper func
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
         let address = format!(
             "{:#x}",

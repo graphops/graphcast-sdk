@@ -6,6 +6,7 @@ use ethers::{
     types::U64,
 };
 use graphcast::gossip_agent::message_typing::GraphcastMessage;
+use graphcast::graphql::client_network::query_network_subgraph;
 use graphcast::Sender;
 use num_bigint::BigUint;
 use once_cell::sync::OnceCell;
@@ -14,7 +15,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use graphcast::gossip_agent::waku_handling::generate_pubsub_topics;
-use graphcast::gossip_agent::GossipAgent;
+use graphcast::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
 use graphcast::graphql::query_graph_node_poi;
 use std::{thread::sleep, time::Duration};
 use waku::WakuPubSubTopic;
@@ -30,6 +31,42 @@ pub struct Attestation {
     pub stake_weight: BigUint,
     pub senders: Option<Vec<String>>,
 }
+
+impl Attestation {
+    pub fn new(npoi: String, stake_weight: BigUint, senders: Option<Vec<String>>) -> Self {
+        Attestation {
+            npoi,
+            stake_weight,
+            senders,
+        }
+    }
+
+    pub fn update(base: &Self, address: String, stake: BigUint) -> Self {
+        let senders = Some([base.senders.as_ref().unwrap().clone(), vec![address]].concat());
+        Self::new(
+            base.npoi.clone(),
+            base.stake_weight.clone() + stake,
+            senders,
+        )
+    }
+}
+
+fn clone_blocks(
+    block_number: u64,
+    blocks: &HashMap<u64, Vec<Attestation>>,
+    ipfs_hash: String,
+    stake: BigUint,
+    address: String,
+) -> HashMap<u64, Vec<Attestation>> {
+    let mut blocks_clone: HashMap<u64, Vec<Attestation>> = HashMap::new();
+    blocks_clone.extend(blocks.clone());
+    blocks_clone.insert(
+        block_number,
+        vec![Attestation::new(ipfs_hash, stake, Some(vec![address]))],
+    );
+    blocks_clone
+}
+
 type RemoteAttestationsMap = HashMap<String, HashMap<u64, Vec<Attestation>>>;
 type LocalAttestationsMap = HashMap<String, HashMap<u64, Attestation>>;
 
@@ -82,12 +119,12 @@ async fn main() {
                     let attestations = blocks.get(&msg.block_number);
                     match attestations {
                         Some(attestations) => {
-                            let attestations_bucket: Vec<Attestation> = Vec::new();
-                            let mut attestations_bucket =
-                                [attestations_bucket, attestations.to_vec()].concat();
+                            let attestations_clone: Vec<Attestation> = Vec::new();
+                            let mut attestations_clone =
+                                [attestations_clone, attestations.to_vec()].concat();
 
                             let existing_attestation =
-                                attestations_bucket.iter().find(|a| a.npoi == msg.content);
+                                attestations_clone.iter().find(|a| a.npoi == msg.content);
 
                             match existing_attestation {
                                 Some(existing_attestation) => {
@@ -99,85 +136,65 @@ async fn main() {
                                     {
                                         println!("{}", "There is already an attestation from this address. Skipping...".yellow());
                                     } else {
-                                        // Create a new helper method on Attestation (from)
-                                        let updated_attestation = Attestation {
-                                            npoi: existing_attestation.npoi.clone(),
-                                            senders: Some(
-                                                [
-                                                    existing_attestation
-                                                        .senders
-                                                        .as_ref()
-                                                        .unwrap()
-                                                        .clone(),
-                                                    vec![sender_address],
-                                                ]
-                                                .concat(),
-                                            ),
-                                            stake_weight: existing_attestation.stake_weight.clone()
-                                                + sender_stake,
-                                        };
+                                        let updated_attestation = Attestation::update(
+                                            existing_attestation,
+                                            sender_address.clone(),
+                                            sender_stake.clone(),
+                                        );
                                         // Remove old
-                                        if let Some(index) = attestations_bucket
+                                        if let Some(index) = attestations_clone
                                             .iter()
                                             .position(|a| a.npoi == existing_attestation.npoi)
                                         {
-                                            attestations_bucket.swap_remove(index);
+                                            attestations_clone.swap_remove(index);
                                         }
                                         // Add new
-                                        attestations_bucket.push(updated_attestation);
+                                        attestations_clone.push(updated_attestation);
 
                                         // Update map
-                                        let mut blocks_bucket: HashMap<u64, Vec<Attestation>> =
-                                            HashMap::new();
-                                        blocks_bucket.extend(blocks.clone());
-                                        blocks_bucket.insert(
+                                        let blocks_clone = clone_blocks(
                                             msg.block_number,
-                                            [attestations_bucket, attestations.to_vec()].concat(),
+                                            blocks,
+                                            msg.content,
+                                            sender_stake,
+                                            sender_address,
                                         );
-                                        remote_attestations.insert(msg.identifier, blocks_bucket);
+                                        remote_attestations.insert(msg.identifier, blocks_clone);
                                     }
                                 }
                                 None => {
-                                    // Completely new NPOI, so new Attestation obj
-                                    // Create a new helper method on Attestation (new)
-                                    let attestation = Attestation {
-                                        npoi: msg.content,
-                                        stake_weight: sender_stake,
-                                        senders: Some(vec![sender_address]),
-                                    };
-
-                                    let mut blocks_bucket: HashMap<u64, Vec<Attestation>> =
-                                        HashMap::new();
-                                    blocks_bucket.extend(blocks.clone());
-                                    blocks_bucket.insert(msg.block_number, vec![attestation]);
-                                    remote_attestations.insert(msg.identifier, blocks_bucket);
+                                    let blocks_clone = clone_blocks(
+                                        msg.block_number,
+                                        blocks,
+                                        msg.content,
+                                        sender_stake,
+                                        sender_address,
+                                    );
+                                    remote_attestations.insert(msg.identifier, blocks_clone);
                                 }
                             }
                         }
                         None => {
-                            let attestation = Attestation {
-                                npoi: msg.content,
-                                stake_weight: sender_stake,
-                                senders: Some(vec![sender_address]),
-                            };
-
-                            let mut blocks_bucket: HashMap<u64, Vec<Attestation>> = HashMap::new();
-                            blocks_bucket.extend(blocks.clone());
-                            blocks_bucket.insert(msg.block_number, vec![attestation]);
-                            remote_attestations.insert(msg.identifier, blocks_bucket);
+                            let blocks_clone = clone_blocks(
+                                msg.block_number,
+                                blocks,
+                                msg.content,
+                                sender_stake,
+                                sender_address,
+                            );
+                            remote_attestations.insert(msg.identifier, blocks_clone);
                         }
                     }
                 }
                 None => {
-                    let attestation = Attestation {
-                        npoi: msg.content,
-                        stake_weight: sender_stake,
-                        senders: Some(vec![sender_address]),
-                    };
-
-                    let mut blocks_bucket: HashMap<u64, Vec<Attestation>> = HashMap::new();
-                    blocks_bucket.insert(msg.block_number, vec![attestation]);
-                    remote_attestations.insert(msg.identifier, blocks_bucket);
+                    let blocks_clone = clone_blocks(
+                        msg.block_number,
+                        &HashMap::new(),
+                        msg.content,
+                        sender_stake,
+                        sender_address,
+                    );
+                    remote_attestations.insert(msg.identifier, blocks_clone);
                 }
             }
         }
@@ -207,7 +224,7 @@ async fn main() {
 
         if block_number == compare_block {
             println!("{}", "Comparing attestations".magenta());
-            let attestation_block = &(&compare_block - wait_block_duration);
+            let attestation_block = &(compare_block - wait_block_duration);
 
             let remote = REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap();
             let local = LOCAL_ATTESTATIONS.get().unwrap().lock().unwrap();
@@ -230,7 +247,6 @@ async fn main() {
                                         .concat();
 
                                 // Sort remote
-                                //vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
                                 remote_attestations_clone.sort_by(|a, b| {
                                     a.stake_weight.partial_cmp(&b.stake_weight).unwrap()
                                 });
@@ -256,7 +272,7 @@ async fn main() {
                                         .red()
                                         .bold()
                                     );
-                                    // Do something - send alert, close allocations, etc
+                                    // Take some action - send alert, close allocations, etc
                                 }
                             }
                             None => {
@@ -278,7 +294,7 @@ async fn main() {
             let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
             let block_hash = format!("{:#x}", block.hash.unwrap());
 
-            //CONSTRUCTING MESSAGE
+            // CONSTRUCTING MESSAGE
             // Radio specific message content query function
             let poi_query = partial!( query_graph_node_poi => graph_node_endpoint.clone(), _, block_hash.to_string(),block_number.try_into().unwrap());
 
@@ -288,11 +304,18 @@ async fn main() {
                 let topic_title = topic.clone().unwrap().topic_name;
                 let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
 
+                let my_stake = query_network_subgraph(
+                    NETWORK_SUBGRAPH.to_string(),
+                    GOSSIP_AGENT.get().unwrap().indexer_address.clone(),
+                )
+                .await
+                .unwrap()
+                .indexer_stake();
+
                 if let Ok(Some(content)) = poi_query(ipfs_hash.to_string()).await {
                     let attestation = Attestation {
                         npoi: content.clone(),
-                        // TOOD: Fetch my actual stake
-                        stake_weight: BigUint::from(0_u32),
+                        stake_weight: my_stake,
                         senders: None,
                     };
 
@@ -302,15 +325,15 @@ async fn main() {
 
                     match blocks {
                         Some(blocks) => {
-                            let mut blocks_bucket: HashMap<u64, Attestation> = HashMap::new();
-                            blocks_bucket.extend(blocks.clone());
-                            blocks_bucket.insert(block_number, attestation);
-                            local_attestations.insert(ipfs_hash.to_string(), blocks_bucket);
+                            let mut blocks_clone: HashMap<u64, Attestation> = HashMap::new();
+                            blocks_clone.extend(blocks.clone());
+                            blocks_clone.insert(block_number, attestation);
+                            local_attestations.insert(ipfs_hash.to_string(), blocks_clone);
                         }
                         None => {
-                            let mut blocks_bucket: HashMap<u64, Attestation> = HashMap::new();
-                            blocks_bucket.insert(block_number, attestation);
-                            local_attestations.insert(ipfs_hash.to_string(), blocks_bucket);
+                            let mut blocks_clone: HashMap<u64, Attestation> = HashMap::new();
+                            blocks_clone.insert(block_number, attestation);
+                            local_attestations.insert(ipfs_hash.to_string(), blocks_clone);
                         }
                     }
 

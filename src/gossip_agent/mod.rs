@@ -31,8 +31,6 @@ pub struct GossipAgent {
     eth_node: String,
     provider: Provider<Http>,
     pub indexer_allocations: Vec<String>,
-    // #[allow(dead_code)]
-    // pubsub_topics: Vec<Option<WakuPubSubTopic>>,
     content_topic: WakuContentTopic,
     node_handle: WakuNodeHandle<Running>,
     pub nonces: Arc<Mutex<NoncesMap>>,
