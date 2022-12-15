@@ -16,6 +16,7 @@
 //! For more explanation, see the crate documentation.
 //!
 
+use num_bigint::BigUint;
 use once_cell::sync::OnceCell;
 use std::{
     borrow::Cow,

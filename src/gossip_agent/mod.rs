@@ -66,7 +66,6 @@ impl GossipAgent {
         eth_node: String,
         radio_name: &str,
     ) -> Result<GossipAgent, Box<dyn Error>> {
-        let app_name: Cow<str> = Cow::from("graphcast");
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
         let content_topic: WakuContentTopic = WakuContentTopic {

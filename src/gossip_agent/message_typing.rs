@@ -232,11 +232,7 @@ impl GraphcastMessage {
         updated_nonces
     }
 
-    /// Check historic nonce: ensure message sequencing
-    pub fn valid_nonce(
-        &self,
-        nonces: &Arc<Mutex<NoncesMap>>,
-    ) -> Result<&GraphcastMessage, anyhow::Error> {
+    pub fn recover_sender_address(&self) -> String {
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
         format!(
             "{:#x}",
