@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
-    graphql::client_network::query_network_subgraph,
-    graphql::client_registry::query_registry_indexer, NoncesMap, Sender,
+    graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
+    NoncesMap, Sender,
 };
 use anyhow::anyhow;
 
@@ -374,7 +374,6 @@ mod tests {
         );
 
         let (_, msg) = msg.valid_sender().await.unwrap();
-
         assert_eq!(msg.content, content);
     }
 }
