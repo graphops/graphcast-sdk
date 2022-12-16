@@ -13,6 +13,7 @@
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::Block;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -21,7 +22,7 @@ use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeH
 
 use self::message_typing::GraphcastMessage;
 use self::waku_handling::{
-    handle_signal, pubsub_topic, setup_node_handle,
+    generate_content_topics, handle_signal, pubsub_topic, setup_node_handle,
 };
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
@@ -48,10 +49,9 @@ pub struct GossipAgent {
     provider: Provider<Http>,
     /// Gossip operator's indexer allocations, used for default topic generation
     pub indexer_allocations: Vec<String>,
-    // #[allow(dead_code)]
-    // pubsub_topics: Vec<Option<WakuPubSubTopic>>,
-    // content_topics: Vec<WakuContentTopic>,
     node_handle: WakuNodeHandle<Running>,
+    /// gossip agent waku instance's content topics
+    content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
 }
@@ -64,7 +64,7 @@ impl GossipAgent {
     pub async fn new(
         private_key: String,
         eth_node: String,
-        _radio_name: &str,
+        radio_name: &str,
     ) -> Result<GossipAgent, Box<dyn Error>> {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
@@ -79,23 +79,52 @@ impl GossipAgent {
             query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
                 .await?
                 .indexer_allocations();
-        // let subtopics = indexer_allocations
-        //     .iter()
-        //     .map(|s| &**s)
-        //     .collect::<Vec<&str>>();
+        let subtopics = indexer_allocations
+            .iter()
+            .map(|s| &**s)
+            .collect::<Vec<&str>>();
+
         let node_handle = setup_node_handle();
-        // let _content_topics = generate_content_topics(radio_name, 0, &subtopics);
+        // Explicitely filter subscription
+        let content_topics = generate_content_topics(radio_name, 0, &subtopics);
         Ok(GossipAgent {
             wallet,
             eth_node,
             provider,
             indexer_address,
-            // pubsub_topics,
-            // content_topics,
+            content_topics,
             indexer_allocations,
             node_handle,
             nonces: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    /// Get identifiers of Radio content topics
+    pub fn content_identifiers(&self) -> Vec<String> {
+        self.content_topics
+            .clone()
+            .into_iter()
+            .map(|topic| topic.content_topic_name.into_owned())
+            .collect()
+    }
+
+    /// Find the subscribed content topic with an identifier
+    /// Error if topic doesn't exist
+    pub fn match_content_topic(
+        &self,
+        identifier: String,
+    ) -> Result<&WakuContentTopic, Box<dyn Error>> {
+        match self
+            .content_topics
+            .iter()
+            .find(|&x| x.content_topic_name == identifier.clone())
+        {
+            Some(topic) => Ok(topic),
+            _ => Err(anyhow::anyhow!(format!(
+                "Did not match a content topic with identifier: {}",
+                identifier
+            )))?,
+        }
     }
 
     //TODO: Factor out handler
@@ -115,7 +144,7 @@ impl GossipAgent {
     /// Construct a Graphcast message and send to the Waku Relay network with custom topic
     pub async fn gossip_message(
         &self,
-        content_topic: &WakuContentTopic,
+        identifier: String,
         block_number: u64,
         content: String,
     ) -> Result<String, Box<dyn Error>> {
@@ -126,11 +155,11 @@ impl GossipAgent {
             .unwrap()
             .unwrap();
         let block_hash = format!("{:#x}", block.hash.unwrap());
-        let identifier = &content_topic.content_topic_name;
+        let content_topic = self.match_content_topic(identifier.clone())?;
 
         GraphcastMessage::build(
             &self.wallet,
-            identifier.to_string(),
+            identifier,
             content,
             block_number.try_into().unwrap(),
             block_hash.to_string(),

@@ -5,14 +5,14 @@ use ethers::{
     types::U64,
 };
 use once_cell::sync::OnceCell;
-
 use std::env;
-
-use graphcast::gossip_agent::waku_handling::generate_content_topics;
-use graphcast::gossip_agent::GossipAgent;
-use graphcast::graphql::query_graph_node_poi;
 use std::{thread::sleep, time::Duration};
-use waku::WakuContentTopic;
+
+use graphcast::gossip_agent::GossipAgent;
+
+/// Radio specific query function to fetch Proof of Indexing for each allocated subgraph
+use graphql::query_graph_node_poi;
+mod graphql;
 
 #[macro_use]
 extern crate partial_application;
@@ -32,21 +32,10 @@ async fn main() {
 
     let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
     let radio_name: &str = "poi-crosschecker";
-    let radio_version: usize = 0;
 
     let gossip_agent = GossipAgent::new(private_key, eth_node, radio_name)
         .await
         .unwrap();
-
-    let indexer_allocations = &gossip_agent
-        .indexer_allocations
-        .iter()
-        .map(|s| &**s)
-        .collect::<Vec<&str>>();
-
-    //Note: using None will let message flow through default-waku peer nodes and filtered by graphcast poi-crosschecker as content topic
-    let topics: Vec<WakuContentTopic> =
-        generate_content_topics(radio_name, radio_version, indexer_allocations);
 
     if GOSSIP_AGENT.set(gossip_agent).is_ok() {
         GOSSIP_AGENT.get().unwrap().message_handler();
@@ -76,28 +65,28 @@ async fn main() {
             let block_hash = format!("{:#x}", block.hash.unwrap());
 
             // Radio specific message content query function
+            // Function takes in an identifier string and make specific queries regarding the identifier
+            // The example here combines a single function provided query endpoint, current block info
+            // Then the function gets sent to agent for making identifier independent queries
             let poi_query = partial!( query_graph_node_poi => graph_node_endpoint.clone(), _, block_hash.to_string(),block_number.try_into().unwrap());
+            let identifiers = GOSSIP_AGENT.get().unwrap().content_identifiers();
 
-            //CONSTRUCTING MESSAGE
-            for topic in &topics {
-                match poi_query(topic.content_topic_name.to_string()).await {
-                    Ok(Some(content)) => {
-                        let res = GOSSIP_AGENT
+            for id in identifiers {
+                match poi_query(id.clone()).await {
+                    Ok(content) => {
+                        match GOSSIP_AGENT
                             .get()
                             .unwrap()
-                            .gossip_message(topic, block_number, content)
-                            .await;
-
-                        match res {
-                            Ok(sent) => println!("Sent message id: {}", sent),
-                            Err(e) => println!("Failed to send message {}", e),
+                            .gossip_message(id.clone(), block_number, content)
+                            .await
+                        {
+                            Ok(sent) => println!("{}: {}", "Sent message id:".green(), sent),
+                            Err(e) => println!("{}: {}", "Failed to send message".red(), e),
                         };
                     }
-                    Ok(None) => println!("Query returned null"),
-                    Err(e) => println!("Failed to query send message {}", e),
+                    Err(e) => println!("{}: {}", "Failed to query message".red(), e),
                 }
             }
-
             //ATTEST
             if block_number == compare_block {
                 println!("{}", "Compare attestations here".red());
