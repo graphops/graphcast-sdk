@@ -104,7 +104,7 @@ impl Network {
 
     /// Fetch indexer active allocations subgraph deployment IPFS hashes
     pub fn indexer_allocations(&self) -> Vec<String> {
-        // let test_topic = "Qmdsp5yyFzMVUdSv5N9KndTisjXHrGDEXNaBxjyCTvDfPs".to_string();
+        // ["QmaCRFCJX3f1LACgqZFecDphpxrqMyJw1r2DCBHXmQRYY8".to_string()].to_vec()
         self.indexer
             .as_ref()
             .map(|i| {

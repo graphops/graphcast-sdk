@@ -10,21 +10,20 @@
 //! Graphcast messages regardless of specific radio use cases
 //!
 
-use anyhow::anyhow;
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::Block;
+
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::{borrow::Cow, error::Error};
 use tokio::runtime::Runtime;
-use waku::{
-    waku_set_event_callback, Encoding, Running, Signal, WakuContentTopic, WakuNodeHandle,
-    WakuPubSubTopic,
-};
+use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
 use self::message_typing::GraphcastMessage;
-use self::waku_handling::{generate_pubsub_topics, handle_signal, setup_node_handle};
+use self::waku_handling::{
+    generate_content_topics, handle_signal, pubsub_topic, setup_node_handle,
+};
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::{NoncesMap, Sender};
@@ -50,8 +49,9 @@ pub struct GossipAgent {
     provider: Provider<Http>,
     /// Gossip operator's indexer allocations, used for default topic generation
     pub indexer_allocations: Vec<String>,
-    content_topic: WakuContentTopic,
     node_handle: WakuNodeHandle<Running>,
+    /// gossip agent waku instance's content topics
+    content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
 }
@@ -68,13 +68,6 @@ impl GossipAgent {
     ) -> Result<GossipAgent, Box<dyn Error>> {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
-        let content_topic: WakuContentTopic = WakuContentTopic {
-            application_name: crate::app_name(),
-            version: 0,
-            content_topic_name: Cow::from(radio_name.to_string()),
-            encoding: Encoding::Proto,
-        };
-
         let indexer_address = query_registry_indexer(
             REGISTRY_SUBGRAPH.to_string(),
             format!("{:?}", wallet.address()),
@@ -86,24 +79,55 @@ impl GossipAgent {
             query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
                 .await?
                 .indexer_allocations();
-        let pubsub_topics: Vec<Option<WakuPubSubTopic>> =
-            generate_pubsub_topics(radio_name, &indexer_allocations);
-        let node_handle = setup_node_handle(&pubsub_topics);
+        let subtopics = indexer_allocations
+            .iter()
+            .map(|s| &**s)
+            .collect::<Vec<&str>>();
 
+        let node_handle = setup_node_handle();
+        // Explicitely filter subscription
+        let content_topics = generate_content_topics(radio_name, 0, &subtopics);
         Ok(GossipAgent {
             wallet,
             eth_node,
             provider,
             indexer_address,
-            // pubsub_topics,
+            content_topics,
             indexer_allocations,
-            content_topic,
             node_handle,
             nonces: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
-    // Note: Would be nice to factor out provider with eth_node, maybe impl Copy trait
+    /// Get identifiers of Radio content topics
+    pub fn content_identifiers(&self) -> Vec<String> {
+        self.content_topics
+            .clone()
+            .into_iter()
+            .map(|topic| topic.content_topic_name.into_owned())
+            .collect()
+    }
+
+    /// Find the subscribed content topic with an identifier
+    /// Error if topic doesn't exist
+    pub fn match_content_topic(
+        &self,
+        identifier: String,
+    ) -> Result<&WakuContentTopic, Box<dyn Error>> {
+        match self
+            .content_topics
+            .iter()
+            .find(|&x| x.content_topic_name == identifier.clone())
+        {
+            Some(topic) => Ok(topic),
+            _ => Err(anyhow::anyhow!(format!(
+                "Did not match a content topic with identifier: {}",
+                identifier
+            )))?,
+        }
+    }
+
+    //TODO: Factor out handler
     /// Establish custom handler for incoming Waku messages
     pub fn register_handler<
         F: FnMut(Result<(Sender, GraphcastMessage), anyhow::Error>)
@@ -130,7 +154,7 @@ impl GossipAgent {
     /// For each topic, construct with custom write function and send
     pub async fn send_message(
         &self,
-        topic: Option<WakuPubSubTopic>,
+        identifier: String,
         block_number: u64,
         content: String,
     ) -> Result<String, Box<dyn Error>> {
@@ -141,20 +165,16 @@ impl GossipAgent {
             .unwrap()
             .unwrap();
         let block_hash = format!("{:#x}", block.hash.unwrap());
-        let topic_title = match topic.clone() {
-            Some(x) => x.topic_name,
-            None => return Err(anyhow!("Could not parse topic title"))?,
-        };
-        let identifier: &str = topic_title.split('-').collect::<Vec<_>>()[3];
+        let content_topic = self.match_content_topic(identifier.clone())?;
 
         GraphcastMessage::build(
             &self.wallet,
-            identifier.to_string(),
+            identifier,
             content,
             block_number.try_into().unwrap(),
             block_hash.to_string(),
         )
         .await?
-        .send_to_waku(&self.node_handle, topic.clone(), self.content_topic.clone())
+        .send_to_waku(&self.node_handle, pubsub_topic("1"), content_topic)
     }
 }

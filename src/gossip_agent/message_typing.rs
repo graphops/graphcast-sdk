@@ -148,13 +148,17 @@ impl GraphcastMessage {
         &self,
         node_handle: &WakuNodeHandle<Running>,
         pub_sub_topic: Option<WakuPubSubTopic>,
-        content_topic: WakuContentTopic,
+        content_topic: &WakuContentTopic,
     ) -> Result<String, Box<dyn Error>> {
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
-        let waku_message =
-            WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
+        let waku_message = WakuMessage::new(
+            buff,
+            content_topic.clone(),
+            2,
+            Utc::now().timestamp() as usize,
+        );
 
         Ok(node_handle.relay_publish_message(&waku_message, pub_sub_topic, None)?)
     }

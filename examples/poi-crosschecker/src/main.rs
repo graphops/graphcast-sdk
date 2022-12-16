@@ -21,6 +21,13 @@ use std::{thread::sleep, time::Duration};
 use utils::{GOSSIP_AGENT, LOCAL_ATTESTATIONS, REMOTE_ATTESTATIONS};
 use waku::WakuPubSubTopic;
 
+/// Import graphcast
+use graphcast::graphql::QueryError;
+
+/// Radio specific query function to fetch Proof of Indexing for each allocated subgraph
+use graphql::query_graph_node_poi;
+mod graphql;
+
 #[macro_use]
 extern crate partial_application;
 
@@ -94,44 +101,46 @@ async fn main() {
             let block: Block<_> = provider.get_block(block_number).await.unwrap().unwrap();
             let block_hash = format!("{:#x}", block.hash.unwrap());
 
-            // CONSTRUCTING MESSAGE
             // Radio specific message content query function
+            // Function takes in an identifier string and make specific queries regarding the identifier
+            // The example here combines a single function provided query endpoint, current block info
+            // Then the function gets sent to agent for making identifier independent queries
             let poi_query = partial!( query_graph_node_poi => graph_node_endpoint.clone(), _, block_hash.to_string(),block_number.try_into().unwrap());
+            let identifiers = GOSSIP_AGENT.get().unwrap().content_identifiers();
 
-            // Might make more sense to loop through indexer_allocation st we don't need to parse ipfs hash
-            // for ipfs_hash in indexer_allocations { - but would need topic generation, can refactor this later
-            for topic in topics.clone() {
-                let topic_title = topic.clone().unwrap().topic_name;
-                let ipfs_hash: &str = topic_title.split('-').collect::<Vec<_>>()[3];
+            let my_stake = query_network_subgraph(
+                NETWORK_SUBGRAPH.to_string(),
+                GOSSIP_AGENT.get().unwrap().indexer_address.clone(),
+            )
+            .await
+            .unwrap()
+            .indexer_stake();
 
-                let my_stake = query_network_subgraph(
-                    NETWORK_SUBGRAPH.to_string(),
-                    GOSSIP_AGENT.get().unwrap().indexer_address.clone(),
-                )
-                .await
-                .unwrap()
-                .indexer_stake();
-
-                if let Ok(Some(content)) = poi_query(ipfs_hash.to_string()).await {
-                    let attestation = Attestation {
-                        npoi: content.clone(),
-                        stake_weight: my_stake,
-                        senders: Vec::new(),
-                    };
-
-                    save_local_attestation(attestation, ipfs_hash.to_string(), block_number);
-
-                    let res = GOSSIP_AGENT
+            for id in identifiers {
+                match poi_query(id.clone()).await {
+                    Ok(content) => {
+                        let attestation = Attestation {
+                            npoi: content.clone(),
+                            stake_weight: my_stake,
+                            senders: Vec::new(),
+                        };
+    
+                        save_local_attestation(attestation, id.clone(), block_number);
+        
+                        match GOSSIP_AGENT
                         .get()
                         .unwrap()
                         .send_message(topic, block_number, content)
-                        .await;
-
-                    match res {
-                        Ok(sent) => println!("res!!! {}", sent),
-                        Err(e) => println!("eeeer!!! {}", e),
-                    };
+                        .await {
+                            Ok(sent) => println!("res!!! {}", sent),
+                            Err(e) => println!("eeeer!!! {}", e),
+                        };
+                    }
+                    Err(e) => println!("{}: {}", "Failed to query message".red(), e),
                 }
+            }
+            if block_number == compare_block {
+                println!("{}", "Compare attestations here".red());
             }
         }
     }
