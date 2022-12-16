@@ -4,12 +4,48 @@ use std::{
 };
 
 use crate::utils::{
-    update_blocks, Attestation, LocalAttestationsMap, RemoteAttestationsMap, LOCAL_ATTESTATIONS,
+    update_blocks, LocalAttestationsMap, RemoteAttestationsMap, LOCAL_ATTESTATIONS,
     REMOTE_ATTESTATIONS,
 };
 use anyhow::anyhow;
 use colored::Colorize;
 use graphcast::{gossip_agent::message_typing::GraphcastMessage, Sender};
+use num_bigint::BigUint;
+
+#[derive(Clone, Debug)]
+pub struct Attestation {
+    pub npoi: String,
+    pub stake_weight: BigUint,
+    pub senders: Vec<String>,
+}
+
+impl Attestation {
+    pub fn new(npoi: String, stake_weight: BigUint, senders: Vec<String>) -> Self {
+        Attestation {
+            npoi,
+            stake_weight,
+            senders,
+        }
+    }
+
+    pub fn update(base: &Self, address: String, stake: BigUint) -> Result<Self, anyhow::Error> {
+        if base.senders.contains(&address) {
+            Err(anyhow!(
+                "{}",
+                "There is already an attestation from this address. Skipping..."
+                    .to_string()
+                    .yellow()
+            ))
+        } else {
+            let senders = [base.senders.clone(), vec![address]].concat();
+            Ok(Self::new(
+                base.npoi.clone(),
+                base.stake_weight.clone() + stake,
+                senders,
+            ))
+        }
+    }
+}
 
 pub fn save_local_attestation(attestation: Attestation, ipfs_hash: String, block_number: u64) {
     let mut local_attestations = LOCAL_ATTESTATIONS.get().unwrap().lock().unwrap();
@@ -58,33 +94,37 @@ pub fn attestation_handler() -> impl Fn(Result<(graphcast::Sender, GraphcastMess
 
                             match existing_attestation {
                                 Some(existing_attestation) => {
-                                    if existing_attestation.senders.contains(&sender_address) {
-                                        println!("{}", "There is already an attestation from this address. Skipping...".yellow());
-                                    } else {
-                                        let updated_attestation = Attestation::update(
-                                            existing_attestation,
-                                            sender_address.clone(),
-                                            sender_stake.clone(),
-                                        );
-                                        // Remove old
-                                        if let Some(index) = attestations_clone
-                                            .iter()
-                                            .position(|a| a.npoi == existing_attestation.npoi)
-                                        {
-                                            attestations_clone.swap_remove(index);
-                                        }
-                                        // Add new
-                                        attestations_clone.push(updated_attestation);
+                                    let updated_attestation = Attestation::update(
+                                        existing_attestation,
+                                        sender_address.clone(),
+                                        sender_stake.clone(),
+                                    );
+                                    match updated_attestation {
+                                        Ok(attestation) => {
+                                            // Remove old
+                                            if let Some(index) = attestations_clone
+                                                .iter()
+                                                .position(|a| a.npoi == existing_attestation.npoi)
+                                            {
+                                                attestations_clone.swap_remove(index);
+                                            }
+                                            // Add new
+                                            attestations_clone.push(attestation);
 
-                                        // Update map
-                                        let blocks_clone = update_blocks(
-                                            msg.block_number,
-                                            blocks,
-                                            msg.content,
-                                            sender_stake,
-                                            sender_address,
-                                        );
-                                        remote_attestations.insert(msg.identifier, blocks_clone);
+                                            // Update map
+                                            let blocks_clone = update_blocks(
+                                                msg.block_number,
+                                                blocks,
+                                                msg.content,
+                                                sender_stake,
+                                                sender_address,
+                                            );
+                                            remote_attestations
+                                                .insert(msg.identifier, blocks_clone);
+                                        }
+                                        Err(err) => {
+                                            println!("{}", err)
+                                        }
                                     }
                                 }
                                 None => {
@@ -222,10 +262,44 @@ mod tests {
             &"i-am-groot3".to_string()
         );
     }
+
     #[test]
-    fn test_compare_attestations_fail() {
-        let _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
-        let _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+    fn test_attestation_update_success() {
+        let attestation = Attestation::new(
+            "awesome-npoi".to_string(),
+            BigUint::default(),
+            vec!["i-am-groot".to_string()],
+        );
+
+        let updated_attestation =
+            Attestation::update(&attestation, "soggip".to_string(), BigUint::one());
+
+        assert!(updated_attestation.is_ok());
+        assert_eq!(updated_attestation.unwrap().stake_weight, BigUint::one());
+    }
+
+    #[test]
+    fn test_attestation_update_fail() {
+        let attestation = Attestation::new(
+            "awesome-npoi".to_string(),
+            BigUint::default(),
+            vec!["i-am-groot".to_string()],
+        );
+
+        let updated_attestation =
+            Attestation::update(&attestation, "i-am-groot".to_string(), BigUint::default());
+
+        assert!(updated_attestation.is_err());
+        assert_eq!(
+            updated_attestation.unwrap_err().to_string(),
+            "There is already an attestation from this address. Skipping...".to_string()
+        );
+    }
+
+    #[test]
+    fn test_compare_attestations_generic_fail() {
+        _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+        _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
 
         let res = compare_attestations(
             42,
@@ -234,6 +308,75 @@ mod tests {
         );
 
         assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err().to_string(),
+            "The comparison did not execute successfully for on block 42. Continuing..."
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn test_compare_attestations_remote_not_found_fail() {
+        let mut remote_blocks: HashMap<u64, Vec<Attestation>> = HashMap::new();
+        let mut local_blocks: HashMap<u64, Attestation> = HashMap::new();
+
+        remote_blocks.insert(
+            42,
+            vec![Attestation::new(
+                "awesome-npoi".to_string(),
+                BigUint::default(),
+                vec!["i-am-groot".to_string()],
+            )],
+        );
+
+        local_blocks.insert(
+            42,
+            Attestation::new("awesome-npoi".to_string(), BigUint::default(), Vec::new()),
+        );
+
+        let mut remote_attestations: HashMap<String, HashMap<u64, Vec<Attestation>>> =
+            HashMap::new();
+        let mut local_attestations: HashMap<String, HashMap<u64, Attestation>> = HashMap::new();
+
+        remote_attestations.insert("my-awesome-hash".to_string(), remote_blocks);
+        local_attestations.insert("different-awesome-hash".to_string(), local_blocks);
+
+        _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(remote_attestations)));
+        _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(local_attestations)));
+
+        let res = compare_attestations(
+            42,
+            Arc::clone(REMOTE_ATTESTATIONS.get().unwrap()),
+            Arc::clone(LOCAL_ATTESTATIONS.get().unwrap()),
+        );
+
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().to_string(),"No attestations for subgraph different-awesome-hash on block 42 found in remote attestations store. Continuing...".to_string());
+    }
+
+    #[test]
+    fn test_compare_attestations_local_not_found_fail() {
+        let remote_blocks: HashMap<u64, Vec<Attestation>> = HashMap::new();
+        let local_blocks: HashMap<u64, Attestation> = HashMap::new();
+
+        let mut remote_attestations: HashMap<String, HashMap<u64, Vec<Attestation>>> =
+            HashMap::new();
+        let mut local_attestations: HashMap<String, HashMap<u64, Attestation>> = HashMap::new();
+
+        remote_attestations.insert("my-awesome-hash".to_string(), remote_blocks);
+        local_attestations.insert("my-awesome-hash".to_string(), local_blocks);
+
+        _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(remote_attestations)));
+        _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(local_attestations)));
+
+        let res = compare_attestations(
+            42,
+            Arc::clone(REMOTE_ATTESTATIONS.get().unwrap()),
+            Arc::clone(LOCAL_ATTESTATIONS.get().unwrap()),
+        );
+
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().to_string(),"No attestation for subgraph my-awesome-hash on block 42 found in local attestations store. Continuing...".to_string());
     }
 
     #[test]
@@ -262,8 +405,8 @@ mod tests {
         remote_attestations.insert("my-awesome-hash".to_string(), remote_blocks);
         local_attestations.insert("my-awesome-hash".to_string(), local_blocks);
 
-        let _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(remote_attestations)));
-        let _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(local_attestations)));
+        _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(remote_attestations)));
+        _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(local_attestations)));
 
         let res = compare_attestations(
             42,
@@ -272,5 +415,9 @@ mod tests {
         );
 
         assert!(res.is_ok());
+        assert_eq!(
+            res.unwrap(),
+            "POIs match for subgraph my-awesome-hash on block 42!".to_string()
+        );
     }
 }

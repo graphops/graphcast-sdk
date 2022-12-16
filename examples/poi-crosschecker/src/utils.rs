@@ -7,38 +7,14 @@ use graphcast::gossip_agent::GossipAgent;
 use num_bigint::BigUint;
 use once_cell::sync::OnceCell;
 
+use crate::attestations::Attestation;
+
 pub type RemoteAttestationsMap = HashMap<String, HashMap<u64, Vec<Attestation>>>;
 pub type LocalAttestationsMap = HashMap<String, HashMap<u64, Attestation>>;
 
 pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
 pub static REMOTE_ATTESTATIONS: OnceCell<Arc<Mutex<RemoteAttestationsMap>>> = OnceCell::new();
 pub static LOCAL_ATTESTATIONS: OnceCell<Arc<Mutex<LocalAttestationsMap>>> = OnceCell::new();
-
-#[derive(Clone, Debug)]
-pub struct Attestation {
-    pub npoi: String,
-    pub stake_weight: BigUint,
-    pub senders: Vec<String>,
-}
-
-impl Attestation {
-    pub fn new(npoi: String, stake_weight: BigUint, senders: Vec<String>) -> Self {
-        Attestation {
-            npoi,
-            stake_weight,
-            senders,
-        }
-    }
-
-    pub fn update(base: &Self, address: String, stake: BigUint) -> Self {
-        let senders = [base.senders.clone(), vec![address]].concat();
-        Self::new(
-            base.npoi.clone(),
-            base.stake_weight.clone() + stake,
-            senders,
-        )
-    }
-}
 
 pub fn update_blocks(
     block_number: u64,
@@ -59,11 +35,10 @@ pub fn update_blocks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_traits::identities::One;
 
     #[test]
     fn test_basic_global_maps() {
-        let _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+        _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
         let mut remote_attestations = REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap();
         let mut blocks: HashMap<u64, Vec<Attestation>> = HashMap::new();
         blocks.insert(
@@ -82,7 +57,7 @@ mod tests {
             "awesome-npoi".to_string()
         );
 
-        let _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+        _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
         let mut local_attestations = LOCAL_ATTESTATIONS.get().unwrap().lock().unwrap();
         let mut blocks: HashMap<u64, Attestation> = HashMap::new();
         blocks.insert(
@@ -118,19 +93,5 @@ mod tests {
             block_clone.get(&42).unwrap().first().unwrap().npoi,
             "awesome-npoi".to_string()
         );
-    }
-
-    #[test]
-    fn test_attestation_update() {
-        let attestation = Attestation::new(
-            "awesome-npoi".to_string(),
-            BigUint::default(),
-            vec!["i-am-groot".to_string()],
-        );
-
-        let updated_attestation =
-            Attestation::update(&attestation, "soggip".to_string(), BigUint::one());
-
-        assert_eq!(updated_attestation.stake_weight, BigUint::one());
     }
 }

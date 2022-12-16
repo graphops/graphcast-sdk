@@ -2,8 +2,7 @@
 mod attestations;
 mod utils;
 
-use crate::attestations::{compare_attestations, save_local_attestation};
-use crate::utils::Attestation;
+use crate::attestations::{compare_attestations, save_local_attestation, Attestation};
 use attestations::attestation_handler;
 use colored::*;
 use ethers::types::Block;
@@ -32,8 +31,8 @@ async fn main() {
     let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
     let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
 
-    let _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
-    let _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+    _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+    _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
 
     // Send message every x blocks for which wait y blocks before attestations
     let examination_frequency = 3;
