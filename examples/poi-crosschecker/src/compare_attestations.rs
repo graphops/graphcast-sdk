@@ -71,8 +71,8 @@ pub fn compare_attestations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_traits::identities::One;
     use num_bigint::BigUint;
+    use num_traits::identities::One;
 
     #[test]
     fn test_attestation_sorting() {

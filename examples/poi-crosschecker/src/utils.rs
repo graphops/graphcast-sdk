@@ -169,7 +169,8 @@ mod tests {
             Attestation::new("awesome-npoi".to_string(), BigUint::default(), None),
         );
 
-        let mut remote_attestations: HashMap<String, HashMap<u64, Vec<Attestation>>> = HashMap::new();
+        let mut remote_attestations: HashMap<String, HashMap<u64, Vec<Attestation>>> =
+            HashMap::new();
         let mut local_attestations: HashMap<String, HashMap<u64, Attestation>> = HashMap::new();
 
         remote_attestations.insert("my-awesome-hash".to_string(), remote_blocks);
