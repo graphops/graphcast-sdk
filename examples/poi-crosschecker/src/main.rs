@@ -10,19 +10,13 @@ use ethers::{
     providers::{Http, Middleware, Provider},
     types::U64,
 };
-use graphcast::gossip_agent::waku_handling::generate_pubsub_topics;
 use graphcast::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
 use graphcast::graphql::client_network::query_network_subgraph;
-use graphcast::graphql::query_graph_node_poi;
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::{thread::sleep, time::Duration};
 use utils::{GOSSIP_AGENT, LOCAL_ATTESTATIONS, REMOTE_ATTESTATIONS};
-use waku::WakuPubSubTopic;
-
-/// Import graphcast
-use graphcast::graphql::QueryError;
 
 /// Radio specific query function to fetch Proof of Indexing for each allocated subgraph
 use graphql::query_graph_node_poi;
@@ -53,11 +47,6 @@ async fn main() {
         .unwrap();
 
     _ = GOSSIP_AGENT.set(gossip_agent);
-    let indexer_allocations = &GOSSIP_AGENT.get().unwrap().indexer_allocations;
-
-    //Note: using None will let message flow through default-waku peer nodes and filtered by graphcast poi-crosschecker as content topic
-    let topics: Vec<Option<WakuPubSubTopic>> =
-        generate_pubsub_topics(radio_name, indexer_allocations);
 
     let radio_handler = Arc::new(Mutex::new(attestation_handler()));
     GOSSIP_AGENT.get().unwrap().register_handler(radio_handler);
@@ -121,7 +110,7 @@ async fn main() {
                     Ok(content) => {
                         let attestation = Attestation {
                             npoi: content.clone(),
-                            stake_weight: my_stake,
+                            stake_weight: my_stake.clone(),
                             senders: Vec::new(),
                         };
     
@@ -130,7 +119,7 @@ async fn main() {
                         match GOSSIP_AGENT
                         .get()
                         .unwrap()
-                        .send_message(topic, block_number, content)
+                        .send_message(id.clone(), block_number, content)
                         .await {
                             Ok(sent) => println!("res!!! {}", sent),
                             Err(e) => println!("eeeer!!! {}", e),
