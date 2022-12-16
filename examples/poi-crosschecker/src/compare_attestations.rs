@@ -67,3 +67,48 @@ pub fn compare_attestations(
     )
     .yellow()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_traits::identities::One;
+    use num_bigint::BigUint;
+
+    #[test]
+    fn test_attestation_sorting() {
+        let attestation1 = Attestation::new(
+            "awesome-npoi".to_string(),
+            BigUint::default(),
+            Some(vec!["i-am-groot1".to_string()]),
+        );
+
+        let attestation2 = Attestation::new(
+            "awesome-npoi".to_string(),
+            BigUint::default(),
+            Some(vec!["i-am-groot2".to_string()]),
+        );
+
+        let attestation3 = Attestation::new(
+            "awesome-npoi".to_string(),
+            BigUint::one(),
+            Some(vec!["i-am-groot3".to_string()]),
+        );
+
+        let mut attestations = vec![attestation1, attestation2, attestation3];
+
+        attestations.sort_by(|a, b| a.stake_weight.partial_cmp(&b.stake_weight).unwrap());
+
+        assert_eq!(attestations.last().unwrap().stake_weight, BigUint::one());
+        assert_eq!(
+            attestations
+                .last()
+                .unwrap()
+                .senders
+                .as_ref()
+                .unwrap()
+                .first()
+                .unwrap(),
+            &"i-am-groot3".to_string()
+        );
+    }
+}
