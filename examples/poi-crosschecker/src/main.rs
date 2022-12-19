@@ -67,11 +67,14 @@ async fn main() {
         curr_block = block_number;
 
         if block_number == compare_block {
+            let remote = REMOTE_ATTESTATIONS.get().unwrap();
+            let local = LOCAL_ATTESTATIONS.get().unwrap();
+
             println!("{}", "Comparing attestations".magenta());
             match compare_attestations(
                 compare_block - wait_block_duration,
-                Arc::clone(REMOTE_ATTESTATIONS.get().unwrap()),
-                Arc::clone(LOCAL_ATTESTATIONS.get().unwrap()),
+                Arc::clone(remote),
+                Arc::clone(local),
             ) {
                 Ok(msg) => {
                     println!("{}", msg.green().bold());
@@ -80,6 +83,9 @@ async fn main() {
                     println!("{}", err);
                 }
             }
+
+            remote.lock().unwrap().clear();
+            local.lock().unwrap().clear();
         }
 
         // Send POI message at a fixed frequency
@@ -127,10 +133,6 @@ async fn main() {
                     }
                     Err(e) => println!("{}: {}", "Failed to query message".red(), e),
                 }
-            }
-            //ATTEST
-            if block_number == compare_block {
-                println!("{}", "Compare attestations here".red());
             }
         }
     }
