@@ -1,7 +1,7 @@
 use crate::{
     app_name,
-    gossip_agent::message_typing::{self, GraphcastMessage},
-    NoncesMap, Sender,
+    gossip_agent::message_typing::{self, GraphcastMessage, MessageWithCtx},
+    NoncesMap,
 };
 use colored::*;
 use ethers::{
@@ -143,7 +143,7 @@ pub async fn handle_signal(
     provider: &Provider<Http>,
     signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
-) -> Result<(Sender, GraphcastMessage), anyhow::Error> {
+) -> Result<MessageWithCtx, anyhow::Error> {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -166,7 +166,7 @@ pub async fn handle_signal(
                     let block_hash = format!("{:#x}", block.hash.unwrap());
 
                     match check_message_validity(graphcast_message, block_hash, nonces).await {
-                        Ok((sender, msg)) => Ok((sender, msg)),
+                        Ok(msg) => Ok(msg),
                         Err(err) => Err(anyhow::anyhow!(
                             "{}{:#?}",
                             "Could not handle the message: ".yellow(),
@@ -197,16 +197,18 @@ pub async fn check_message_validity(
     graphcast_message: GraphcastMessage,
     block_hash: String,
     nonces: &Arc<Mutex<NoncesMap>>,
-) -> Result<(Sender, GraphcastMessage), anyhow::Error> {
-    let (sender, msg) = graphcast_message.valid_sender().await?;
+) -> Result<MessageWithCtx, anyhow::Error> {
+    let msg_with_ctx = MessageWithCtx::new(graphcast_message).await?;
 
-    msg.valid_time()?
+    msg_with_ctx
+        .valid_sender()
+        .await?
+        .valid_time()?
         .valid_hash(block_hash)?
         .valid_nonce(nonces)?;
 
     println!("{}", "Valid message!".bold().green());
-
-    Ok((sender, graphcast_message.clone()))
+    Ok(msg_with_ctx.clone())
 }
 
 #[cfg(test)]

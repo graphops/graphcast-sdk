@@ -17,13 +17,14 @@ use ethers_core::{
     types::{transaction::eip712::Eip712, Signature},
 };
 use ethers_derive_eip712::*;
+use num_bigint::BigUint;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
     graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
-    NoncesMap, Sender,
+    NoncesMap,
 };
 use anyhow::anyhow;
 
@@ -61,6 +62,147 @@ unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
 impl From<RadioPayloadMessage> for RecoveryMessage {
     fn from(m: RadioPayloadMessage) -> RecoveryMessage {
         RecoveryMessage::Data(unsafe { any_as_u8_slice(&m).to_vec() })
+    }
+}
+/// Prepare sender:nonce to update
+fn prepare_nonces(
+    nonces_per_subgraph: &HashMap<String, i64>,
+    address: String,
+    nonce: i64,
+) -> HashMap<std::string::String, i64> {
+    let mut updated_nonces = HashMap::new();
+    updated_nonces.clone_from(nonces_per_subgraph);
+    updated_nonces.insert(address, nonce);
+    updated_nonces
+}
+
+#[derive(Clone, Debug)]
+pub struct MessageWithCtx {
+    pub message: GraphcastMessage,
+    pub sender: String,
+    pub sender_stake: BigUint,
+}
+
+impl MessageWithCtx {
+    pub async fn new(message: GraphcastMessage) -> Result<Self, anyhow::Error> {
+        let radio_payload =
+            RadioPayloadMessage::new(message.identifier.clone(), message.content.clone());
+        let address = format!(
+            "{:#x}",
+            Signature::from_str(&message.signature)?.recover(radio_payload.encode_eip712()?)?
+        );
+        let sender =
+            query_registry_indexer(REGISTRY_SUBGRAPH.to_string(), address.to_string()).await?;
+
+        let stake = query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
+            .await?
+            .indexer_stake();
+
+        Ok(Self {
+            message,
+            sender,
+            sender_stake: stake,
+        })
+    }
+
+    /// Check message from valid sender: resolve indexer address and self stake
+    pub async fn valid_sender(&self) -> Result<&Self, anyhow::Error> {
+        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), self.sender.clone())
+            .await?
+            .stake_satisfy_requirement()
+        {
+            println!("Valid Indexer:  {}", self.sender);
+            Ok(self)
+        } else {
+            Err(anyhow!(
+                "Sender stake is less than the minimum requirement, drop message"
+            ))
+        }
+    }
+
+    /// Check timestamp: prevent past message replay
+    pub fn valid_time(&self) -> Result<&Self, anyhow::Error> {
+        //Can store for measuring overall gossip message latency
+        let message_age = Utc::now().timestamp() - self.message.nonce;
+        // 0 allow instant atomic messaging, use 1 to exclude them
+        if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
+            Ok(self)
+        } else {
+            Err(anyhow!(
+                "Message timestamp {} outside acceptable range {}, drop message",
+                message_age,
+                MSG_REPLAY_LIMIT
+            ))
+        }
+    }
+
+    /// Check timestamp: prevent messages with incorrect provider
+    pub fn valid_hash(&self, block_hash: String) -> Result<&MessageWithCtx, anyhow::Error> {
+        if self.message.block_hash == block_hash {
+            Ok(self)
+        } else {
+            Err(anyhow!(
+                "Message hash ({}) differ from trusted provider response ({}), drop message",
+                self.message.block_hash,
+                block_hash
+            ))
+        }
+    }
+
+    /// Check historic nonce: ensure message sequencing
+    pub fn valid_nonce(&self, nonces: &Arc<Mutex<NoncesMap>>) -> Result<&Self, anyhow::Error> {
+        let mut nonces = nonces.lock().unwrap();
+        let nonces_per_subgraph = nonces.get(self.message.identifier.clone().as_str());
+
+        match nonces_per_subgraph {
+            Some(nonces_per_subgraph) => {
+                let nonce = nonces_per_subgraph.get(&self.sender);
+                match nonce {
+                    Some(nonce) => {
+                        println!(
+                            "Latest saved nonce for subgraph {} and address {}: {}",
+                            self.message.identifier, self.sender, nonce
+                        );
+
+                        if nonce > &self.message.nonce {
+                            Err(anyhow!(
+                                "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
+                                self.message.identifier, self.sender, self.message.nonce, nonce
+                            ))
+                        } else {
+                            let updated_nonces = prepare_nonces(
+                                nonces_per_subgraph,
+                                self.sender.clone(),
+                                self.message.nonce,
+                            );
+                            nonces.insert(self.message.identifier.clone(), updated_nonces);
+                            Ok(self)
+                        }
+                    }
+                    None => {
+                        let updated_nonces = prepare_nonces(
+                            nonces_per_subgraph,
+                            self.sender.clone(),
+                            self.message.nonce,
+                        );
+                        nonces.insert(self.message.identifier.clone(), updated_nonces);
+                        Err(anyhow!(
+                                "No saved nonce for address {} on topic {}, saving this one and skipping message...",
+                                self.sender, self.message.identifier
+                            ))
+                    }
+                }
+            }
+            None => {
+                let updated_nonces =
+                    prepare_nonces(&HashMap::new(), self.sender.clone(), self.message.nonce);
+                nonces.insert(self.message.identifier.clone(), updated_nonces);
+                Err(anyhow!(
+                        "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
+                        self.message.identifier
+                    ))
+            }
+        }
     }
 }
 
@@ -122,7 +264,6 @@ impl GraphcastMessage {
         block_hash: String,
     ) -> Result<Self, Box<dyn Error>> {
         println!("\n{}", "Constructing message".green());
-        //Q: move signing to here and over all fields?
         let sig = wallet
             .sign_typed_data(&RadioPayloadMessage::new(
                 identifier.clone(),
@@ -161,147 +302,6 @@ impl GraphcastMessage {
         );
 
         Ok(node_handle.relay_publish_message(&waku_message, pub_sub_topic, None)?)
-    }
-
-    /// Check message from valid sender: resolve indexer address and self stake
-    pub async fn valid_sender(&self) -> Result<(Sender, &GraphcastMessage), anyhow::Error> {
-        let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
-        let address = format!(
-            "{:#x}",
-            Signature::from_str(&self.signature)?.recover(radio_payload.encode_eip712()?)?
-        );
-        let address =
-            query_registry_indexer(REGISTRY_SUBGRAPH.to_string(), address.to_string()).await?;
-
-        let stake = query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
-            .await?
-            .indexer_stake();
-
-        let indexer = Sender::Indexer {
-            address: address.clone(),
-            stake,
-        };
-
-        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
-            .await?
-            .stake_satisfy_requirement()
-        {
-            println!("Valid Indexer:  {}", address);
-            Ok((indexer, self))
-        } else {
-            Err(anyhow!(
-                "Sender stake is less than the minimum requirement, drop message"
-            ))
-        }
-    }
-
-    /// Check timestamp: prevent past message replay
-    pub fn valid_time(&self) -> Result<&GraphcastMessage, anyhow::Error> {
-        //Can store for measuring overall gossip message latency
-        let message_age = Utc::now().timestamp() - self.nonce;
-        // 0 allow instant atomic messaging, use 1 to exclude them
-        if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
-            Ok(self)
-        } else {
-            Err(anyhow!(
-                "Message timestamp {} outside acceptable range {}, drop message",
-                message_age,
-                MSG_REPLAY_LIMIT
-            ))
-        }
-    }
-
-    /// Check timestamp: prevent messages with incorrect provider
-    pub fn valid_hash(&self, block_hash: String) -> Result<&GraphcastMessage, anyhow::Error> {
-        if self.block_hash == block_hash {
-            Ok(self)
-        } else {
-            Err(anyhow!(
-                "Message hash ({}) differ from trusted provider response ({}), drop message",
-                self.block_hash,
-                block_hash
-            ))
-        }
-    }
-
-    /// Prepare sender:nonce to update
-    fn prepare_nonces(
-        nonces_per_subgraph: &HashMap<String, i64>,
-        address: String,
-        nonce: i64,
-    ) -> HashMap<std::string::String, i64> {
-        let mut updated_nonces = HashMap::new();
-        updated_nonces.clone_from(nonces_per_subgraph);
-        updated_nonces.insert(address, nonce);
-        updated_nonces
-    }
-
-    pub fn recover_sender_address(&self) -> String {
-        let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
-        format!(
-            "{:#x}",
-            Signature::from_str(&self.signature)
-                .unwrap()
-                .recover(radio_payload.encode_eip712().unwrap())
-                .unwrap()
-        )
-    }
-
-    /// Check historic nonce: ensure message sequencing
-    pub fn valid_nonce(
-        &self,
-        nonces: &Arc<Mutex<NoncesMap>>,
-    ) -> Result<&GraphcastMessage, anyhow::Error> {
-        let address = self.recover_sender_address();
-
-        let mut nonces = nonces.lock().unwrap();
-        let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());
-
-        match nonces_per_subgraph {
-            Some(nonces_per_subgraph) => {
-                let nonce = nonces_per_subgraph.get(&address);
-                match nonce {
-                    Some(nonce) => {
-                        println!(
-                            "Latest saved nonce for subgraph {} and address {}: {}",
-                            self.identifier, address, nonce
-                        );
-
-                        if nonce > &self.nonce {
-                            Err(anyhow!(
-                            "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
-                            self.identifier, address, self.nonce, nonce
-                        ))
-                        } else {
-                            let updated_nonces = Self::prepare_nonces(
-                                nonces_per_subgraph,
-                                address.clone(),
-                                self.nonce,
-                            );
-                            nonces.insert(self.identifier.clone(), updated_nonces);
-                            Ok(self)
-                        }
-                    }
-                    None => {
-                        let updated_nonces =
-                            Self::prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
-                        nonces.insert(self.identifier.clone(), updated_nonces);
-                        Err(anyhow!(
-                            "No saved nonce for address {} on topic {}, saving this one and skipping message...",
-                            address, self.identifier
-                        ))
-                    }
-                }
-            }
-            None => {
-                let updated_nonces = Self::prepare_nonces(&HashMap::new(), address, self.nonce);
-                nonces.insert(self.identifier.clone(), updated_nonces);
-                Err(anyhow!(
-                    "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
-                    self.identifier
-                ))
-            }
-        }
     }
 }
 
@@ -349,14 +349,7 @@ mod tests {
             sig.clone(),
         );
 
-        assert_eq!(msg.block_number, 0);
-        assert!(msg.valid_sender().await.is_err());
-        assert!(msg.valid_time().is_err());
-        assert!(msg.valid_hash("weeelp".to_string()).is_err());
-        assert_eq!(
-            msg.valid_hash("0xblahh".to_string()).unwrap().signature,
-            sig
-        );
+        assert!(MessageWithCtx::new(msg).await.is_err());
     }
 
     #[tokio::test]
@@ -377,7 +370,8 @@ mod tests {
             sig,
         );
 
-        let (_, msg) = msg.valid_sender().await.unwrap();
+        let msg_with_ctx = MessageWithCtx::new(msg).await.unwrap();
+        let msg = &msg_with_ctx.valid_sender().await.unwrap().message;
         assert_eq!(msg.content, content);
     }
 }

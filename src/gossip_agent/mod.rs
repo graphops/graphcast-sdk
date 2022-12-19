@@ -20,13 +20,13 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
-use self::message_typing::GraphcastMessage;
+use self::message_typing::{GraphcastMessage, MessageWithCtx};
 use self::waku_handling::{
     generate_content_topics, handle_signal, pubsub_topic, setup_node_handle,
 };
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
-use crate::{NoncesMap, Sender};
+use crate::NoncesMap;
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -130,7 +130,7 @@ impl GossipAgent {
     //TODO: Factor out handler
     /// Establish custom handler for incoming Waku messages
     pub fn register_handler<
-        F: FnMut(Result<(Sender, GraphcastMessage), anyhow::Error>)
+        F: FnMut(Result<MessageWithCtx, anyhow::Error>)
             + std::marker::Sync
             + std::marker::Send
             + 'static,

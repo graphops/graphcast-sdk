@@ -1,4 +1,3 @@
-#![allow(clippy::await_holding_lock)]
 mod attestations;
 mod utils;
 
@@ -113,14 +112,15 @@ async fn main() {
                             stake_weight: my_stake.clone(),
                             senders: Vec::new(),
                         };
-    
+
                         save_local_attestation(attestation, id.clone(), block_number);
-        
+
                         match GOSSIP_AGENT
-                        .get()
-                        .unwrap()
-                        .send_message(id.clone(), block_number, content)
-                        .await {
+                            .get()
+                            .unwrap()
+                            .send_message(id.clone(), block_number, content)
+                            .await
+                        {
                             Ok(sent) => println!("{}: {}", "Sent message id:".green(), sent),
                             Err(e) => println!("{}: {}", "Failed to send message".red(), e),
                         };

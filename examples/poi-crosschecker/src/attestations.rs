@@ -9,7 +9,7 @@ use crate::utils::{
 };
 use anyhow::anyhow;
 use colored::Colorize;
-use graphcast::{gossip_agent::message_typing::GraphcastMessage, Sender};
+use graphcast::gossip_agent::message_typing::MessageWithCtx;
 use num_bigint::BigUint;
 
 #[derive(Clone, Debug)]
@@ -66,15 +66,10 @@ pub fn save_local_attestation(attestation: Attestation, ipfs_hash: String, block
     }
 }
 
-pub fn attestation_handler() -> impl Fn(Result<(graphcast::Sender, GraphcastMessage), anyhow::Error>)
-{
-    |msg: Result<(Sender, GraphcastMessage), anyhow::Error>| match msg {
-        Ok((sender, msg)) => {
-            println!("Decoded valid message: {:?}", msg);
-
-            let (sender_address, sender_stake) = match sender {
-                Sender::Indexer { address, stake } => (address, stake),
-            };
+pub fn attestation_handler() -> impl Fn(Result<MessageWithCtx, anyhow::Error>) {
+    |msg_with_ctx: Result<MessageWithCtx, anyhow::Error>| match msg_with_ctx {
+        Ok(msg_with_ctx) => {
+            let msg = msg_with_ctx.message;
 
             let mut remote_attestations = REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap();
             let blocks = remote_attestations.get(&msg.identifier);
@@ -86,7 +81,7 @@ pub fn attestation_handler() -> impl Fn(Result<(graphcast::Sender, GraphcastMess
                     match attestations {
                         Some(attestations) => {
                             let attestations_clone: Vec<Attestation> = Vec::new();
-                            let mut attestations_clone =
+                            let attestations_clone =
                                 [attestations_clone, attestations.to_vec()].concat();
 
                             let existing_attestation =
@@ -96,35 +91,26 @@ pub fn attestation_handler() -> impl Fn(Result<(graphcast::Sender, GraphcastMess
                                 Some(existing_attestation) => {
                                     let updated_attestation = Attestation::update(
                                         existing_attestation,
-                                        sender_address.clone(),
-                                        sender_stake.clone(),
+                                        msg_with_ctx.sender.clone(),
+                                        msg_with_ctx.sender_stake.clone(),
                                     );
-                                    match updated_attestation {
-                                        Ok(attestation) => {
-                                            // Remove old
-                                            if let Some(index) = attestations_clone
-                                                .iter()
-                                                .position(|a| a.npoi == existing_attestation.npoi)
-                                            {
-                                                attestations_clone.swap_remove(index);
-                                            }
-                                            // Add new
-                                            attestations_clone.push(attestation);
+                                    if let Err(err) = updated_attestation {
+                                        println!("{}", err);
+                                    } else {
+                                        attestations_clone
+                                            .iter()
+                                            .find(|a| a.npoi == existing_attestation.npoi)
+                                            .map(|_| &updated_attestation);
 
-                                            // Update map
-                                            let blocks_clone = update_blocks(
-                                                msg.block_number,
-                                                blocks,
-                                                msg.content,
-                                                sender_stake,
-                                                sender_address,
-                                            );
-                                            remote_attestations
-                                                .insert(msg.identifier, blocks_clone);
-                                        }
-                                        Err(err) => {
-                                            println!("{}", err)
-                                        }
+                                        // Update map
+                                        let blocks_clone = update_blocks(
+                                            msg.block_number,
+                                            blocks,
+                                            msg.content,
+                                            msg_with_ctx.sender_stake.clone(),
+                                            msg_with_ctx.sender,
+                                        );
+                                        remote_attestations.insert(msg.identifier, blocks_clone);
                                     }
                                 }
                                 None => {
@@ -132,8 +118,8 @@ pub fn attestation_handler() -> impl Fn(Result<(graphcast::Sender, GraphcastMess
                                         msg.block_number,
                                         blocks,
                                         msg.content,
-                                        sender_stake,
-                                        sender_address,
+                                        msg_with_ctx.sender_stake.clone(),
+                                        msg_with_ctx.sender,
                                     );
                                     remote_attestations.insert(msg.identifier, blocks_clone);
                                 }
@@ -144,8 +130,8 @@ pub fn attestation_handler() -> impl Fn(Result<(graphcast::Sender, GraphcastMess
                                 msg.block_number,
                                 blocks,
                                 msg.content,
-                                sender_stake,
-                                sender_address,
+                                msg_with_ctx.sender_stake.clone(),
+                                msg_with_ctx.sender,
                             );
                             remote_attestations.insert(msg.identifier, blocks_clone);
                         }
@@ -156,8 +142,8 @@ pub fn attestation_handler() -> impl Fn(Result<(graphcast::Sender, GraphcastMess
                         msg.block_number,
                         &HashMap::new(),
                         msg.content,
-                        sender_stake,
-                        sender_address,
+                        msg_with_ctx.sender_stake.clone(),
+                        msg_with_ctx.sender,
                     );
                     remote_attestations.insert(msg.identifier, blocks_clone);
                 }
