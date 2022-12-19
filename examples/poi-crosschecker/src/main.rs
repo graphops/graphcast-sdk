@@ -121,13 +121,14 @@ async fn main() {
                         .unwrap()
                         .send_message(id.clone(), block_number, content)
                         .await {
-                            Ok(sent) => println!("res!!! {}", sent),
-                            Err(e) => println!("eeeer!!! {}", e),
+                            Ok(sent) => println!("{}: {}", "Sent message id:".green(), sent),
+                            Err(e) => println!("{}: {}", "Failed to send message".red(), e),
                         };
                     }
                     Err(e) => println!("{}: {}", "Failed to query message".red(), e),
                 }
             }
+            //ATTEST
             if block_number == compare_block {
                 println!("{}", "Compare attestations here".red());
             }
