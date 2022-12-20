@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
-use self::message_typing::{GraphcastMessage, MessageWithCtx};
+use self::message_typing::GraphcastMessage;
 use self::waku_handling::{
     generate_content_topics, handle_signal, pubsub_topic, setup_node_handle,
 };
@@ -130,7 +130,7 @@ impl GossipAgent {
     //TODO: Factor out handler
     /// Establish custom handler for incoming Waku messages
     pub fn register_handler<
-        F: FnMut(Result<MessageWithCtx, anyhow::Error>)
+        F: FnMut(Result<GraphcastMessage, anyhow::Error>)
             + std::marker::Sync
             + std::marker::Send
             + 'static,

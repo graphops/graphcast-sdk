@@ -9,7 +9,7 @@ use crate::utils::{
 };
 use anyhow::anyhow;
 use colored::Colorize;
-use graphcast::gossip_agent::message_typing::MessageWithCtx;
+use graphcast::gossip_agent::message_typing::GraphcastMessage;
 use num_bigint::BigUint;
 
 #[derive(Clone, Debug)]
@@ -66,11 +66,9 @@ pub fn save_local_attestation(attestation: Attestation, ipfs_hash: String, block
     }
 }
 
-pub fn attestation_handler() -> impl Fn(Result<MessageWithCtx, anyhow::Error>) {
-    |msg_with_ctx: Result<MessageWithCtx, anyhow::Error>| match msg_with_ctx {
-        Ok(msg_with_ctx) => {
-            let msg = msg_with_ctx.message;
-
+pub fn attestation_handler() -> impl Fn(Result<GraphcastMessage, anyhow::Error>) {
+    |msg: Result<GraphcastMessage, anyhow::Error>| match msg {
+        Ok(msg) => {
             let mut remote_attestations = REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap();
             let blocks = remote_attestations.get(&msg.identifier);
 

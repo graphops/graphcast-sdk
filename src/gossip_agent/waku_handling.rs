@@ -1,6 +1,6 @@
 use crate::{
     app_name,
-    gossip_agent::message_typing::{self, GraphcastMessage, MessageWithCtx},
+    gossip_agent::message_typing::{self, GraphcastMessage},
     NoncesMap,
 };
 use colored::*;
@@ -143,7 +143,7 @@ pub async fn handle_signal(
     provider: &Provider<Http>,
     signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
-) -> Result<MessageWithCtx, anyhow::Error> {
+) -> Result<GraphcastMessage, anyhow::Error> {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -197,10 +197,8 @@ pub async fn check_message_validity(
     graphcast_message: GraphcastMessage,
     block_hash: String,
     nonces: &Arc<Mutex<NoncesMap>>,
-) -> Result<MessageWithCtx, anyhow::Error> {
-    let msg_with_ctx = MessageWithCtx::new(graphcast_message).await?;
-
-    msg_with_ctx
+) -> Result<GraphcastMessage, anyhow::Error> {
+    graphcast_message
         .valid_sender()
         .await?
         .valid_time()?
@@ -208,7 +206,7 @@ pub async fn check_message_validity(
         .valid_nonce(nonces)?;
 
     println!("{}", "Valid message!".bold().green());
-    Ok(msg_with_ctx.clone())
+    Ok(graphcast_message.clone())
 }
 
 #[cfg(test)]
