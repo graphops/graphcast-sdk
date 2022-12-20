@@ -1,4 +1,4 @@
-use graphcast::graphql::QueryError;
+use graphcast_sdk::graphql::QueryError;
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
 

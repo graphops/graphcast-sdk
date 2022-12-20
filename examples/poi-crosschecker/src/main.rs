@@ -8,7 +8,7 @@ use once_cell::sync::OnceCell;
 use std::env;
 use std::{thread::sleep, time::Duration};
 
-use graphcast::gossip_agent::GossipAgent;
+use graphcast_sdk::gossip_agent::GossipAgent;
 
 /// Radio specific query function to fetch Proof of Indexing for each allocated subgraph
 use graphql::query_graph_node_poi;
