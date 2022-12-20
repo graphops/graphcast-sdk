@@ -36,7 +36,7 @@ pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();
 /// Example
 ///
 /// ```
-/// let mut f = graphcast::app_name();
+/// let mut f = graphcast_sdk::app_name();
 /// assert_eq!(f, "graphcast".to_string());
 /// ```
 pub fn app_name() -> Cow<'static, str> {
