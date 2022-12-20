@@ -12,8 +12,8 @@ use ethers::{
     providers::{Http, Middleware, Provider},
     types::U64,
 };
-use graphcast::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
-use graphcast::graphql::client_network::query_network_subgraph;
+use graphcast_sdk::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
+use graphcast_sdk::graphql::client_network::query_network_subgraph;
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
