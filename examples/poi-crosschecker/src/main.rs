@@ -1,7 +1,10 @@
 mod attestations;
 mod utils;
 
-use crate::attestations::{compare_attestations, save_local_attestation, Attestation};
+use crate::attestations::{
+    compare_attestations, save_local_attestation, Attestation,
+};
+use crate::utils::parse_messages;
 use attestations::attestation_handler;
 use colored::*;
 use ethers::types::Block;
@@ -15,7 +18,7 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::{thread::sleep, time::Duration};
-use utils::{GOSSIP_AGENT, LOCAL_ATTESTATIONS, REMOTE_ATTESTATIONS};
+use utils::{GOSSIP_AGENT, LOCAL_ATTESTATIONS, MESSAGES, REMOTE_ATTESTATIONS};
 
 /// Radio specific query function to fetch Proof of Indexing for each allocated subgraph
 use graphql::query_graph_node_poi;
@@ -33,6 +36,7 @@ async fn main() {
 
     _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
     _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+    _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
 
     // Send message every x blocks for which wait y blocks before attestations
     let examination_frequency = 3;
@@ -67,10 +71,21 @@ async fn main() {
         curr_block = block_number;
 
         if block_number == compare_block {
+            println!("{}", "Comparing attestations".magenta());
+
+            let parsed = parse_messages(Arc::clone(MESSAGES.get().unwrap())).await;
+
+            if let Err(err) = parsed {
+                println!(
+                    "{}{}",
+                    "An error occured while parsing messages: {}".red().bold(),
+                    err
+                );
+            }
+
             let remote = REMOTE_ATTESTATIONS.get().unwrap();
             let local = LOCAL_ATTESTATIONS.get().unwrap();
 
-            println!("{}", "Comparing attestations".magenta());
             match compare_attestations(
                 compare_block - wait_block_duration,
                 Arc::clone(remote),

@@ -3,10 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::utils::{
-    update_blocks, LocalAttestationsMap, RemoteAttestationsMap, LOCAL_ATTESTATIONS,
-    REMOTE_ATTESTATIONS,
-};
+use crate::utils::{LocalAttestationsMap, RemoteAttestationsMap, LOCAL_ATTESTATIONS, MESSAGES};
 use anyhow::anyhow;
 use colored::Colorize;
 use graphcast::gossip_agent::message_typing::GraphcastMessage;
@@ -66,86 +63,11 @@ pub fn save_local_attestation(attestation: Attestation, ipfs_hash: String, block
     }
 }
 
+
 pub fn attestation_handler() -> impl Fn(Result<GraphcastMessage, anyhow::Error>) {
     |msg: Result<GraphcastMessage, anyhow::Error>| match msg {
         Ok(msg) => {
-            let mut remote_attestations = REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap();
-            let blocks = remote_attestations.get(&msg.identifier);
-
-            match blocks {
-                Some(blocks) => {
-                    // Already has attestations for that block
-                    let attestations = blocks.get(&msg.block_number);
-                    match attestations {
-                        Some(attestations) => {
-                            let attestations_clone: Vec<Attestation> = Vec::new();
-                            let attestations_clone =
-                                [attestations_clone, attestations.to_vec()].concat();
-
-                            let existing_attestation =
-                                attestations_clone.iter().find(|a| a.npoi == msg.content);
-
-                            match existing_attestation {
-                                Some(existing_attestation) => {
-                                    let updated_attestation = Attestation::update(
-                                        existing_attestation,
-                                        msg_with_ctx.sender.clone(),
-                                        msg_with_ctx.sender_stake.clone(),
-                                    );
-                                    if let Err(err) = updated_attestation {
-                                        println!("{}", err);
-                                    } else {
-                                        attestations_clone
-                                            .iter()
-                                            .find(|a| a.npoi == existing_attestation.npoi)
-                                            .map(|_| &updated_attestation);
-
-                                        // Update map
-                                        let blocks_clone = update_blocks(
-                                            msg.block_number,
-                                            blocks,
-                                            msg.content,
-                                            msg_with_ctx.sender_stake.clone(),
-                                            msg_with_ctx.sender,
-                                        );
-                                        remote_attestations.insert(msg.identifier, blocks_clone);
-                                    }
-                                }
-                                None => {
-                                    let blocks_clone = update_blocks(
-                                        msg.block_number,
-                                        blocks,
-                                        msg.content,
-                                        msg_with_ctx.sender_stake.clone(),
-                                        msg_with_ctx.sender,
-                                    );
-                                    remote_attestations.insert(msg.identifier, blocks_clone);
-                                }
-                            }
-                        }
-                        None => {
-                            let blocks_clone = update_blocks(
-                                msg.block_number,
-                                blocks,
-                                msg.content,
-                                msg_with_ctx.sender_stake.clone(),
-                                msg_with_ctx.sender,
-                            );
-                            remote_attestations.insert(msg.identifier, blocks_clone);
-                        }
-                    }
-                }
-                None => {
-                    let blocks_clone = update_blocks(
-                        msg.block_number,
-                        &HashMap::new(),
-                        msg.content,
-                        msg_with_ctx.sender_stake.clone(),
-                        msg_with_ctx.sender,
-                    );
-                    remote_attestations.insert(msg.identifier, blocks_clone);
-                }
-            }
+            MESSAGES.get().unwrap().lock().unwrap().push(msg);
         }
         Err(err) => {
             println!("{}", err);
@@ -215,6 +137,7 @@ mod tests {
     use super::*;
     use num_bigint::BigUint;
     use num_traits::identities::One;
+    use crate::REMOTE_ATTESTATIONS;
 
     #[test]
     fn test_attestation_sorting() {

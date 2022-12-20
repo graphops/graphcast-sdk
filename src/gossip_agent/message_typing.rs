@@ -22,13 +22,10 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
-use crate::{
-    graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
-    NoncesMap,
-};
+use crate::{graphql::client_network::query_network_subgraph, NoncesMap};
 use anyhow::anyhow;
 
-use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH, REGISTRY_SUBGRAPH};
+use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH};
 
 /// Radio payload that includes an grpah identifier and custom content
 /// In future work, allow dynamic buffers
@@ -74,6 +71,14 @@ fn prepare_nonces(
     updated_nonces.clone_from(nonces_per_subgraph);
     updated_nonces.insert(address, nonce);
     updated_nonces
+}
+
+pub async fn get_indexer_stake(address: String) -> Result<BigUint, anyhow::Error> {
+    Ok(
+        query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
+            .await?
+            .indexer_stake(),
+    )
 }
 
 /// GraphcastMessage type casts over radio payload
@@ -174,20 +179,18 @@ impl GraphcastMessage {
         Ok(node_handle.relay_publish_message(&waku_message, pub_sub_topic, None)?)
     }
 
-    pub fn recover_sender_address(&self) -> String {
+    pub fn recover_sender_address(&self) -> Result<String, anyhow::Error> {
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
-        format!(
+        Ok(format!(
             "{:#x}",
-            Signature::from_str(&self.signature)
-                .unwrap()
-                .recover(radio_payload.encode_eip712().unwrap())
-                .unwrap()
-        )
+            Signature::from_str(&self.signature)?
+                .recover(radio_payload.encode_eip712().unwrap())?
+        ))
     }
 
     /// Check message from valid sender: resolve indexer address and self stake
     pub async fn valid_sender(&self) -> Result<&Self, anyhow::Error> {
-        let address = Self::recover_sender_address(&self);
+        let address = Self::recover_sender_address(self)?;
         if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
             .await?
             .stake_satisfy_requirement()
@@ -232,7 +235,7 @@ impl GraphcastMessage {
 
     /// Check historic nonce: ensure message sequencing
     pub fn valid_nonce(&self, nonces: &Arc<Mutex<NoncesMap>>) -> Result<&Self, anyhow::Error> {
-        let address = self.recover_sender_address();
+        let address = self.recover_sender_address()?;
 
         let mut nonces = nonces.lock().unwrap();
         let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());
@@ -271,7 +274,7 @@ impl GraphcastMessage {
                 }
             }
             None => {
-                let updated_nonces = prepare_nonces(&HashMap::new(), address.clone(), self.nonce);
+                let updated_nonces = prepare_nonces(&HashMap::new(), address, self.nonce);
                 nonces.insert(self.identifier.clone(), updated_nonces);
                 Err(anyhow!(
                             "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
