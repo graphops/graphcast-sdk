@@ -6,7 +6,7 @@ use std::{
 use crate::utils::{LocalAttestationsMap, RemoteAttestationsMap, LOCAL_ATTESTATIONS, MESSAGES};
 use anyhow::anyhow;
 use colored::Colorize;
-use graphcast::gossip_agent::message_typing::GraphcastMessage;
+use graphcast_sdk::gossip_agent::message_typing::GraphcastMessage;
 use num_bigint::BigUint;
 
 #[derive(Clone, Debug)]
@@ -63,7 +63,6 @@ pub fn save_local_attestation(attestation: Attestation, ipfs_hash: String, block
     }
 }
 
-
 pub fn attestation_handler() -> impl Fn(Result<GraphcastMessage, anyhow::Error>) {
     |msg: Result<GraphcastMessage, anyhow::Error>| match msg {
         Ok(msg) => {
@@ -91,27 +90,38 @@ pub fn compare_attestations(
                 let remote_blocks = remote.get(ipfs_hash);
                 match remote_blocks {
                     Some(remote_blocks) => {
-                        // Unwrapping because we're sure that if there's an entry for the subgraph there will also be at least one attestation
-                        let mut remote_attestations = remote_blocks.get(&attestation_block).unwrap().clone();
+                        let remote_attestations = remote_blocks.get(&attestation_block);
 
-                        // Sort remote
+                        match remote_attestations {
+                            Some(remote_attestations) => {
+                                let mut remote_attestations = remote_attestations.clone();
+
                         remote_attestations
-                            .sort_by(|a, b| a.stake_weight.partial_cmp(&b.stake_weight).unwrap());
+                        .sort_by(|a, b| a.stake_weight.partial_cmp(&b.stake_weight).unwrap());
 
-                        let most_attested_npoi = &remote_attestations.last().unwrap().npoi;
-                        if most_attested_npoi == &local_attestation.npoi {
-                            return Ok(format!(
-                                "POIs match for subgraph {} on block {}!",
-                                ipfs_hash, attestation_block
-                            ));
-                        } else {
-                            return Err(anyhow!(format!(
-                                "POIs don't match for subgraph {} on block {}!",
-                                ipfs_hash, attestation_block
-                            )
-                            .red()
-                            .bold()));
-                            // Take some action - send alert, close allocations, etc
+                    let most_attested_npoi = &remote_attestations.last().unwrap().npoi;
+                    if most_attested_npoi == &local_attestation.npoi {
+                        return Ok(format!(
+                            "POIs match for subgraph {} on block {}!",
+                            ipfs_hash, attestation_block
+                        ));
+                    } else {
+                        return Err(anyhow!(format!(
+                            "POIs don't match for subgraph {} on block {}!",
+                            ipfs_hash, attestation_block
+                        )
+                        .red()
+                        .bold()));
+                    }
+                            },
+                            None => {
+                                return Err(anyhow!(format!(
+                                    "No record for subgraph {} on block {} found in remote attestations",
+                                    ipfs_hash, attestation_block
+                                )
+                                .yellow()
+                               ));
+                            }
                         }
                     }
                     None => {
@@ -135,9 +145,9 @@ pub fn compare_attestations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::REMOTE_ATTESTATIONS;
     use num_bigint::BigUint;
     use num_traits::identities::One;
-    use crate::REMOTE_ATTESTATIONS;
 
     #[test]
     fn test_attestation_sorting() {

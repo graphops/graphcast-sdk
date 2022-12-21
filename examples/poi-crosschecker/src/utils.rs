@@ -4,7 +4,7 @@ use std::{
 };
 use tokio::sync::Mutex as AsyncMutex;
 
-use graphcast::gossip_agent::{
+use graphcast_sdk::gossip_agent::{
     message_typing::{get_indexer_stake, GraphcastMessage},
     GossipAgent,
 };
@@ -20,6 +20,12 @@ pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
 pub static REMOTE_ATTESTATIONS: OnceCell<Arc<Mutex<RemoteAttestationsMap>>> = OnceCell::new();
 pub static LOCAL_ATTESTATIONS: OnceCell<Arc<Mutex<LocalAttestationsMap>>> = OnceCell::new();
 pub static MESSAGES: OnceCell<Arc<Mutex<Vec<GraphcastMessage>>>> = OnceCell::new();
+
+pub fn clear_state() {
+    REMOTE_ATTESTATIONS.get().unwrap().lock().unwrap().clear();
+    LOCAL_ATTESTATIONS.get().unwrap().lock().unwrap().clear();
+    MESSAGES.get().unwrap().lock().unwrap().clear();
+}
 
 pub fn update_blocks(
     block_number: u64,
@@ -40,9 +46,9 @@ pub fn update_blocks(
 pub async fn parse_messages(
     messages: Arc<Mutex<Vec<GraphcastMessage>>>,
 ) -> Result<(), anyhow::Error> {
-    let messages_g = AsyncMutex::new(messages.lock().unwrap());
+    let messages = AsyncMutex::new(messages.lock().unwrap());
 
-    for msg in messages_g.lock().await.iter() {
+    for msg in messages.lock().await.iter() {
         let sender = msg.recover_sender_address()?;
         let sender_stake = get_indexer_stake(sender.clone()).await?;
 
@@ -193,44 +199,108 @@ mod tests {
         );
     }
 
-    // #[tokio::test]
-    // async fn test_parse_messages() {
-    //     _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
-    //     _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+    #[tokio::test]
+    async fn test_parse_messages() {
+        _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+        _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
 
-    //     let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
-    //     let content: String =
-    //         "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
-    //     let nonce: i64 = 123321;
-    //     let block_number: i64 = 0;
-    //     let block_hash: String = "0xblahh".to_string();
-    //     let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
-    //     let msg1 = GraphcastMessage::new(
-    //         hash,
-    //         content.clone(),
-    //         nonce,
-    //         block_number,
-    //         block_hash.clone(),
-    //         sig,
-    //     );
+        let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
+        let content: String =
+            "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
+        let nonce: i64 = 123321;
+        let block_number: i64 = 0;
+        let block_hash: String = "0xblahh".to_string();
+        let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
+        let msg1 = GraphcastMessage::new(
+            hash,
+            content.clone(),
+            nonce,
+            block_number,
+            block_hash.clone(),
+            sig,
+        );
 
-    //     let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
-    //     let content: String =
-    //         "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
-    //     let nonce: i64 = 123321;
-    //     let block_number: i64 = 0;
-    //     let block_hash: String = "0xblahh".to_string();
-    //     let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
-    //     let msg2 = GraphcastMessage::new(
-    //         hash,
-    //         content.clone(),
-    //         nonce,
-    //         block_number,
-    //         block_hash.clone(),
-    //         sig,
-    //     );
+        let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
+        let content: String =
+            "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
+        let nonce: i64 = 123321;
+        let block_number: i64 = 0;
+        let block_hash: String = "0xblahh".to_string();
+        let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
+        let msg2 = GraphcastMessage::new(
+            hash,
+            content.clone(),
+            nonce,
+            block_number,
+            block_hash.clone(),
+            sig,
+        );
 
-    //     let parsed = parse_messages(Arc::new(Mutex::new(vec![msg1, msg2]))).await;
-    //     assert!(parsed.is_ok());
-    // }
+        let parsed = parse_messages(Arc::new(Mutex::new(vec![msg1, msg2]))).await;
+        assert!(parsed.is_ok());
+    }
+
+    #[test]
+    fn test_clear_state() {
+        _ = REMOTE_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+        _ = LOCAL_ATTESTATIONS.set(Arc::new(Mutex::new(HashMap::new())));
+        _ = MESSAGES.set(Arc::new(Mutex::new(Vec::new())));
+
+        let remote = REMOTE_ATTESTATIONS.get().unwrap();
+        let local = LOCAL_ATTESTATIONS.get().unwrap();
+        let messages = MESSAGES.get().unwrap();
+
+        let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
+        let content: String =
+            "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
+        let nonce: i64 = 123321;
+        let block_number: i64 = 0;
+        let block_hash: String = "0xblahh".to_string();
+        let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
+        let msg = GraphcastMessage::new(
+            hash,
+            content.clone(),
+            nonce,
+            block_number,
+            block_hash.clone(),
+            sig,
+        );
+
+        messages.lock().unwrap().push(msg);
+        assert!(!messages.lock().unwrap().is_empty());
+
+        let mut remote_blocks: HashMap<u64, Vec<Attestation>> = HashMap::new();
+        remote_blocks.insert(
+            42,
+            vec![Attestation::new(
+                "default".to_string(),
+                BigUint::default(),
+                Vec::new(),
+            )],
+        );
+
+        remote
+            .lock()
+            .unwrap()
+            .insert("some-cool-ipfs-hash".to_string(), remote_blocks);
+        assert!(!remote.lock().unwrap().is_empty());
+
+        let mut local_blocks: HashMap<u64, Attestation> = HashMap::new();
+        local_blocks.insert(
+            42,
+            Attestation::new("default".to_string(), BigUint::default(), Vec::new()),
+        );
+
+        local
+            .lock()
+            .unwrap()
+            .insert("some-cool-ipfs-hash".to_string(), local_blocks);
+        assert!(!local.lock().unwrap().is_empty());
+
+        clear_state();
+
+        assert!(messages.lock().unwrap().is_empty());
+        assert!(remote.lock().unwrap().is_empty());
+        assert!(local.lock().unwrap().is_empty());
+    }
 }

@@ -22,7 +22,11 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
-use crate::{graphql::client_network::query_network_subgraph, NoncesMap};
+use crate::{
+    gossip_agent::REGISTRY_SUBGRAPH,
+    graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
+    NoncesMap,
+};
 use anyhow::anyhow;
 
 use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH};
@@ -190,8 +194,11 @@ impl GraphcastMessage {
 
     /// Check message from valid sender: resolve indexer address and self stake
     pub async fn valid_sender(&self) -> Result<&Self, anyhow::Error> {
-        let address = Self::recover_sender_address(self)?;
-        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
+        let address = self.recover_sender_address()?;
+        let indexer_address =
+            query_registry_indexer(REGISTRY_SUBGRAPH.to_string(), address.to_string()).await?;
+
+        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
             .await?
             .stake_satisfy_requirement()
         {

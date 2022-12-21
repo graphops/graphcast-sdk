@@ -1,10 +1,8 @@
 mod attestations;
 mod utils;
 
-use crate::attestations::{
-    compare_attestations, save_local_attestation, Attestation,
-};
-use crate::utils::parse_messages;
+use crate::attestations::{compare_attestations, save_local_attestation, Attestation};
+use crate::utils::{clear_state, parse_messages};
 use attestations::attestation_handler;
 use colored::*;
 use ethers::types::Block;
@@ -93,14 +91,13 @@ async fn main() {
             ) {
                 Ok(msg) => {
                     println!("{}", msg.green().bold());
+                    clear_state();
                 }
                 Err(err) => {
                     println!("{}", err);
+                    clear_state();
                 }
             }
-
-            remote.lock().unwrap().clear();
-            local.lock().unwrap().clear();
         }
 
         // Send POI message at a fixed frequency
