@@ -137,12 +137,13 @@ pub fn setup_node_handle() -> WakuNodeHandle<Running> {
     }
 }
 
-/// Parse and validate incoming message, returns ()
+//TODO: add Dispute query to the network subgraph endpoint
+//Curryify if possible - factor out param on provider,
 pub async fn handle_signal(
     provider: &Provider<Http>,
-    nonces: &Arc<Mutex<NoncesMap>>,
     signal: Signal,
-) {
+    nonces: &Arc<Mutex<NoncesMap>>,
+) -> Result<GraphcastMessage, anyhow::Error> {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -156,31 +157,34 @@ pub async fn handle_signal(
                         "Graphcast message:".cyan(),
                         graphcast_message
                     );
+
                     let block: Block<_> = provider
                         .get_block(graphcast_message.block_number)
                         .await
                         .unwrap()
                         .unwrap();
                     let block_hash = format!("{:#x}", block.hash.unwrap());
-                    //TODO: Add message handler after checking message validity
+
                     match check_message_validity(graphcast_message, block_hash, nonces).await {
-                        Ok(msg) => println!("Decoded valid message: {:#?}", msg),
-                        Err(err) => {
-                            println!("{}{:#?}", "Could not handle the message: ".yellow(), err)
-                        }
+                        Ok(msg) => Ok(msg),
+                        Err(err) => Err(anyhow::anyhow!(
+                            "{}{:#?}",
+                            "Could not handle the message: ".yellow(),
+                            err
+                        )),
                     }
                 }
-                Err(e) => {
-                    println!("Waku message not interpretated as a Graphcast message\nError occurred: {:?}", e);
-                }
+                Err(e) => Err(anyhow::anyhow!(
+                    "Waku message not interpretated as a Graphcast message\nError occurred: {:?}",
+                    e
+                )),
             }
         }
-        waku::Event::Unrecognized(data) => {
-            println!("Unrecognized event!\n {:?}", data);
-        }
-        _ => {
-            println!("signal! {:?}", serde_json::to_string(&signal));
-        }
+        waku::Event::Unrecognized(data) => Err(anyhow::anyhow!("Unrecognized event!\n {:?}", data)),
+        _ => Err(anyhow::anyhow!(
+            "Unrecognized signal!\n {:?}",
+            serde_json::to_string(&signal)
+        )),
     }
 }
 
@@ -202,7 +206,6 @@ pub async fn check_message_validity(
         .valid_nonce(nonces)?;
 
     println!("{}", "Valid message!".bold().green());
-
     Ok(graphcast_message.clone())
 }
 
