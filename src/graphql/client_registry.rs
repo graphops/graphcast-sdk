@@ -40,11 +40,14 @@ pub async fn query_registry_indexer(
     let response_body: Response<graph_account::ResponseData> = queried_result.json().await?;
 
     if let Some(data) = response_body.data {
-        Ok(data
+        let account = data
             .graph_account
             .and_then(|x| x.gossip_operator_of)
-            .map(|x| x.id)
-            .unwrap())
+            .map(|x| x.id);
+        match account {
+            Some(a) => Ok(a),
+            None => Err(anyhow!("Empty graphAccount data queried from registry")),
+        }
     } else {
         Err(anyhow!("No response data from registry"))
     }

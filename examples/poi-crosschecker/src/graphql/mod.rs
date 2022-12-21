@@ -41,12 +41,12 @@ pub async fn query_graph_node_poi(
         indexer: None,
     };
     let queried_result = perform_proof_of_indexing(graph_node_endpoint.clone(), variables).await?;
-    // let queried_result = "{\"data\":{\"proofOfIndexing\":\"0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae\"}}";
     let response_body: Response<proof_of_indexing::ResponseData> = queried_result.json().await?;
 
     if let Some(data) = response_body.data {
         match data.proof_of_indexing {
             Some(poi) => Ok(poi),
+            // _ => Ok("0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string()),
             _ => Err(QueryError::EmptyResponseError),
         }
     } else {

@@ -29,31 +29,6 @@ use anyhow::anyhow;
 
 use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH, REGISTRY_SUBGRAPH};
 
-/// Radio payload that includes an grpah identifier and custom content
-/// In future work, allow dynamic buffers
-#[derive(Debug, Eip712, EthAbiType, Serialize, Deserialize)]
-#[eip712(
-    name = "RadioPaylod",
-    version = "1",
-    chain_id = 1,
-    verifying_contract = "0x0000000000000000000000000000000000000000"
-)]
-pub struct RadioPayload {
-    /// Graph identifier for the entity the radio is communicating about
-    pub identifier: String,
-    /// content to share about the identified entity
-    pub content: String,
-}
-
-impl Clone for RadioPayload {
-    fn clone(&self) -> Self {
-        Self {
-            identifier: self.identifier.clone(),
-            content: self.content.clone(),
-        }
-    }
-}
-
 unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     ::std::slice::from_raw_parts((p as *const T) as *const u8, ::std::mem::size_of::<T>())
 }
@@ -61,6 +36,29 @@ unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
 impl From<RadioPayloadMessage> for RecoveryMessage {
     fn from(m: RadioPayloadMessage) -> RecoveryMessage {
         RecoveryMessage::Data(unsafe { any_as_u8_slice(&m).to_vec() })
+    }
+}
+
+#[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
+#[eip712(
+    name = "Graphcast Radio payload",
+    version = "0",
+    chain_id = 1,
+    verifying_contract = "0xc944e90c64b2c07662a292be6244bdf05cda44a7"
+)]
+pub struct RadioPayloadMessage {
+    #[prost(string, tag = "1")]
+    pub identifier: String,
+    #[prost(string, tag = "2")]
+    pub content: String,
+}
+
+impl RadioPayloadMessage {
+    pub fn new(identifier: String, content: String) -> Self {
+        RadioPayloadMessage {
+            identifier,
+            content,
+        }
     }
 }
 
@@ -165,13 +163,11 @@ impl GraphcastMessage {
 
     /// Check message from valid sender: resolve indexer address and self stake
     pub async fn valid_sender(&self) -> Result<&GraphcastMessage, anyhow::Error> {
-        let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
-        let address = format!(
-            "{:#x}",
-            Signature::from_str(&self.signature)?.recover(radio_payload.encode_eip712()?)?
-        );
-        let indexer_address =
-            query_registry_indexer(REGISTRY_SUBGRAPH.to_string(), address.to_string()).await?;
+        let indexer_address = query_registry_indexer(
+            REGISTRY_SUBGRAPH.to_string(),
+            self.recover_sender_address()?,
+        )
+        .await?;
         if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
             .await?
             .stake_satisfy_requirement()
@@ -226,15 +222,17 @@ impl GraphcastMessage {
         updated_nonces
     }
 
-    pub fn recover_sender_address(&self) -> String {
+    //TODO: update to Result<>
+    /// Recover sender address from Graphcast message radio payload
+    pub fn recover_sender_address(&self) -> Result<String, anyhow::Error> {
         let radio_payload = RadioPayloadMessage::new(self.identifier.clone(), self.content.clone());
-        format!(
-            "{:#x}",
-            Signature::from_str(&self.signature)
-                .unwrap()
-                .recover(radio_payload.encode_eip712().unwrap())
-                .unwrap()
-        )
+
+        match Signature::from_str(&self.signature)
+            .and_then(|sig| sig.recover(radio_payload.encode_eip712().unwrap()))
+        {
+            Ok(addr) => Ok(format!("{:#x}", addr)),
+            Err(x) => Err(anyhow!(x)),
+        }
     }
 
     /// Check historic nonce: ensure message sequencing
@@ -242,7 +240,7 @@ impl GraphcastMessage {
         &self,
         nonces: &Arc<Mutex<NoncesMap>>,
     ) -> Result<&GraphcastMessage, anyhow::Error> {
-        let address = self.recover_sender_address();
+        let address = self.recover_sender_address()?;
 
         let mut nonces = nonces.lock().unwrap();
         let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());
@@ -295,78 +293,35 @@ impl GraphcastMessage {
     }
 }
 
-#[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
-#[eip712(
-    name = "radio payload",
-    version = "1",
-    chain_id = 1,
-    verifying_contract = "0x0000000000000000000000000000000000000000"
-)]
-pub struct RadioPayloadMessage {
-    #[prost(string, tag = "1")]
-    pub identifier: String,
-    #[prost(string, tag = "2")]
-    pub content: String,
-}
-
-impl RadioPayloadMessage {
-    pub fn new(identifier: String, content: String) -> Self {
-        RadioPayloadMessage {
-            identifier,
-            content,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ethers_core::rand::thread_rng;
 
-    #[tokio::test]
-    async fn test_dummy_message() {
-        let hash: String = "Qmtest".to_string();
-        let content: String = "0x0000".to_string();
-        let nonce: i64 = 123321;
-        let block_number: i64 = 0;
-        let block_hash: String = "0xblahh".to_string();
-        let sig: String = "signhere".to_string();
-        let msg = GraphcastMessage::new(
-            hash,
-            content,
-            nonce,
-            block_number,
-            block_hash.clone(),
-            sig.clone(),
-        );
-
-        assert_eq!(msg.block_number, 0);
-        assert!(msg.valid_sender().await.is_err());
-        assert!(msg.valid_time().is_err());
-        assert!(msg.valid_hash("weeelp".to_string()).is_err());
-        assert_eq!(
-            msg.valid_hash("0xblahh".to_string()).unwrap().signature,
-            sig
-        );
+    fn dummy_wallet() -> Wallet<SigningKey> {
+        Wallet::new(&mut thread_rng())
     }
 
     #[tokio::test]
-    async fn test_signed_message() {
-        let hash: String = "QmWECgZdP2YMcV9RtKU41GxcdW8EGYqMNoG98ubu5RGN6U".to_string();
-        let content: String =
-            "0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string();
-        let nonce: i64 = 123321;
+    async fn test_standard_message() {
+        let hash: String = "Qmtest".to_string();
+        let content: String = "0x0000".to_string();
         let block_number: i64 = 0;
         let block_hash: String = "0xblahh".to_string();
-        let sig: String = "4be6a6b7f27c4086f22e8be364cbdaeddc19c1992a42b08cbe506196b0aafb0a68c8c48a730b0e3155f4388d7cc84a24b193d091c4a6a4e8cd6f1b305870fae61b".to_string();
-        let msg = GraphcastMessage::new(
-            hash,
-            content.clone(),
-            nonce,
-            block_number,
-            block_hash.clone(),
-            sig,
-        );
 
-        assert_eq!(msg.valid_sender().await.unwrap().content, content);
+        let wallet = dummy_wallet();
+        let msg = GraphcastMessage::build(&wallet, hash, content.clone(), block_number, block_hash)
+            .await
+            .unwrap();
+
+        assert_eq!(msg.block_number, 0);
+        assert!(msg.valid_sender().await.is_err());
+        assert!(msg.valid_time().is_ok());
+        assert!(msg.valid_hash("weeelp".to_string()).is_err());
+        assert_eq!(msg.content, content);
+        assert_eq!(
+            msg.recover_sender_address().unwrap(),
+            format!("{:#x}", wallet.address())
+        );
     }
 }
