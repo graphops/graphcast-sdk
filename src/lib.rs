@@ -45,12 +45,12 @@ pub fn app_name() -> Cow<'static, str> {
 
 #[cfg(test)]
 mod tests {
-    use crate::gossip_agent::waku_handling::generate_content_topics;
+    use crate::gossip_agent::waku_handling::build_content_topics;
 
     #[test]
-    fn test_generate_content_topics() {
+    fn test_build_content_topics() {
         let basics = ["Qmyumyum", "Ymqumqum"].to_vec();
-        let res = generate_content_topics("some-radio", 0, &basics);
+        let res = build_content_topics("some-radio", 0, &basics);
         for i in 0..res.len() {
             assert_eq!(res[i].content_topic_name, basics[i]);
             assert_eq!(res[i].application_name, "some-radio");
