@@ -1,14 +1,22 @@
+mod attestations;
+mod utils;
+
+use crate::attestations::{compare_attestations, save_local_attestation, Attestation};
+use crate::utils::process_messages;
+use attestations::attestation_handler;
 use colored::*;
 use ethers::types::Block;
 use ethers::{
     providers::{Http, Middleware, Provider},
     types::U64,
 };
-use once_cell::sync::OnceCell;
+use graphcast_sdk::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
+use graphcast_sdk::graphql::client_network::query_network_subgraph;
+use std::collections::HashMap;
 use std::env;
+use std::sync::{Arc, Mutex};
 use std::{thread::sleep, time::Duration};
-
-use graphcast_sdk::gossip_agent::GossipAgent;
+use utils::{LocalAttestationsMap, GOSSIP_AGENT, MESSAGES};
 
 /// Radio specific query function to fetch Proof of Indexing for each allocated subgraph
 use graphql::query_graph_node_poi;
@@ -16,8 +24,6 @@ mod graphql;
 
 #[macro_use]
 extern crate partial_application;
-
-pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
 
 #[tokio::main]
 async fn main() {
@@ -27,8 +33,8 @@ async fn main() {
     let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
 
     // Send message every x blocks for which wait y blocks before attestations
-    let examination_frequency = 2;
-    let wait_block_duration = 1;
+    let examination_frequency = 3;
+    let wait_block_duration = 2;
 
     let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
     let radio_name: &str = "poi-crosschecker";
@@ -37,12 +43,16 @@ async fn main() {
         .await
         .unwrap();
 
-    if GOSSIP_AGENT.set(gossip_agent).is_ok() {
-        GOSSIP_AGENT.get().unwrap().message_handler();
-    }
+    _ = GOSSIP_AGENT.set(gossip_agent);
+    _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
+
+    let radio_handler = Arc::new(Mutex::new(attestation_handler()));
+    GOSSIP_AGENT.get().unwrap().register_handler(radio_handler);
 
     let mut curr_block = 0;
-    let mut compare_block;
+    let mut compare_block: u64 = 0;
+
+    let local_attestations: Arc<Mutex<LocalAttestationsMap>> = Arc::new(Mutex::new(HashMap::new()));
 
     // Main loop for sending messages, can factor out
     // and take radio specific query and parsing for radioPayload
@@ -50,12 +60,44 @@ async fn main() {
         let block_number = U64::as_u64(&provider.get_block_number().await.unwrap()) - 5;
 
         if curr_block == block_number {
-            sleep(Duration::from_secs(6));
+            sleep(Duration::from_secs(5));
             continue;
         }
 
         println!("{} {}", "🔗 Block number:".cyan(), block_number);
         curr_block = block_number;
+
+        if block_number == compare_block {
+            println!("{}", "Comparing attestations".magenta());
+
+            let remote_attestations = process_messages(Arc::clone(MESSAGES.get().unwrap())).await;
+            match remote_attestations {
+                Ok(remote_attestations) => {
+                    let mut messages = MESSAGES.get().unwrap().lock().unwrap();
+                    match compare_attestations(
+                        compare_block - wait_block_duration,
+                        remote_attestations,
+                        Arc::clone(&local_attestations),
+                    ) {
+                        Ok(msg) => {
+                            println!("{}", msg.green().bold());
+                            messages.clear();
+                        }
+                        Err(err) => {
+                            println!("{}", err);
+                            messages.clear();
+                        }
+                    }
+                }
+                Err(err) => {
+                    println!(
+                        "{}{}",
+                        "An error occured while parsing messages: {}".red().bold(),
+                        err
+                    );
+                }
+            }
+        }
 
         // Send POI message at a fixed frequency
         if block_number % examination_frequency == 0 {
@@ -71,13 +113,34 @@ async fn main() {
             let poi_query = partial!( query_graph_node_poi => graph_node_endpoint.clone(), _, block_hash.to_string(),block_number.try_into().unwrap());
             let identifiers = GOSSIP_AGENT.get().unwrap().content_identifiers();
 
+            let my_stake = query_network_subgraph(
+                NETWORK_SUBGRAPH.to_string(),
+                GOSSIP_AGENT.get().unwrap().indexer_address.clone(),
+            )
+            .await
+            .unwrap()
+            .indexer_stake();
+
             for id in identifiers {
                 match poi_query(id.clone()).await {
                     Ok(content) => {
+                        let attestation = Attestation {
+                            npoi: content.clone(),
+                            stake_weight: my_stake.clone(),
+                            senders: Vec::new(),
+                        };
+
+                        save_local_attestation(
+                            &mut local_attestations.lock().unwrap(),
+                            attestation,
+                            id.clone(),
+                            block_number,
+                        );
+
                         match GOSSIP_AGENT
                             .get()
                             .unwrap()
-                            .gossip_message(id.clone(), block_number, content)
+                            .send_message(id.clone(), block_number, content)
                             .await
                         {
                             Ok(sent) => println!("{}: {}", "Sent message id:".green(), sent),
@@ -86,10 +149,6 @@ async fn main() {
                     }
                     Err(e) => println!("{}: {}", "Failed to query message".red(), e),
                 }
-            }
-            //ATTEST
-            if block_number == compare_block {
-                println!("{}", "Compare attestations here".red());
             }
         }
     }

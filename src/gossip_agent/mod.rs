@@ -129,20 +129,30 @@ impl GossipAgent {
 
     //TODO: Factor out handler
     /// Establish custom handler for incoming Waku messages
-    pub fn message_handler(&'static self) {
+    pub fn register_handler<
+        F: FnMut(Result<GraphcastMessage, anyhow::Error>)
+            + std::marker::Sync
+            + std::marker::Send
+            + 'static,
+    >(
+        &'static self,
+        radio_handler_mutex: Arc<Mutex<F>>,
+    ) {
         let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone()).unwrap();
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async {
-                handle_signal(&provider, &self.nonces, signal).await;
+                let msg = handle_signal(&provider, signal, &self.nonces).await;
+                let mut radio_handler = radio_handler_mutex.lock().unwrap();
+                radio_handler(msg);
             });
         };
         waku_set_event_callback(handle_async);
     }
 
-    /// Construct a Graphcast message and send to the Waku Relay network with custom topic
-    pub async fn gossip_message(
+    /// For each topic, construct with custom write function and send
+    pub async fn send_message(
         &self,
         identifier: String,
         block_number: u64,
