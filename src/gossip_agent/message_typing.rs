@@ -17,17 +17,19 @@ use ethers_core::{
     types::{transaction::eip712::Eip712, Signature},
 };
 use ethers_derive_eip712::*;
+use num_bigint::BigUint;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
-    graphql::client_network::query_network_subgraph,
-    graphql::client_registry::query_registry_indexer, NoncesMap,
+    gossip_agent::REGISTRY_SUBGRAPH,
+    graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
+    NoncesMap,
 };
 use anyhow::anyhow;
 
-use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH, REGISTRY_SUBGRAPH};
+use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH};
 
 unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     ::std::slice::from_raw_parts((p as *const T) as *const u8, ::std::mem::size_of::<T>())
@@ -37,6 +39,25 @@ impl From<RadioPayloadMessage> for RecoveryMessage {
     fn from(m: RadioPayloadMessage) -> RecoveryMessage {
         RecoveryMessage::Data(unsafe { any_as_u8_slice(&m).to_vec() })
     }
+}
+/// Prepare sender:nonce to update
+fn prepare_nonces(
+    nonces_per_subgraph: &HashMap<String, i64>,
+    address: String,
+    nonce: i64,
+) -> HashMap<std::string::String, i64> {
+    let mut updated_nonces = HashMap::new();
+    updated_nonces.clone_from(nonces_per_subgraph);
+    updated_nonces.insert(address, nonce);
+    updated_nonces
+}
+
+pub async fn get_indexer_stake(address: String) -> Result<BigUint, anyhow::Error> {
+    Ok(
+        query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
+            .await?
+            .indexer_stake(),
+    )
 }
 
 #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
@@ -120,7 +141,6 @@ impl GraphcastMessage {
         block_hash: String,
     ) -> Result<Self, Box<dyn Error>> {
         println!("\n{}", "Constructing message".green());
-        //Q: move signing to here and over all fields?
         let sig = wallet
             .sign_typed_data(&RadioPayloadMessage::new(
                 identifier.clone(),
@@ -182,7 +202,7 @@ impl GraphcastMessage {
     }
 
     /// Check timestamp: prevent past message replay
-    pub fn valid_time(&self) -> Result<&GraphcastMessage, anyhow::Error> {
+    pub fn valid_time(&self) -> Result<&Self, anyhow::Error> {
         //Can store for measuring overall gossip message latency
         let message_age = Utc::now().timestamp() - self.nonce;
         // 0 allow instant atomic messaging, use 1 to exclude them
@@ -198,7 +218,7 @@ impl GraphcastMessage {
     }
 
     /// Check timestamp: prevent messages with incorrect provider
-    pub fn valid_hash(&self, block_hash: String) -> Result<&GraphcastMessage, anyhow::Error> {
+    pub fn valid_hash(&self, block_hash: String) -> Result<&Self, anyhow::Error> {
         if self.block_hash == block_hash {
             Ok(self)
         } else {
@@ -208,18 +228,6 @@ impl GraphcastMessage {
                 block_hash
             ))
         }
-    }
-
-    /// Prepare sender:nonce to update
-    fn prepare_nonces(
-        nonces_per_subgraph: &HashMap<String, i64>,
-        address: String,
-        nonce: i64,
-    ) -> HashMap<std::string::String, i64> {
-        let mut updated_nonces = HashMap::new();
-        updated_nonces.clone_from(nonces_per_subgraph);
-        updated_nonces.insert(address, nonce);
-        updated_nonces
     }
 
     //TODO: update to Result<>
@@ -257,37 +265,34 @@ impl GraphcastMessage {
 
                         if nonce > &self.nonce {
                             Err(anyhow!(
-                            "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
-                            self.identifier, address, self.nonce, nonce
-                        ))
+                                    "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
+                                    self.identifier, address, self.nonce, nonce
+                                ))
                         } else {
-                            let updated_nonces = Self::prepare_nonces(
-                                nonces_per_subgraph,
-                                address.clone(),
-                                self.nonce,
-                            );
+                            let updated_nonces =
+                                prepare_nonces(nonces_per_subgraph, address, self.nonce);
                             nonces.insert(self.identifier.clone(), updated_nonces);
                             Ok(self)
                         }
                     }
                     None => {
                         let updated_nonces =
-                            Self::prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
+                            prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
                         nonces.insert(self.identifier.clone(), updated_nonces);
                         Err(anyhow!(
-                            "No saved nonce for address {} on topic {}, saving this one and skipping message...",
-                            address, self.identifier
-                        ))
+                                    "No saved nonce for address {} on topic {}, saving this one and skipping message...",
+                                    address, self.identifier
+                                ))
                     }
                 }
             }
             None => {
-                let updated_nonces = Self::prepare_nonces(&HashMap::new(), address, self.nonce);
+                let updated_nonces = prepare_nonces(&HashMap::new(), address, self.nonce);
                 nonces.insert(self.identifier.clone(), updated_nonces);
                 Err(anyhow!(
-                    "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
-                    self.identifier
-                ))
+                            "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
+                            self.identifier
+                        ))
             }
         }
     }
