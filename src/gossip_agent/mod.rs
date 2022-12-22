@@ -18,11 +18,11 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
+use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle };
 
 use self::message_typing::GraphcastMessage;
 use self::waku_handling::{
-    generate_content_topics, handle_signal, pubsub_topic, setup_node_handle,
+    build_content_topics, handle_signal, pubsub_topic, setup_node_handle,
 };
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
@@ -84,9 +84,8 @@ impl GossipAgent {
             .map(|s| &**s)
             .collect::<Vec<&str>>();
 
-        let node_handle = setup_node_handle();
-        // Explicitely filter subscription
-        let content_topics = generate_content_topics(radio_name, 0, &subtopics);
+        let content_topics = build_content_topics(radio_name, 0, &subtopics);
+        let node_handle = setup_node_handle(&content_topics);
         Ok(GossipAgent {
             wallet,
             eth_node,
@@ -127,7 +126,6 @@ impl GossipAgent {
         }
     }
 
-    //TODO: Factor out handler
     /// Establish custom handler for incoming Waku messages
     pub fn message_handler(&'static self) {
         let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone()).unwrap();
