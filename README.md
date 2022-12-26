@@ -1,5 +1,3 @@
-# graphcast-sdk
-Implementation of Graphcast SDK in Rust
 # Graphcast SDK
 
 ## 📯 Introduction
@@ -45,11 +43,13 @@ Updates to the SDK will be merged into the `main` branch once their respective P
 There are unit tests both for the SDK and for the Radio. We recommend using [nextest](https://nexte.st/) as your test runner. Once you have it installed you can run the tests using the following commands:
 
 For the POI cross-checker Radio tests:
+
 ```
 cargo nextest run --example poi-crosschecker
 ```
 
 For the SDK tests:
+
 ```
 cargo nextest run
 ```
@@ -74,5 +74,3 @@ After another interval we compare our _local_ POIs with the _remote_ ones. We so
 ## Contributing
 
 We welcome and appreciate your contributions! Please see the [Contributor Guide](/CONTRIBUTING.md), [Code Of Conduct](/CODE_OF_CONDUCT.md) and [Security Notes](/SECURITY.md) for this repository.
->>>>>>> Stashed changes
->>>>>>> Stashed changes
