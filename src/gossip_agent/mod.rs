@@ -63,6 +63,8 @@ impl GossipAgent {
         private_key: String,
         eth_node: String,
         radio_name: &str,
+        waku_host: Option<String>,
+        waku_port: Option<String>,
     ) -> Result<GossipAgent, Box<dyn Error>> {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
@@ -84,7 +86,10 @@ impl GossipAgent {
                                      // .collect::<Vec<&str>>()[1..2].to_vec();
 
         let content_topics = build_content_topics(radio_name, 0, &subtopics);
-        let node_handle = setup_node_handle(&content_topics);
+        //Should we allow the setting of waku node host and port?
+        let host = waku_host.as_deref();
+        let port = waku_port.map(|y| y.parse().unwrap());
+        let node_handle = setup_node_handle(&content_topics, host, port);
         Ok(GossipAgent {
             wallet,
             eth_node,
