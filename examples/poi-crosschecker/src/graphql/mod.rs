@@ -48,6 +48,7 @@ pub async fn query_graph_node_poi(
             Some(poi) => Ok(poi),
             // _ => Ok("0xa6008cea5905b8b7811a68132feea7959b623188e2d6ee3c87ead7ae56dd0eae".to_string()),
             _ => Err(QueryError::EmptyResponseError),
+            // _ => Ok(std::env::args().nth(1).unwrap_or("welllllp".to_string())),
         }
     } else {
         Err(QueryError::EmptyResponseError)

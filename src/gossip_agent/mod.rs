@@ -18,12 +18,10 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle };
+use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
 use self::message_typing::GraphcastMessage;
-use self::waku_handling::{
-    build_content_topics, handle_signal, pubsub_topic, setup_node_handle,
-};
+use self::waku_handling::{build_content_topics, handle_signal, pubsub_topic, setup_node_handle};
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::NoncesMap;
@@ -82,7 +80,8 @@ impl GossipAgent {
         let subtopics = indexer_allocations
             .iter()
             .map(|s| &**s)
-            .collect::<Vec<&str>>();
+            .collect::<Vec<&str>>(); // subtopics allocations
+                                     // .collect::<Vec<&str>>()[1..2].to_vec();
 
         let content_topics = build_content_topics(radio_name, 0, &subtopics);
         let node_handle = setup_node_handle(&content_topics);
