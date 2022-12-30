@@ -32,6 +32,9 @@ async fn main() {
     let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
     let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
 
+    // Option for where to host the waku node instance
+    let waku_host = env::var("WAKU_HOST").ok();
+    let waku_port = env::var("WAKU_PORT").ok();
     // Send message every x blocks for which wait y blocks before attestations
     let examination_frequency = 3;
     let wait_block_duration = 2;
@@ -39,7 +42,7 @@ async fn main() {
     let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
     let radio_name: &str = "poi-crosschecker";
 
-    let gossip_agent = GossipAgent::new(private_key, eth_node, radio_name)
+    let gossip_agent = GossipAgent::new(private_key, eth_node, radio_name, waku_host, waku_port)
         .await
         .unwrap();
 

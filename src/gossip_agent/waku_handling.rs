@@ -13,8 +13,9 @@ use std::{borrow::Cow, io::prelude::*, sync::Arc};
 use std::{error::Error, sync::Mutex, time::Duration};
 use std::{fs::File, net::IpAddr, str::FromStr};
 use waku::{
-    waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running, Signal,
-    WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running,
+    SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
+    WakuPeerData, WakuPubSubTopic,
 };
 
 /// Get pubsub topic based on recommendations from https://rfc.vac.dev/spec/23/
@@ -96,36 +97,29 @@ pub fn filter_peer_subscriptions(
     Ok(node_handle)
 }
 
-/// Node config of Waku Relay Node without filter protocol enabled. These node route all messages on the subscribed pubsub topic
-/// Specify the node to use relay network and require at least one peer before publishing
-fn boot_node_config() -> Option<WakuNodeConfig> {
+/// For boot nodes, configure a Waku Relay Node with filter protocol enabled (Waiting on filterFullNode waku-bindings impl). These node route all messages on the subscribed pubsub topic
+/// Preferrably also provide advertise_addr and Secp256k1 private key in Hex format (0x123...abc).
+///
+/// For light nodes, config with relay disabled and filter enabled. These node will route all messages but only pull data for messages matching the subscribed content topics.
+fn node_config(
+    host: Option<&str>,
+    port: Option<usize>,
+    ad_addr: Option<Multiaddr>,
+    key: Option<SecretKey>,
+    enable_relay: bool,
+    enable_filter: bool,
+) -> Option<WakuNodeConfig> {
     Some(WakuNodeConfig {
-        host: IpAddr::from_str("0.0.0.0").ok(),
-        port: Some(6000),
-        advertise_addr: None, // Fill this for boot nodes
+        host: host.and_then(|h| IpAddr::from_str(h).ok()),
+        port,
+        advertise_addr: ad_addr, // Fill this for boot nodes
         // node_key: Some(waku_secret_key),
-        node_key: None,
+        node_key: key,
         keep_alive_interval: None,
-        relay: Some(true),             // Default true
+        relay: Some(enable_relay),     // Default true
         min_peers_to_publish: Some(0), // Default 0
-        filter: Some(true),            // Default false
+        filter: Some(enable_filter),   // Default false
         log_level: Some(WakuLogLevel::Info),
-    })
-}
-
-/// Node config with relay and filter enabled. These node will route all messages but only pull message data from the subscribed content topics.
-/// Specify the node to use relay network and require at least one peer before publishing
-fn light_node_config() -> Option<WakuNodeConfig> {
-    Some(WakuNodeConfig {
-        host: IpAddr::from_str("0.0.0.0").ok(),
-        port: Some(6001),
-        advertise_addr: None,
-        node_key: None,
-        keep_alive_interval: None,
-        relay: Some(false),                  // Default True
-        min_peers_to_publish: Some(1),       // Default 0
-        filter: Some(true),                  // Default False, true to enable filtering
-        log_level: Some(WakuLogLevel::Info), // Default Error, change back for lighter logs
     })
 }
 
@@ -183,12 +177,18 @@ fn connect_and_subscribe(
 //TODO: Topic discovery DNS and Discv5
 //TODO: Filter full node config for boot nodes
 /// Set up a waku node given pubsub topics
-pub fn setup_node_handle(content_topics: &[WakuContentTopic]) -> WakuNodeHandle<Running> {
+pub fn setup_node_handle(
+    content_topics: &[WakuContentTopic],
+    host: Option<&str>,
+    port: Option<usize>,
+) -> WakuNodeHandle<Running> {
     let graphcast_topic: &Option<WakuPubSubTopic> = &pubsub_topic("1");
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             // Update boot node to declare isFilterFullNode = True
-            let boot_node_handle = waku_new(boot_node_config()).unwrap().start().unwrap();
+            let boot_node_config = node_config(host, port, None, None, true, true);
+            let boot_node_handle = waku_new(boot_node_config).unwrap().start().unwrap();
+            //TODO: Provide DNS url to a ENR tree for peer discovery
             // let peer_ids = connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
             // Relay node subscribe pubsub_topic of graphcast
@@ -197,17 +197,26 @@ pub fn setup_node_handle(content_topics: &[WakuContentTopic]) -> WakuNodeHandle<
                 .expect("Could not subscribe to the topic");
 
             let boot_node_id = boot_node_handle.peer_id().unwrap();
-            println!("Boot node id {}", boot_node_id);
+            let boot_node_multiaddress = format!(
+                "/ip4/{}/tcp/{}/p2p/{}",
+                host.unwrap_or("0.0.0.0"),
+                60000,
+                boot_node_id
+            );
+            println!(
+                "Boot node - id: {}, address: {}",
+                boot_node_id, boot_node_multiaddress
+            );
 
             // Store boot node id to share
-            let mut file = File::create("./boot_node_id.conf").unwrap();
-            file.write_all(boot_node_id.as_bytes()).unwrap();
+            let mut file = File::create("./boot_node_addr.conf").unwrap();
+            file.write_all(boot_node_multiaddress.as_bytes()).unwrap();
             boot_node_handle
         }
         _ => {
-            let mut file = File::open("./boot_node_id.conf").unwrap();
-            let mut boot_node_id = String::new();
-            file.read_to_string(&mut boot_node_id).unwrap();
+            let mut file = File::open("./boot_node_addr.conf").unwrap();
+            let mut boot_node_addr = String::new();
+            file.read_to_string(&mut boot_node_addr).unwrap();
 
             // run default nodes with peers hosted with pubsub to graphcast topics
             println!(
@@ -216,10 +225,9 @@ pub fn setup_node_handle(content_topics: &[WakuContentTopic]) -> WakuNodeHandle<
                 graphcast_topic
             );
 
-            // Would be nice to refactor this construction with waku topic config
-            let nodes = Vec::from([format!("{}{}", "/ip4/0.0.0.0/tcp/6000/p2p/", boot_node_id)]);
-            let node_handle =
-                initialize_node_handle(nodes, light_node_config(), ProtocolId::Filter);
+            let node_config = node_config(host, port, None, None, false, true);
+            let nodes = Vec::from([boot_node_addr]);
+            let node_handle = initialize_node_handle(nodes, node_config, ProtocolId::Filter);
             connect_and_subscribe(node_handle, graphcast_topic, content_topics)
                 .expect("Could not connect and subscribe")
         }
