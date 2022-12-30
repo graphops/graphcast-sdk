@@ -9,12 +9,12 @@ use ethers::{
     types::Block,
 };
 use prost::Message;
-use std::{sync::Mutex, time::Duration, error::Error};
 use std::{borrow::Cow, io::prelude::*, sync::Arc};
+use std::{error::Error, sync::Mutex, time::Duration};
 use std::{fs::File, net::IpAddr, str::FromStr};
 use waku::{
-    waku_new, Encoding, Multiaddr, ProtocolId, Running, Signal, WakuContentTopic, WakuLogLevel,
-    WakuNodeConfig, WakuNodeHandle, WakuPubSubTopic, ContentFilter, FilterSubscription,
+    waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running, Signal,
+    WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 /// Get pubsub topic based on recommendations from https://rfc.vac.dev/spec/23/
@@ -45,35 +45,53 @@ pub fn build_content_topics(
     .to_vec()
 }
 
-/// Makes a filter subscription
-pub fn filter_subscription(
+/// Makes a filter subscription from content topics and optionally pubsub topic
+pub fn content_filter_subscription(
     pubsub_topic: &Option<WakuPubSubTopic>,
-    content_topics: &Vec<WakuContentTopic>,
+    content_topics: &[WakuContentTopic],
 ) -> FilterSubscription {
     let filters = (*content_topics
         .iter()
-        .map(|topic| ContentFilter::new(
-            topic.clone()
-        ))
+        .map(|topic| ContentFilter::new(topic.clone()))
         .collect::<Vec<ContentFilter>>())
-        .to_vec();
-
-    let filter = FilterSubscription::new(
-        filters, 
-        pubsub_topic.clone(),
-    );
-    filter
+    .to_vec();
+    FilterSubscription::new(filters, pubsub_topic.clone())
 }
 
-pub fn filter_peer_subscriptions(node_handle: WakuNodeHandle<Running>, filter_subscription: &FilterSubscription) -> Result<WakuNodeHandle<Running>, Box<dyn Error>> {
-    let filter_subscribe_result: Vec<String> = node_handle.peers()?.iter().map(|peer| {
-        let filter_res = node_handle
-        .filter_subscribe(filter_subscription, peer.peer_id().clone(), Duration::new(6000, 0));
-        match filter_res {
-            Ok(x) => format!("returned okay for filter subcription: {} {:#?}", peer.peer_id(), filter_subscription),
-            Err(e) => format!("Failed to filter subscribe with peer: {}", e)
-        }
-    }).collect();
+/// Make filter subscription requests to all peers except for ourselves
+pub fn filter_peer_subscriptions(
+    node_handle: WakuNodeHandle<Running>,
+    graphcast_topic: &Option<WakuPubSubTopic>,
+    content_topics: &[WakuContentTopic],
+) -> Result<WakuNodeHandle<Running>, Box<dyn Error>> {
+    let subscription: FilterSubscription =
+        content_filter_subscription(graphcast_topic, content_topics);
+    let filter_subscribe_result: Vec<String> = node_handle
+        .peers()?
+        .iter()
+        .filter(|&peer| {
+            peer.peer_id().as_str()
+                != node_handle
+                    .peer_id()
+                    .expect("Failed to find local node's peer id")
+                    .as_str()
+        })
+        .map(|peer: &WakuPeerData| {
+            let filter_res = node_handle.filter_subscribe(
+                &subscription,
+                peer.peer_id().clone(),
+                Duration::new(6000, 0),
+            );
+            match filter_res {
+                Ok(_) => format!(
+                    "Filter subcription request made to: {} - {:#?}",
+                    peer.peer_id(),
+                    &subscription
+                ),
+                Err(e) => format!("Failed to filter subscribe with peer: {}", e),
+            }
+        })
+        .collect();
     println!("Filter subscription added: {:#?}", filter_subscribe_result);
     Ok(node_handle)
 }
@@ -83,13 +101,14 @@ pub fn filter_peer_subscriptions(node_handle: WakuNodeHandle<Running>, filter_su
 fn boot_node_config() -> Option<WakuNodeConfig> {
     Some(WakuNodeConfig {
         host: IpAddr::from_str("0.0.0.0").ok(),
-        port: Some(6001),
+        port: Some(6000),
         advertise_addr: None, // Fill this for boot nodes
+        // node_key: Some(waku_secret_key),
         node_key: None,
         keep_alive_interval: None,
-        relay: None,                    // Default True
-        min_peers_to_publish: Some(0),  // Default 0
-        filter: Some(false),             // Default False
+        relay: Some(true),             // Default true
+        min_peers_to_publish: Some(0), // Default 0
+        filter: Some(true),            // Default false
         log_level: Some(WakuLogLevel::Info),
     })
 }
@@ -103,70 +122,84 @@ fn light_node_config() -> Option<WakuNodeConfig> {
         advertise_addr: None,
         node_key: None,
         keep_alive_interval: None,
-        relay: None,                    // Default True
-        min_peers_to_publish: Some(1),  // Default 0
-        filter: Some(true),             // Default False, true to enable filtering
-        log_level: Some(WakuLogLevel::Info),   // Default Error, change back for lighter logs
+        relay: Some(false),                  // Default True
+        min_peers_to_publish: Some(1),       // Default 0
+        filter: Some(true),                  // Default False, true to enable filtering
+        log_level: Some(WakuLogLevel::Info), // Default Error, change back for lighter logs
     })
 }
 
-/// Generate a node instance of 'node_config', connected to the peers specified by 'nodes', and subscribe to graphcast topic on the relay network
-fn initialize_node_handle(nodes:Vec<String>, node_config: Option<WakuNodeConfig>, graphcast_topic: &Option<WakuPubSubTopic>) -> WakuNodeHandle<Running> {
+/// Generate a node instance of 'node_config', connected to the peers using node addresses on specific waku protocol
+fn initialize_node_handle(
+    nodes: Vec<String>,
+    node_config: Option<WakuNodeConfig>,
+    protocol_id: ProtocolId,
+) -> WakuNodeHandle<Running> {
     let node_handle = waku_new(node_config).unwrap().start().unwrap();
-    let peerids = connect_peers_with_address(nodes, &node_handle);
-
-    // Relay node subscribe pubsub_topic of graphcast
-    node_handle
-        .relay_subscribe(graphcast_topic.clone())
-        .expect("Could not subscribe to the topic");
+    let peer_ids = connect_multiaddresses(nodes, &node_handle, protocol_id);
 
     println!(
-        "PeerID: {:#?}\nlistening to peers: {:#?}",
+        "Initialized node handle\nLocal node peer_id: {:#?}\nConnected to peers: {:#?}",
         node_handle.peer_id(),
-        peerids,
+        peer_ids,
     );
     node_handle
 }
 
-fn connect_peers_with_address(nodes: Vec<String>, node_handle: &WakuNodeHandle<Running>) -> Vec<String> {
+/// Connect to peers from a list of multiaddresses for a specific protocol
+fn connect_multiaddresses(
+    nodes: Vec<String>,
+    node_handle: &WakuNodeHandle<Running>,
+    protocol_id: ProtocolId,
+) -> Vec<String> {
     nodes
-    .iter()
-    .map(|a| Multiaddr::from_str(a).expect("Could not parse address")).map( |address| 
-        {
+        .iter()
+        .map(|a| Multiaddr::from_str(a).expect("Could not parse address"))
+        .map(|address| {
             let peer_id = node_handle
-                .add_peer(&address, ProtocolId::Relay)
+                .add_peer(&address, protocol_id)
                 .unwrap_or_else(|_| String::from("Could not add peer"));
-            node_handle.connect_peer_with_id(peer_id.clone(), None).unwrap();
+            node_handle
+                .connect_peer_with_id(peer_id.clone(), None)
+                .unwrap();
             peer_id
-        }
-    ).collect::<Vec<String>>()
+        })
+        .collect::<Vec<String>>()
 }
 
-/// filter subscribe to provided content topics 
+/// Subscribe to provided pubsub and content topics wil filtering
 fn connect_and_subscribe(
     node_handle: WakuNodeHandle<Running>,
     graphcast_topic: &Option<WakuPubSubTopic>,
-    content_topics: &Vec<WakuContentTopic>,
+    content_topics: &[WakuContentTopic],
 ) -> Result<WakuNodeHandle<Running>, Box<dyn Error>> {
-    let filter_subscription = filter_subscription(graphcast_topic, content_topics);    
-    Ok(filter_peer_subscriptions(node_handle, &filter_subscription)?)
+    //TODO: remove when filter subscription is enabled
+    node_handle
+        .relay_subscribe(graphcast_topic.clone())
+        .expect("Could not subscribe to the topic");
+    filter_peer_subscriptions(node_handle, graphcast_topic, content_topics)
 }
 
-//TODO: Topic discovery Discv5
+//TODO: Topic discovery DNS and Discv5
+//TODO: Filter full node config for boot nodes
 /// Set up a waku node given pubsub topics
-pub fn setup_node_handle(content_topics: &Vec<WakuContentTopic>) -> WakuNodeHandle<Running> {
+pub fn setup_node_handle(content_topics: &[WakuContentTopic]) -> WakuNodeHandle<Running> {
     let graphcast_topic: &Option<WakuPubSubTopic> = &pubsub_topic("1");
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
-            let nodes = Vec::from([
-                "/dns4/node-01.ac-cn-hongkong-c.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAkvWiyFsgRhuJEb9JfjYxEkoHLgnUQmr1N5mKWnYjxYRVm".to_string(),
-                "/dns4/node-01.do-ams3.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ".to_string(),
-                "/dns4/node-01.gc-us-central1-a.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmJb2e28qLXxT5kZxVUUoJt72EMzNGXB47Rxx5hw3q4YjS".to_string(),
-            ]);
-            let boot_node_handle = initialize_node_handle(nodes, boot_node_config(), graphcast_topic);
+            // Update boot node to declare isFilterFullNode = True
+            let boot_node_handle = waku_new(boot_node_config()).unwrap().start().unwrap();
+            // let peer_ids = connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
+
+            // Relay node subscribe pubsub_topic of graphcast
+            boot_node_handle
+                .relay_subscribe(graphcast_topic.clone())
+                .expect("Could not subscribe to the topic");
+
             let boot_node_id = boot_node_handle.peer_id().unwrap();
             println!("Boot node id {}", boot_node_id);
 
+            // Store boot node id to share
             let mut file = File::create("./boot_node_id.conf").unwrap();
             file.write_all(boot_node_id.as_bytes()).unwrap();
             boot_node_handle
@@ -183,18 +216,17 @@ pub fn setup_node_handle(content_topics: &Vec<WakuContentTopic>) -> WakuNodeHand
                 graphcast_topic
             );
 
-            // Would be nice to refactor this construction with waku topic confi
-            let nodes = Vec::from([format!("{}{}", "/ip4/0.0.0.0/tcp/6001/p2p/", boot_node_id),
-            "/dns4/node-01.ac-cn-hongkong-c.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAkvWiyFsgRhuJEb9JfjYxEkoHLgnUQmr1N5mKWnYjxYRVm".to_string(),
-            "/dns4/node-01.do-ams3.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ".to_string(),
-            "/dns4/node-01.gc-us-central1-a.wakuv2.test.statusim.net/tcp/30303/p2p/16Uiu2HAmJb2e28qLXxT5kZxVUUoJt72EMzNGXB47Rxx5hw3q4YjS".to_string(),]);
-            let node_handle = initialize_node_handle(nodes, light_node_config(), graphcast_topic);
-            connect_and_subscribe(node_handle, graphcast_topic, content_topics).expect("Could not connect and subscribe")
+            // Would be nice to refactor this construction with waku topic config
+            let nodes = Vec::from([format!("{}{}", "/ip4/0.0.0.0/tcp/6000/p2p/", boot_node_id)]);
+            let node_handle =
+                initialize_node_handle(nodes, light_node_config(), ProtocolId::Filter);
+            connect_and_subscribe(node_handle, graphcast_topic, content_topics)
+                .expect("Could not connect and subscribe")
         }
     }
 }
 
-/// Parse and validate incoming message, returns ()
+/// Parse and validate incoming message
 pub async fn handle_signal(
     provider: &Provider<Http>,
     nonces: &Arc<Mutex<NoncesMap>>,
