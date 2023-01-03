@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
-    "poi-crosschecker"
+    "poi-crosschecker",
+    "ping-pong"
 ]

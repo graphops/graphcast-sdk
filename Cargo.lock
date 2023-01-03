@@ -3377,7 +3377,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "waku-bindings"
 version = "0.1.0-beta1"
-source = "git+https://github.com/waku-org/waku-rust-bindings?rev=d4136fd#d4136fd72bbeb39d65b90bba336d564f760cb9cb"
+source = "git+https://github.com/waku-org/waku-rust-bindings#0fb4e2e917629143608654cb3762efb78bff8ca2"
 dependencies = [
  "aes-gcm",
  "base64 0.13.1",
@@ -3396,7 +3396,7 @@ dependencies = [
 [[package]]
 name = "waku-sys"
 version = "0.1.0-beta1"
-source = "git+https://github.com/waku-org/waku-rust-bindings?rev=d4136fd#d4136fd72bbeb39d65b90bba336d564f760cb9cb"
+source = "git+https://github.com/waku-org/waku-rust-bindings#0fb4e2e917629143608654cb3762efb78bff8ca2"
 dependencies = [
  "bindgen",
 ]

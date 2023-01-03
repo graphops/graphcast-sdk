@@ -1421,7 +1421,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "waku-bindings",
+ "waku-bindings 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings?rev=d4136fd)",
 ]
 
 [[package]]
@@ -2286,6 +2286,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
+name = "ping-pong"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ethers",
+ "graphcast-sdk",
+ "once_cell",
+ "partial_application",
+ "tokio",
+]
+
+[[package]]
 name = "pkcs8"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2326,7 +2338,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "waku-bindings",
+ "waku-bindings 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings)",
 ]
 
 [[package]]
@@ -3405,6 +3417,25 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "waku-bindings"
 version = "0.1.0-beta1"
+source = "git+https://github.com/waku-org/waku-rust-bindings?rev=d4136fd#d4136fd72bbeb39d65b90bba336d564f760cb9cb"
+dependencies = [
+ "aes-gcm",
+ "base64 0.13.1",
+ "hex",
+ "multiaddr",
+ "once_cell",
+ "rand",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "sscanf",
+ "url",
+ "waku-sys 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings?rev=d4136fd)",
+]
+
+[[package]]
+name = "waku-bindings"
+version = "0.1.0-beta1"
 source = "git+https://github.com/waku-org/waku-rust-bindings#aa06fcc969650ba8a037271b06a38cfc80744875"
 dependencies = [
  "aes-gcm",
@@ -3418,7 +3449,15 @@ dependencies = [
  "serde_json",
  "sscanf",
  "url",
- "waku-sys",
+ "waku-sys 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings)",
+]
+
+[[package]]
+name = "waku-sys"
+version = "0.1.0-beta1"
+source = "git+https://github.com/waku-org/waku-rust-bindings?rev=d4136fd#d4136fd72bbeb39d65b90bba336d564f760cb9cb"
+dependencies = [
+ "bindgen",
 ]
 
 [[package]]

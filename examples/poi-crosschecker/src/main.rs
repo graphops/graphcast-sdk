@@ -29,7 +29,7 @@ extern crate partial_application;
 async fn main() {
     // Common inputs - refactor to a set-up function?
     let graph_node_endpoint = String::from("http://localhost:8030/graphql");
-    let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
+    let private_key = env::var("PRIVATE_KEY").expect("No operator private key provided.");
     let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
 
     // Send message every x blocks for which wait y blocks before attestations
@@ -39,7 +39,7 @@ async fn main() {
     let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
     let radio_name: &str = "poi-crosschecker";
 
-    let gossip_agent = GossipAgent::new(private_key, eth_node, radio_name)
+    let gossip_agent = GossipAgent::new(private_key, eth_node, radio_name, None)
         .await
         .unwrap();
 

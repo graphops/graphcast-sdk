@@ -18,12 +18,10 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle };
+use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
 use self::message_typing::GraphcastMessage;
-use self::waku_handling::{
-    build_content_topics, handle_signal, pubsub_topic, setup_node_handle,
-};
+use self::waku_handling::{build_content_topics, handle_signal, pubsub_topic, setup_node_handle};
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::NoncesMap;
@@ -65,6 +63,7 @@ impl GossipAgent {
         private_key: String,
         eth_node: String,
         radio_name: &str,
+        subtopics: Option<Vec<&str>>,
     ) -> Result<GossipAgent, Box<dyn Error>> {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
@@ -79,10 +78,13 @@ impl GossipAgent {
             query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
                 .await?
                 .indexer_allocations();
-        let subtopics = indexer_allocations
-            .iter()
-            .map(|s| &**s)
-            .collect::<Vec<&str>>();
+
+        let subtopics = subtopics.unwrap_or_else(|| {
+            indexer_allocations
+                .iter()
+                .map(|s| &**s)
+                .collect::<Vec<&str>>()
+        });
 
         let content_topics = build_content_topics(radio_name, 0, &subtopics);
         let node_handle = setup_node_handle(&content_topics);
