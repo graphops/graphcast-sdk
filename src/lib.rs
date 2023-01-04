@@ -22,6 +22,7 @@ use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+use url::Url;
 
 pub mod gossip_agent;
 pub mod graphql;
@@ -41,6 +42,11 @@ pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();
 /// ```
 pub fn app_name() -> Cow<'static, str> {
     Cow::from("graphcast")
+}
+
+/// Returns hardcoded DNS Url to a discoverable ENR tree that should be used to retrieve boot nodes
+pub fn discovery_url() -> Url {
+    Url::parse("enrtree://AMRFINDNF7XHQN2XBYCGYAYSQ3NV77RJIHLX6HJLA6ZAF365NRLMM@graphcast.testnodes.graphops.xyz").expect("Could not parse discovery url to ENR tree")
 }
 
 #[cfg(test)]
