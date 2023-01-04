@@ -1,5 +1,5 @@
 use crate::{
-    app_name,
+    app_name, discovery_url,
     gossip_agent::message_typing::{self, GraphcastMessage},
     NoncesMap,
 };
@@ -125,12 +125,27 @@ fn node_config(
 
 /// Generate a node instance of 'node_config', connected to the peers using node addresses on specific waku protocol
 fn initialize_node_handle(
-    nodes: Vec<String>,
+    nodes: Vec<Multiaddr>,
     node_config: Option<WakuNodeConfig>,
     protocol_id: ProtocolId,
 ) -> WakuNodeHandle<Running> {
     let node_handle = waku_new(node_config).unwrap().start().unwrap();
-    let peer_ids = connect_multiaddresses(nodes, &node_handle, protocol_id);
+    let all_nodes = match node_handle.dns_discovery(&discovery_url(), None, None) {
+        Ok(x) => {
+            println!("Discovered multiaddresses: {:#?}", x);
+            let mut discovered_nodes = x;
+            discovered_nodes.extend(nodes.into_iter());
+            discovered_nodes
+        }
+        Err(e) => {
+            println!(
+                "Could not discover nodes with provided Url, only add static node list: {:?}",
+                e
+            );
+            nodes
+        }
+    };
+    let peer_ids = connect_multiaddresses(all_nodes, &node_handle, protocol_id);
 
     println!(
         "Initialized node handle\nLocal node peer_id: {:#?}\nConnected to peers: {:#?}",
@@ -142,16 +157,15 @@ fn initialize_node_handle(
 
 /// Connect to peers from a list of multiaddresses for a specific protocol
 fn connect_multiaddresses(
-    nodes: Vec<String>,
+    nodes: Vec<Multiaddr>,
     node_handle: &WakuNodeHandle<Running>,
     protocol_id: ProtocolId,
 ) -> Vec<String> {
     nodes
         .iter()
-        .map(|a| Multiaddr::from_str(a).expect("Could not parse address"))
         .map(|address| {
             let peer_id = node_handle
-                .add_peer(&address, protocol_id)
+                .add_peer(address, protocol_id)
                 .unwrap_or_else(|_| String::from("Could not add peer"));
             node_handle
                 .connect_peer_with_id(peer_id.clone(), None)
@@ -181,14 +195,14 @@ pub fn setup_node_handle(
     content_topics: &[WakuContentTopic],
     host: Option<&str>,
     port: Option<usize>,
+    node_key: Option<SecretKey>,
 ) -> WakuNodeHandle<Running> {
     let graphcast_topic: &Option<WakuPubSubTopic> = &pubsub_topic("1");
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             // Update boot node to declare isFilterFullNode = True
-            let boot_node_config = node_config(host, port, None, None, true, true);
+            let boot_node_config = node_config(host, port, None, node_key, true, true);
             let boot_node_handle = waku_new(boot_node_config).unwrap().start().unwrap();
-            //TODO: Provide DNS url to a ENR tree for peer discovery
             // let peer_ids = connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
             // Relay node subscribe pubsub_topic of graphcast
@@ -200,7 +214,7 @@ pub fn setup_node_handle(
             let boot_node_multiaddress = format!(
                 "/ip4/{}/tcp/{}/p2p/{}",
                 host.unwrap_or("0.0.0.0"),
-                60000,
+                port.unwrap_or(60000),
                 boot_node_id
             );
             println!(
@@ -226,7 +240,8 @@ pub fn setup_node_handle(
             );
 
             let node_config = node_config(host, port, None, None, false, true);
-            let nodes = Vec::from([boot_node_addr]);
+            let nodes =
+                Vec::from([Multiaddr::from_str(&boot_node_addr).expect("Could not parse address")]);
             let node_handle = initialize_node_handle(nodes, node_config, ProtocolId::Filter);
             connect_and_subscribe(node_handle, graphcast_topic, content_topics)
                 .expect("Could not connect and subscribe")

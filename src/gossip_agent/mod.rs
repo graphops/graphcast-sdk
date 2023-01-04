@@ -14,8 +14,11 @@ use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::Block;
 
+use data_encoding::BASE32;
+use secp256k1::{PublicKey, Secp256k1, SecretKey as SKey};
 use std::collections::HashMap;
 use std::error::Error;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
@@ -89,7 +92,23 @@ impl GossipAgent {
         //Should we allow the setting of waku node host and port?
         let host = waku_host.as_deref();
         let port = waku_port.map(|y| y.parse().unwrap());
-        let node_handle = setup_node_handle(&content_topics, host, port);
+        let node_key = waku::SecretKey::from_str(&private_key).ok();
+
+        // Print out base32 encoded public key, use in discovery URL TXT field
+        // Can be moved to only print for boot nodes
+        let secret_key = SKey::from_str(&private_key);
+        if let Ok(sk) = secret_key {
+            let secp = Secp256k1::new();
+            let public_key = PublicKey::from_secret_key(&secp, &sk);
+            let pk = public_key.serialize();
+            let base32_encoded_key = BASE32.encode(&pk);
+            println!(
+                "Base32 encoded 32byte Public key: {:#?}",
+                base32_encoded_key
+            );
+        }
+
+        let node_handle = setup_node_handle(&content_topics, host, port, node_key);
         Ok(GossipAgent {
             wallet,
             eth_node,

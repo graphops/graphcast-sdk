@@ -31,6 +31,9 @@ num-bigint = "0.4.3"
 num-traits = "0.2.15"
 lazy_static = "1.4.0"
 thiserror = "1.0.30"
+secp256k1 = "0.25.0"
+data-encoding = "2.3.3"
+url = "2.3.1"
 
 [[example]]
 name = "poi-crosschecker"
