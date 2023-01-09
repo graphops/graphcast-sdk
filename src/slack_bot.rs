@@ -43,7 +43,7 @@ impl SlackMessageTemplate for AlertMessageTemplateParams {
                 id.to_slack_format(),
                 &self.radio_name
             ),
-            None => format!("Hi there, on the topic of {}", &self.radio_name),
+            None => format!("Hi there! on the topic of {}", &self.radio_name),
         };
         SlackMessageContent::new().with_blocks(slack_blocks![
             // some_into(SlackHeaderBlock::new(pt!(user))),
