@@ -12,6 +12,8 @@ use ethers::{
 };
 use graphcast_sdk::gossip_agent::{GossipAgent, NETWORK_SUBGRAPH};
 use graphcast_sdk::graphql::client_network::query_network_subgraph;
+use graphcast_sdk::{config_env_var, slack_bot};
+use slack_bot::SlackBot;
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Mutex};
@@ -27,10 +29,13 @@ extern crate partial_application;
 
 #[tokio::main]
 async fn main() {
-    // Common inputs - refactor to a set-up function?
-    let graph_node_endpoint = String::from("http://localhost:8030/graphql");
-    let private_key = env::var("PRIVATE_KEY").expect("No private key provided.");
-    let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
+    let graph_node_endpoint = config_env_var("GRAPH_NODE_STATUS_ENDPOINT")
+        .expect("Failed to configure graph node endpoint");
+    let private_key =
+        config_env_var("PRIVATE_KEY").expect("Failed to configure Ethereum wallet private key");
+    let eth_node = config_env_var("ETH_NODE").expect("Failed to configure eth node endpoint");
+    let slack_token = config_env_var("SLACK_TOKEN").ok();
+    let slack_channel = "#graphcast-slackbot".to_string();
 
     // Option for where to host the waku node instance
     let waku_host = env::var("WAKU_HOST").ok();
@@ -76,7 +81,6 @@ async fn main() {
             let remote_attestations = process_messages(Arc::clone(MESSAGES.get().unwrap())).await;
             match remote_attestations {
                 Ok(remote_attestations) => {
-                    let mut messages = MESSAGES.get().unwrap().lock().unwrap();
                     match compare_attestations(
                         compare_block - wait_block_duration,
                         remote_attestations,
@@ -84,13 +88,22 @@ async fn main() {
                     ) {
                         Ok(msg) => {
                             println!("{}", msg.green().bold());
-                            messages.clear();
                         }
                         Err(err) => {
-                            println!("{}", err);
-                            messages.clear();
+                            println!("Attestation error: {}", err.to_string().yellow().bold());
+                            if let Some(ref token) = slack_token {
+                                SlackBot::send_webhook(
+                                    token.clone(),
+                                    &slack_channel,
+                                    radio_name.to_string(),
+                                    err.to_string(),
+                                )
+                                .await
+                                .expect("Failed to send alert message to slack channel");
+                            }
                         }
                     }
+                    MESSAGES.get().unwrap().lock().unwrap().clear();
                 }
                 Err(err) => {
                     println!(
