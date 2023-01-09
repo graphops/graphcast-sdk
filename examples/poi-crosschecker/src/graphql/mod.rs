@@ -47,7 +47,9 @@ pub async fn query_graph_node_poi(
         match data.proof_of_indexing {
             Some(poi) => Ok(poi),
             _ => Err(QueryError::EmptyResponseError),
-            // _ => Ok(std::env::args().nth(1).unwrap_or("welllllp".to_string())),
+            // _ => Ok(std::env::args()
+            //     .nth(1)
+            //     .unwrap_or_else(|| "welllllp".to_string())),
         }
     } else {
         Err(QueryError::EmptyResponseError)

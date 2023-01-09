@@ -123,9 +123,7 @@ pub fn compare_attestations(
                         return Err(anyhow!(format!(
                             "POIs don't match for subgraph {} on block {}!",
                             ipfs_hash, attestation_block
-                        )
-                        .red()
-                        .bold()));
+                        )));
                     }
                             },
                             None => {
@@ -133,18 +131,17 @@ pub fn compare_attestations(
                                     "No record for subgraph {} on block {} found in remote attestations",
                                     ipfs_hash, attestation_block
                                 )
-                                .yellow()
                                ));
                             }
                         }
                     }
                     None => {
-                        return Err(anyhow!(format!("No attestations for subgraph {} on block {} found in remote attestations store. Continuing...", ipfs_hash, attestation_block, ).yellow()))
+                        return Err(anyhow!(format!("No attestations for subgraph {} on block {} found in remote attestations store. Continuing...", ipfs_hash, attestation_block, )))
                     }
                 }
             }
             None => {
-                return Err(anyhow!(format!("No attestation for subgraph {} on block {} found in local attestations store. Continuing...", ipfs_hash, attestation_block, ).yellow()))
+                return Err(anyhow!(format!("No attestation for subgraph {} on block {} found in local attestations store. Continuing...", ipfs_hash, attestation_block, )))
             }
         }
     }
@@ -152,8 +149,7 @@ pub fn compare_attestations(
     Err(anyhow!(format!(
         "The comparison did not execute successfully for on block {}. Continuing...",
         attestation_block,
-    )
-    .yellow()))
+    )))
 }
 
 #[cfg(test)]

@@ -20,12 +20,14 @@ use once_cell::sync::OnceCell;
 use std::{
     borrow::Cow,
     collections::HashMap,
+    env,
     sync::{Arc, Mutex},
 };
 use url::Url;
 
 pub mod gossip_agent;
 pub mod graphql;
+pub mod slack_bot;
 
 type NoncesMap = HashMap<String, HashMap<String, i64>>;
 
@@ -47,6 +49,11 @@ pub fn app_name() -> Cow<'static, str> {
 /// Returns hardcoded DNS Url to a discoverable ENR tree that should be used to retrieve boot nodes
 pub fn discovery_url() -> Url {
     Url::parse("enrtree://AMRFINDNF7XHQN2XBYCGYAYSQ3NV77RJIHLX6HJLA6ZAF365NRLMM@graphcast.testnodes.graphops.xyz").expect("Could not parse discovery url to ENR tree")
+}
+
+/// Attempt to read environmental variable
+pub fn config_env_var(name: &str) -> Result<String, String> {
+    env::var(name).map_err(|e| format!("{}: {}", name, e))
 }
 
 #[cfg(test)]
