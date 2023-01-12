@@ -183,8 +183,8 @@ impl GossipAgent {
             .provider
             .get_block(block_number)
             .await
-            .unwrap()
-            .unwrap();
+            .expect("Failed to query block from node provider based on block number")
+            .expect("Node Provider returned None for the queried block");
         let block_hash = format!("{:#x}", block.hash.unwrap());
         let content_topic = self.match_content_topic(identifier.clone())?;
 

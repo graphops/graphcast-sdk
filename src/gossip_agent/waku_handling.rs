@@ -132,14 +132,16 @@ fn initialize_node_handle(
     let node_handle = waku_new(node_config).unwrap().start().unwrap();
     let all_nodes = match node_handle.dns_discovery(&discovery_url(), None, None) {
         Ok(x) => {
-            println!("Discovered multiaddresses: {:#?}", x);
+            println!("{} {:#?}", "Discovered multiaddresses:".green(), x);
             let mut discovered_nodes = x;
+            // Should static node be added or just use as fallback?
             discovered_nodes.extend(nodes.into_iter());
             discovered_nodes
         }
         Err(e) => {
             println!(
-                "Could not discover nodes with provided Url, only add static node list: {:?}",
+                "{}{:?}",
+                "Could not discover nodes with provided Url, only add static node list: ".yellow(),
                 e
             );
             nodes
@@ -167,9 +169,9 @@ fn connect_multiaddresses(
             let peer_id = node_handle
                 .add_peer(address, protocol_id)
                 .unwrap_or_else(|_| String::from("Could not add peer"));
-            node_handle
-                .connect_peer_with_id(peer_id.clone(), None)
-                .unwrap();
+            if let Err(e) = node_handle.connect_peer_with_id(peer_id.clone(), None) {
+                println!("Could not connect to peer with id: {}", e);
+            };
             peer_id
         })
         .collect::<Vec<String>>()

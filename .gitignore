@@ -5,4 +5,5 @@
 /.fleet
 /examples/target
 boot_node_addr.conf
-.envrc
+test_tree_zone.txt
+txt_records.json

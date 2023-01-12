@@ -48,7 +48,12 @@ pub fn app_name() -> Cow<'static, str> {
 
 /// Returns hardcoded DNS Url to a discoverable ENR tree that should be used to retrieve boot nodes
 pub fn discovery_url() -> Url {
-    Url::parse("enrtree://AMRFINDNF7XHQN2XBYCGYAYSQ3NV77RJIHLX6HJLA6ZAF365NRLMM@graphcast.testnodes.graphops.xyz").expect("Could not parse discovery url to ENR tree")
+    let enr_url = config_env_var("ENR_URL").unwrap_or_else(|_| {
+        "enrtree://AMRFINDNF7XHQN2XBYCGYAYSQ3NV77RJIHLX6HJLA6ZAF365NRLMM@testfleet.graphcast.xyz"
+            .to_string()
+    });
+
+    Url::parse(&enr_url).expect("Could not parse discovery url to ENR tree")
 }
 
 /// Attempt to read environmental variable
