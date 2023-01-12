@@ -256,6 +256,7 @@ pub async fn handle_signal(
     provider: &Provider<Http>,
     signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
+    content_topics: &[WakuContentTopic],
 ) -> Result<GraphcastMessage, anyhow::Error> {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
@@ -271,20 +272,29 @@ pub async fn handle_signal(
                         graphcast_message
                     );
 
-                    let block: Block<_> = provider
-                        .get_block(graphcast_message.block_number)
-                        .await
-                        .unwrap()
-                        .unwrap();
-                    let block_hash = format!("{:#x}", block.hash.unwrap());
+                    if content_topics.iter().any(|content_topic| {
+                        content_topic.content_topic_name == graphcast_message.identifier
+                    }) {
+                        let block: Block<_> = provider
+                            .get_block(graphcast_message.block_number)
+                            .await
+                            .unwrap()
+                            .unwrap();
+                        let block_hash = format!("{:#x}", block.hash.unwrap());
 
-                    match check_message_validity(graphcast_message, block_hash, nonces).await {
-                        Ok(msg) => Ok(msg),
-                        Err(err) => Err(anyhow::anyhow!(
-                            "{}{:#?}",
-                            "Could not handle the message: ".yellow(),
-                            err
-                        )),
+                        match check_message_validity(graphcast_message, block_hash, nonces).await {
+                            Ok(msg) => Ok(msg),
+                            Err(err) => Err(anyhow::anyhow!(
+                                "{}{:#?}",
+                                "Could not handle the message: ".yellow(),
+                                err
+                            )),
+                        }
+                    } else {
+                        return Err(anyhow::anyhow!(
+                            "Content topic '{}' not relevant for this Radio, skipping.",
+                            graphcast_message.identifier
+                        ));
                     }
                 }
                 Err(e) => Err(anyhow::anyhow!(

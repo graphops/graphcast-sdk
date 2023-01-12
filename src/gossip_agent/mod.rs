@@ -40,6 +40,24 @@ pub const REGISTRY_SUBGRAPH: &str =
 /// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
 
+/// Find the subscribed content topic with an identifier
+/// Error if topic doesn't exist
+pub fn match_content_topic(
+    identifier: String,
+    content_topics: &[WakuContentTopic],
+) -> Result<&WakuContentTopic, Box<dyn Error>> {
+    match content_topics
+        .iter()
+        .find(|&x| x.content_topic_name == identifier.clone())
+    {
+        Some(topic) => Ok(topic),
+        _ => Err(anyhow::anyhow!(format!(
+            "Did not match a content topic with identifier: {}",
+            identifier
+        )))?,
+    }
+}
+
 /// A gossip agent representation
 pub struct GossipAgent {
     /// Gossip operator's wallet, used to sign messages
@@ -66,6 +84,7 @@ impl GossipAgent {
         private_key: String,
         eth_node: String,
         radio_name: &str,
+        subtopics: Option<Vec<&str>>,
         waku_host: Option<String>,
         waku_port: Option<String>,
     ) -> Result<GossipAgent, Box<dyn Error>> {
@@ -82,11 +101,13 @@ impl GossipAgent {
             query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
                 .await?
                 .indexer_allocations();
-        let subtopics = indexer_allocations
-            .iter()
-            .map(|s| &**s)
-            .collect::<Vec<&str>>(); // subtopics allocations
-                                     // .collect::<Vec<&str>>()[1..2].to_vec();
+
+        let subtopics = subtopics.unwrap_or_else(|| {
+            indexer_allocations
+                .iter()
+                .map(|s| &**s)
+                .collect::<Vec<&str>>()
+        });
 
         let content_topics = build_content_topics(radio_name, 0, &subtopics);
         //Should we allow the setting of waku node host and port?
@@ -130,25 +151,6 @@ impl GossipAgent {
             .collect()
     }
 
-    /// Find the subscribed content topic with an identifier
-    /// Error if topic doesn't exist
-    pub fn match_content_topic(
-        &self,
-        identifier: String,
-    ) -> Result<&WakuContentTopic, Box<dyn Error>> {
-        match self
-            .content_topics
-            .iter()
-            .find(|&x| x.content_topic_name == identifier.clone())
-        {
-            Some(topic) => Ok(topic),
-            _ => Err(anyhow::anyhow!(format!(
-                "Did not match a content topic with identifier: {}",
-                identifier
-            )))?,
-        }
-    }
-
     /// Establish custom handler for incoming Waku messages
     pub fn register_handler<
         F: FnMut(Result<GraphcastMessage, anyhow::Error>)
@@ -164,7 +166,8 @@ impl GossipAgent {
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async {
-                let msg = handle_signal(&provider, signal, &self.nonces).await;
+                let msg =
+                    handle_signal(&provider, signal, &self.nonces, &self.content_topics).await;
                 let mut radio_handler = radio_handler_mutex.lock().unwrap();
                 radio_handler(msg);
             });
@@ -186,7 +189,7 @@ impl GossipAgent {
             .expect("Failed to query block from node provider based on block number")
             .expect("Node Provider returned None for the queried block");
         let block_hash = format!("{:#x}", block.hash.unwrap());
-        let content_topic = self.match_content_topic(identifier.clone())?;
+        let content_topic = match_content_topic(identifier.clone(), &self.content_topics)?;
 
         GraphcastMessage::build(
             &self.wallet,
