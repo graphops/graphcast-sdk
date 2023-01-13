@@ -9,7 +9,6 @@
 //! Gossip agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
-
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::types::Block;
@@ -73,6 +72,10 @@ pub struct GossipAgent {
     content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
+    /// A constant defining the goerli registry subgraph endpoint.
+    pub registry_subgraph: String,
+    /// A constant defining the goerli network subgraph endpoint.
+    pub network_subgraph: String,
 }
 
 impl GossipAgent {
@@ -80,10 +83,13 @@ impl GossipAgent {
     ///
     /// Private key resolves into wallet and indexer identity.
     /// Topic is generated based on indexer allocations with waku node set up included
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         private_key: String,
         eth_node: String,
         radio_name: &str,
+        registry_subgraph: &str,
+        network_subgraph: &str,
         subtopics: Option<Vec<&str>>,
         waku_host: Option<String>,
         waku_port: Option<String>,
@@ -91,17 +97,16 @@ impl GossipAgent {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
         let indexer_address = query_registry_indexer(
-            REGISTRY_SUBGRAPH.to_string(),
+            registry_subgraph.to_string(),
             format!("{:?}", wallet.address()),
         )
         .await?;
 
         // TODO: Factor out custom topic generation query
         let indexer_allocations =
-            query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
+            query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
                 .await?
                 .indexer_allocations();
-
         let subtopics = subtopics.unwrap_or_else(|| {
             indexer_allocations
                 .iter()
@@ -139,6 +144,8 @@ impl GossipAgent {
             indexer_allocations,
             node_handle,
             nonces: Arc::new(Mutex::new(HashMap::new())),
+            registry_subgraph: registry_subgraph.to_string(),
+            network_subgraph: network_subgraph.to_string(),
         })
     }
 
@@ -166,8 +173,15 @@ impl GossipAgent {
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async {
-                let msg =
-                    handle_signal(&provider, signal, &self.nonces, &self.content_topics).await;
+                let msg = handle_signal(
+                    &provider,
+                    signal,
+                    &self.nonces,
+                    &self.content_topics,
+                    &self.registry_subgraph,
+                    &self.network_subgraph,
+                )
+                .await;
                 let mut radio_handler = radio_handler_mutex.lock().unwrap();
                 radio_handler(msg);
             });
