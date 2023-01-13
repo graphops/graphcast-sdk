@@ -1404,6 +1404,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "colored",
+ "data-encoding",
  "ethers",
  "ethers-contract",
  "ethers-core",
@@ -1416,12 +1417,14 @@ dependencies = [
  "partial_application",
  "prost",
  "reqwest",
+ "secp256k1 0.25.0",
  "serde",
  "serde_derive",
  "serde_json",
  "thiserror",
  "tokio",
- "waku-bindings",
+ "url",
+ "waku-bindings 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings?rev=0fb4e2e)",
 ]
 
 [[package]]
@@ -2326,7 +2329,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "waku-bindings",
+ "waku-bindings 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings)",
 ]
 
 [[package]]
@@ -2778,8 +2781,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9512ffd81e3a3503ed401f79c33168b9148c75038956039166cd750eaa037c3"
 dependencies = [
  "rand",
- "secp256k1-sys",
+ "secp256k1-sys 0.6.1",
  "serde",
+]
+
+[[package]]
+name = "secp256k1"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550fc3b723a478be77bf74718947cdcdd75144d508aaa70f0a320036905df2a8"
+dependencies = [
+ "secp256k1-sys 0.7.0",
 ]
 
 [[package]]
@@ -2787,6 +2799,15 @@ name = "secp256k1-sys"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83080e2c2fc1006e625be82e5d1eb6a43b7fd9578b617fcc55814daf286bba4b"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8058e28ae464daf5ac14c5c0f78110b58616e796c4e4e28cfcca38fdb13d8f22"
 dependencies = [
  "cc",
 ]
@@ -3405,6 +3426,25 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "waku-bindings"
 version = "0.1.0-beta1"
+source = "git+https://github.com/waku-org/waku-rust-bindings?rev=0fb4e2e#0fb4e2e917629143608654cb3762efb78bff8ca2"
+dependencies = [
+ "aes-gcm",
+ "base64 0.13.1",
+ "hex",
+ "multiaddr",
+ "once_cell",
+ "rand",
+ "secp256k1 0.24.2",
+ "serde",
+ "serde_json",
+ "sscanf",
+ "url",
+ "waku-sys 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings?rev=0fb4e2e)",
+]
+
+[[package]]
+name = "waku-bindings"
+version = "0.1.0-beta1"
 source = "git+https://github.com/waku-org/waku-rust-bindings#aa06fcc969650ba8a037271b06a38cfc80744875"
 dependencies = [
  "aes-gcm",
@@ -3413,12 +3453,20 @@ dependencies = [
  "multiaddr",
  "once_cell",
  "rand",
- "secp256k1",
+ "secp256k1 0.24.2",
  "serde",
  "serde_json",
  "sscanf",
  "url",
- "waku-sys",
+ "waku-sys 0.1.0-beta1 (git+https://github.com/waku-org/waku-rust-bindings)",
+]
+
+[[package]]
+name = "waku-sys"
+version = "0.1.0-beta1"
+source = "git+https://github.com/waku-org/waku-rust-bindings?rev=0fb4e2e#0fb4e2e917629143608654cb3762efb78bff8ca2"
+dependencies = [
+ "bindgen",
 ]
 
 [[package]]

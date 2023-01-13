@@ -38,8 +38,8 @@ url = "2.3.1"
 rsb_derive = "0.5.1"
 
 [[example]]
-name = "poi-crosschecker"
-path = "examples/poi-crosschecker/src/main.rs"
+name = "ping-pong"
+path = "examples/ping-pong/src/main.rs"
 crate-type = ["bin"]
 
 [[bin]]

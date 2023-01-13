@@ -1,8 +1,0 @@
-type Query {
-    proofOfIndexing(
-      subgraph: String!
-      blockNumber: Int!
-      blockHash: String!
-      indexer: String
-    ): String
-}
