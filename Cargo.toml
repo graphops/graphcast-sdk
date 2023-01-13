@@ -10,7 +10,7 @@ keywords=["graphprotocol", "gossip network", "sdk"]
 categories=["network-programming", "web-programming::http-client"]
 
 [dependencies]
-waku = { package = "waku-bindings", git = "https://github.com/waku-org/waku-rust-bindings", rev="0fb4e2e" }
+waku = { package = "waku-bindings", version = "0.1.0-beta2" }
 slack-morphism = { version = "1.4", features = ["hyper", "axum"] }
 prost = "0.11"
 once_cell = "1.15"
