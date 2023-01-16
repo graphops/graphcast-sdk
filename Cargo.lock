@@ -3232,17 +3232,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
-name = "smart-default"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "133659a15339456eeeb07572eb02a91c91e9815e9cbc89566944d2c8d3efdbf6"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "socket2"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3800,9 +3789,8 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "waku-bindings"
-version = "0.1.0-beta2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e57b945f7cb4ba93f04fc6529fce82dee020aa657b25936a9e9c031d4679cfd"
+version = "0.1.0-beta1"
+source = "git+https://github.com/waku-org/waku-rust-bindings?rev=0fb4e2e#0fb4e2e917629143608654cb3762efb78bff8ca2"
 dependencies = [
  "aes-gcm",
  "base64 0.13.1",
@@ -3813,7 +3801,6 @@ dependencies = [
  "secp256k1 0.24.2",
  "serde",
  "serde_json",
- "smart-default",
  "sscanf",
  "url",
  "waku-sys",
@@ -3821,9 +3808,8 @@ dependencies = [
 
 [[package]]
 name = "waku-sys"
-version = "0.1.0-beta2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a69dea2539c4dc288e46a4b21545dd91c139e25d71112c6b0eb1978f25f65d7"
+version = "0.1.0-beta1"
+source = "git+https://github.com/waku-org/waku-rust-bindings?rev=0fb4e2e#0fb4e2e917629143608654cb3762efb78bff8ca2"
 dependencies = [
  "bindgen",
 ]

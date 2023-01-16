@@ -120,9 +120,6 @@ fn node_config(
         min_peers_to_publish: Some(0), // Default 0
         filter: Some(enable_filter),   // Default false
         log_level: Some(WakuLogLevel::Info),
-        discv5: None,
-        discv5_bootstrap_nodes: [].to_vec(),
-        discv5_udp_port: None,
     })
 }
 
