@@ -1,3 +1,4 @@
+use dotenv::dotenv;
 use ethers::{
     providers::{Http, Middleware, Provider},
     types::U64,
@@ -12,6 +13,9 @@ use tokio::sync::Mutex as AsyncMutex;
 
 #[tokio::main]
 async fn main() {
+    // Loads the environment variables from our .env file
+    dotenv().ok();
+
     /// A global static (singleton) instance of A GraphcastMessage vector.
     /// It is used to save incoming messages after they've been validated, in order
     /// defer their processing for later, because async code is required for the processing but
@@ -33,10 +37,19 @@ async fn main() {
     // This can be any string
     let radio_name: &str = "ping-pong";
 
+    /// A constant defining the goerli registry subgraph endpoint.
+    pub const REGISTRY_SUBGRAPH: &str =
+        "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+
+    /// A constant defining the goerli network subgraph endpoint.
+    pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
+
     let gossip_agent = GossipAgent::new(
         private_key,
         eth_node,
         radio_name,
+        REGISTRY_SUBGRAPH,
+        NETWORK_SUBGRAPH,
         // Content topics that the Radio subscribes to
         // If we pass in `None` Graphcast will default to using the ipfs hashes of the subgraphs that the Indexer is allocating to.
         // But in this case we will override it with something much more simple.

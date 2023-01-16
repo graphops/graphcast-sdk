@@ -23,13 +23,12 @@ use serde::{Deserialize, Serialize};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
-    gossip_agent::REGISTRY_SUBGRAPH,
     graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
     NoncesMap,
 };
 use anyhow::anyhow;
 
-use super::{MSG_REPLAY_LIMIT, NETWORK_SUBGRAPH};
+use super::MSG_REPLAY_LIMIT;
 
 unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     ::std::slice::from_raw_parts((p as *const T) as *const u8, ::std::mem::size_of::<T>())
@@ -52,9 +51,12 @@ fn prepare_nonces(
     updated_nonces
 }
 
-pub async fn get_indexer_stake(address: String) -> Result<BigUint, anyhow::Error> {
+pub async fn get_indexer_stake(
+    address: String,
+    network_subgraph: &str,
+) -> Result<BigUint, anyhow::Error> {
     Ok(
-        query_network_subgraph(NETWORK_SUBGRAPH.to_string(), address.clone())
+        query_network_subgraph(network_subgraph.to_string(), address.clone())
             .await?
             .indexer_stake(),
     )
@@ -182,13 +184,17 @@ impl GraphcastMessage {
     }
 
     /// Check message from valid sender: resolve indexer address and self stake
-    pub async fn valid_sender(&self) -> Result<&GraphcastMessage, anyhow::Error> {
+    pub async fn valid_sender(
+        &self,
+        registry_subgraph: &str,
+        network_subgraph: &str,
+    ) -> Result<&GraphcastMessage, anyhow::Error> {
         let indexer_address = query_registry_indexer(
-            REGISTRY_SUBGRAPH.to_string(),
+            registry_subgraph.to_string(),
             self.recover_sender_address()?,
         )
         .await?;
-        if query_network_subgraph(NETWORK_SUBGRAPH.to_string(), indexer_address.clone())
+        if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
             .await?
             .stake_satisfy_requirement()
         {
@@ -309,6 +315,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_standard_message() {
+        let registry_subgraph =
+            "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+        let network_subgraph = "https://gateway.testnet.thegraph.com/network";
+
         let hash: String = "Qmtest".to_string();
         let content: String = "0x0000".to_string();
         let block_number: i64 = 0;
@@ -320,7 +330,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(msg.block_number, 0);
-        assert!(msg.valid_sender().await.is_err());
+        assert!(msg
+            .valid_sender(registry_subgraph, network_subgraph)
+            .await
+            .is_err());
         assert!(msg.valid_time().is_ok());
         assert!(msg.valid_hash("weeelp".to_string()).is_err());
         assert_eq!(msg.content, content);

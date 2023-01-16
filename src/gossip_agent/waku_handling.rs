@@ -260,6 +260,8 @@ pub async fn handle_signal(
     signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
     content_topics: &[WakuContentTopic],
+    registry_subgraph: &str,
+    network_subgraph: &str,
 ) -> Result<GraphcastMessage, anyhow::Error> {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
@@ -285,7 +287,15 @@ pub async fn handle_signal(
                             .unwrap();
                         let block_hash = format!("{:#x}", block.hash.unwrap());
 
-                        match check_message_validity(graphcast_message, block_hash, nonces).await {
+                        match check_message_validity(
+                            graphcast_message,
+                            block_hash,
+                            nonces,
+                            registry_subgraph,
+                            network_subgraph,
+                        )
+                        .await
+                        {
                             Ok(msg) => Ok(msg),
                             Err(err) => Err(anyhow::anyhow!(
                                 "{}{:#?}",
@@ -306,6 +316,7 @@ pub async fn handle_signal(
                 )),
             }
         }
+
         waku::Event::Unrecognized(data) => Err(anyhow::anyhow!("Unrecognized event!\n {:?}", data)),
         _ => Err(anyhow::anyhow!(
             "Unrecognized signal!\n {:?}",
@@ -323,9 +334,11 @@ pub async fn check_message_validity(
     graphcast_message: GraphcastMessage,
     block_hash: String,
     nonces: &Arc<Mutex<NoncesMap>>,
+    registry_subgraph: &str,
+    network_subgraph: &str,
 ) -> Result<GraphcastMessage, anyhow::Error> {
     graphcast_message
-        .valid_sender()
+        .valid_sender(registry_subgraph, network_subgraph)
         .await?
         .valid_time()?
         .valid_hash(block_hash)?
