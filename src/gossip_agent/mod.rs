@@ -196,6 +196,8 @@ impl GossipAgent {
         block_number: u64,
         content: String,
     ) -> Result<String, Box<dyn Error>> {
+        println!("HEREEE 777 inside send_message");
+
         let block: Block<_> = self
             .provider
             .get_block(block_number)

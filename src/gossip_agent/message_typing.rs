@@ -170,6 +170,8 @@ impl GraphcastMessage {
         pub_sub_topic: Option<WakuPubSubTopic>,
         content_topic: &WakuContentTopic,
     ) -> Result<String, Box<dyn Error>> {
+        println!("HEREEE 777 inside send_to_waku");
+
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 

@@ -68,6 +68,8 @@ async fn main() {
 
     // Helper function to reuse message sending code
     async fn send_message(content: String, block_number: u64) {
+        println!("HEREEE 777");
+
         match GOSSIP_AGENT
             .get()
             .unwrap()

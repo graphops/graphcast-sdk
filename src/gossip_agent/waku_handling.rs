@@ -186,10 +186,12 @@ fn connect_and_subscribe(
     graphcast_topic: &Option<WakuPubSubTopic>,
     content_topics: &[WakuContentTopic],
 ) -> Result<WakuNodeHandle<Running>, Box<dyn Error>> {
-    //TODO: remove when filter subscription is enabled
-    node_handle
-        .relay_subscribe(graphcast_topic.clone())
-        .expect("Could not subscribe to the topic");
+    println!("{}", "HERE inside connect_and_subscribe (we know that we're inside a light node)".yellow().bold());
+    println!("{}{:?}", "HERE gc topic".red().bold(), graphcast_topic);
+    println!("{}{:?}", "HERE content topics".red().bold(), content_topics);
+
+    println!("{}", "HERE prolly not gonna get here".red().bold());
+
     filter_peer_subscriptions(node_handle, graphcast_topic, content_topics)
 }
 
@@ -233,14 +235,18 @@ pub fn setup_node_handle(
             boot_node_handle
         }
         _ => {
+            println!("{}", "I must be here. start debugging.".red());
+
             let mut file = File::open("./boot_node_addr.conf").unwrap();
             let mut boot_node_addr = String::new();
             file.read_to_string(&mut boot_node_addr).unwrap();
 
+            println!("{}{}", "boot node addrr ->".red(), boot_node_addr);
+
             // run default nodes with peers hosted with pubsub to graphcast topics
             println!(
                 "{} {:?}",
-                "Registering the following pubsub topics: ".cyan(),
+                "Registering the following pubsub topics: ".red().bold(),
                 graphcast_topic
             );
 
@@ -248,6 +254,10 @@ pub fn setup_node_handle(
             let nodes =
                 Vec::from([Multiaddr::from_str(&boot_node_addr).expect("Could not parse address")]);
             let node_handle = initialize_node_handle(nodes, node_config, ProtocolId::Filter);
+
+            println!("{}", "HERE".green().bold());
+            println!("{}{:?}", "node handle".green().bold(), node_handle);
+
             connect_and_subscribe(node_handle, graphcast_topic, content_topics)
                 .expect("Could not connect and subscribe")
         }
