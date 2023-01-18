@@ -252,18 +252,20 @@ pub fn setup_node_handle(
 }
 
 /// Parse and validate incoming message
-pub async fn handle_signal(
+pub async fn handle_signal<
+    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+>(
     provider: &Provider<Http>,
     signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
     content_topics: &[WakuContentTopic],
     registry_subgraph: &str,
     network_subgraph: &str,
-) -> Result<GraphcastMessage, anyhow::Error> {
+) -> Result<GraphcastMessage<T>, anyhow::Error> {
     println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
-            match <message_typing::GraphcastMessage as Message>::decode(
+            match <message_typing::GraphcastMessage<T> as Message>::decode(
                 event.waku_message().payload(),
             ) {
                 Ok(graphcast_message) => {
@@ -301,10 +303,10 @@ pub async fn handle_signal(
                             )),
                         }
                     } else {
-                        return Err(anyhow::anyhow!(
+                        Err(anyhow::anyhow!(
                             "Content topic '{}' not relevant for this Radio, skipping.",
                             graphcast_message.identifier
-                        ));
+                        ))
                     }
                 }
                 Err(e) => Err(anyhow::anyhow!(
@@ -327,13 +329,15 @@ pub async fn handle_signal(
 /// Time check verifies that message was from within the acceptable timestamp
 /// Block hash check verifies sender's access to valid Ethereum node provider and blocks
 /// Nonce check ensures the ordering of the messages and avoids past messages
-pub async fn check_message_validity(
-    graphcast_message: GraphcastMessage,
+pub async fn check_message_validity<
+    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+>(
+    graphcast_message: GraphcastMessage<T>,
     block_hash: String,
     nonces: &Arc<Mutex<NoncesMap>>,
     registry_subgraph: &str,
     network_subgraph: &str,
-) -> Result<GraphcastMessage, anyhow::Error> {
+) -> Result<GraphcastMessage<T>, anyhow::Error> {
     graphcast_message
         .valid_sender(registry_subgraph, network_subgraph)
         .await?

@@ -14,6 +14,7 @@ use ethers::signers::{LocalWallet, Signer};
 use ethers::types::Block;
 
 use data_encoding::BASE32;
+use prost::Message;
 use secp256k1::{PublicKey, Secp256k1, SecretKey as SKey};
 use std::collections::HashMap;
 use std::error::Error;
@@ -24,8 +25,10 @@ use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeH
 
 use self::message_typing::GraphcastMessage;
 use self::waku_handling::{build_content_topics, handle_signal, pubsub_topic, setup_node_handle};
-use crate::graphql::client_network::query_network_subgraph;
-use crate::graphql::client_registry::query_registry_indexer;
+
+use crate::graphql::{
+    client_network::query_network_subgraph, client_registry::query_registry_indexer,
+};
 use crate::NoncesMap;
 
 pub mod message_typing;
@@ -38,24 +41,6 @@ pub const REGISTRY_SUBGRAPH: &str =
     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
 /// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
-
-/// Find the subscribed content topic with an identifier
-/// Error if topic doesn't exist
-pub fn match_content_topic(
-    identifier: String,
-    content_topics: &[WakuContentTopic],
-) -> Result<&WakuContentTopic, Box<dyn Error>> {
-    match content_topics
-        .iter()
-        .find(|&x| x.content_topic_name == identifier.clone())
-    {
-        Some(topic) => Ok(topic),
-        _ => Err(anyhow::anyhow!(format!(
-            "Did not match a content topic with identifier: {}",
-            identifier
-        )))?,
-    }
-}
 
 /// A gossip agent representation
 pub struct GossipAgent {
@@ -158,12 +143,32 @@ impl GossipAgent {
             .collect()
     }
 
+    /// Find the subscribed content topic with an identifier
+    /// Error if topic doesn't exist
+    pub fn match_content_topic(
+        &self,
+        identifier: String,
+    ) -> Result<&WakuContentTopic, Box<dyn Error>> {
+        match self
+            .content_topics
+            .iter()
+            .find(|&x| x.content_topic_name == identifier.clone())
+        {
+            Some(topic) => Ok(topic),
+            _ => Err(anyhow::anyhow!(format!(
+                "Did not match a content topic with identifier: {}",
+                identifier
+            )))?,
+        }
+    }
+
     /// Establish custom handler for incoming Waku messages
     pub fn register_handler<
-        F: FnMut(Result<GraphcastMessage, anyhow::Error>)
+        F: FnMut(Result<GraphcastMessage<T>, anyhow::Error>)
             + std::marker::Sync
             + std::marker::Send
             + 'static,
+        T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
     >(
         &'static self,
         radio_handler_mutex: Arc<Mutex<F>>,
@@ -190,11 +195,13 @@ impl GossipAgent {
     }
 
     /// For each topic, construct with custom write function and send
-    pub async fn send_message(
+    pub async fn send_message<
+        T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+    >(
         &self,
         identifier: String,
         block_number: u64,
-        content: String,
+        payload: Option<T>,
     ) -> Result<String, Box<dyn Error>> {
         let block: Block<_> = self
             .provider
@@ -203,12 +210,12 @@ impl GossipAgent {
             .expect("Failed to query block from node provider based on block number")
             .expect("Node Provider returned None for the queried block");
         let block_hash = format!("{:#x}", block.hash.unwrap());
-        let content_topic = match_content_topic(identifier.clone(), &self.content_topics)?;
+        let content_topic = self.match_content_topic(identifier.clone())?;
 
         GraphcastMessage::build(
             &self.wallet,
             identifier,
-            content,
+            payload,
             block_number.try_into().unwrap(),
             block_hash.to_string(),
         )

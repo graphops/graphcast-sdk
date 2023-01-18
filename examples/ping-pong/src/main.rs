@@ -10,6 +10,9 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use std::{thread::sleep, time::Duration};
 use tokio::sync::Mutex as AsyncMutex;
+use types::RadioPayloadMessage;
+
+mod types;
 
 #[tokio::main]
 async fn main() {
@@ -20,7 +23,8 @@ async fn main() {
     /// It is used to save incoming messages after they've been validated, in order
     /// defer their processing for later, because async code is required for the processing but
     /// it is not allowed in the handler itself.
-    pub static MESSAGES: OnceCell<Arc<Mutex<Vec<GraphcastMessage>>>> = OnceCell::new();
+    pub static MESSAGES: OnceCell<Arc<Mutex<Vec<GraphcastMessage<RadioPayloadMessage>>>>> =
+        OnceCell::new();
 
     /// The Gossip Agent instance must be a global static variable (for the time being).
     /// This is because the Radio handler requires a static immutable context and
@@ -67,7 +71,7 @@ async fn main() {
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
 
     // Helper function to reuse message sending code
-    async fn send_message(content: String, block_number: u64) {
+    async fn send_message(payload: Option<RadioPayloadMessage>, block_number: u64) {
         match GOSSIP_AGENT
             .get()
             .unwrap()
@@ -76,7 +80,7 @@ async fn main() {
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
                 "ping-pong-content-topic".to_string(),
                 block_number,
-                content,
+                payload,
             )
             .await
         {
@@ -87,16 +91,17 @@ async fn main() {
 
     // The handler specifies what to do with incoming messages.
     // There cannot be any non-deterministic (this includes async) code inside the handler.
-    // That is why we're saving the message for later processing, where we will check it's content and perform some action based on it.
-    let radio_handler = |msg: Result<GraphcastMessage, anyhow::Error>| match msg {
-        Ok(msg) => {
-            println!("New message received! {:?}\n Saving to message store.", msg);
-            MESSAGES.get().unwrap().lock().unwrap().push(msg);
-        }
-        Err(err) => {
-            println!("{}", err);
-        }
-    };
+    // That is why we're saving the message for later processing, where we will check its content and perform some action based on it.
+    let radio_handler =
+        |msg: Result<GraphcastMessage<RadioPayloadMessage>, anyhow::Error>| match msg {
+            Ok(msg) => {
+                println!("New message received! {:?}\n Saving to message store.", msg);
+                MESSAGES.get().unwrap().lock().unwrap().push(msg);
+            }
+            Err(err) => {
+                println!("{}", err);
+            }
+        };
 
     GOSSIP_AGENT
         .get()
@@ -108,15 +113,22 @@ async fn main() {
         println!("🔗 Block number: {}", block_number);
 
         if block_number & 2 == 0 {
+            let msg = RadioPayloadMessage::new("table".to_string(), "Ping".to_string());
             // If block number is even, send ping message
-            send_message("Ping".to_string(), block_number).await;
+            send_message(Some(msg), block_number).await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(MESSAGES.get().unwrap().lock().unwrap());
             for msg in messages.lock().await.iter() {
-                if msg.content == *"Ping" {
-                    send_message("Pong".to_string(), block_number).await;
-                }
+                let payload = msg
+                    .payload
+                    .as_ref()
+                    .expect("Could not get radio payload payload");
+                if *payload.content == *"Ping" {
+                    let replay_msg =
+                        RadioPayloadMessage::new("table".to_string(), "Pong".to_string());
+                    send_message(Some(replay_msg), block_number).await;
+                };
             }
 
             // Clear message store after processing
