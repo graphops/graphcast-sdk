@@ -20,7 +20,7 @@ use std::error::Error;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use waku::{waku_set_event_callback, Running, Signal, WakuContentTopic, WakuNodeHandle};
+use waku::{waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
 use self::message_typing::GraphcastMessage;
 use self::waku_handling::{build_content_topics, handle_signal, pubsub_topic, setup_node_handle};
@@ -81,8 +81,32 @@ pub struct GossipAgent {
 impl GossipAgent {
     /// Construct a new gossip agent
     ///
-    /// Private key resolves into wallet and indexer identity.
-    /// Topic is generated based on indexer allocations with waku node set up included
+    /// Inputs are utilized to construct different components of the Gossip agent:
+    /// private_key resolves into ethereum wallet and indexer identity.
+    /// radio_name is used as part of the content topic for the radio application
+    /// subtopic optionally provided and used as the content topic identifier of the message subject,
+    /// if not provided then they are generated based on indexer allocations
+    /// Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
+    /// Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
+    ///
+    /// Content topics that the Radio subscribes to
+    /// If we pass in `None` Graphcast will default to using the ipfs hashes of the subgraphs that the Indexer is allocating to.
+    /// But in this case we will override it with something much more simple.
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let agent = GossipAgent::new(
+    ///     String::from("1231231231231231231231231231231231231231231231231231231231231230"),
+    ///     String::from("https://goerli.infura.io/v3/api_key"),
+    ///     "test_topic",
+    ///     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
+    ///     "https://gateway.testnet.thegraph.com/network",
+    ///     Some(["some_subgraph_hash"].to_vec()),
+    ///     Some(String::from("0.0.0.0")),
+    ///     Some(String::from("60000")),
+    ///     Some(String::from(/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMy9AbMEgjd5iz")),
+    /// )
+    /// ```
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         private_key: String,
@@ -93,6 +117,7 @@ impl GossipAgent {
         subtopics: Option<Vec<&str>>,
         waku_host: Option<String>,
         waku_port: Option<String>,
+        waku_addr: Option<String>,
     ) -> Result<GossipAgent, Box<dyn Error>> {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
@@ -118,6 +143,11 @@ impl GossipAgent {
         //Should we allow the setting of waku node host and port?
         let host = waku_host.as_deref();
         let port = waku_port.map(|y| y.parse().unwrap());
+        let advertised_addr = waku_addr.map(|addr| {
+            Multiaddr::from_str(&addr).expect(
+                "Could not make format advertised address into a Multiaddress, do not advertise",
+            )
+        });
         let node_key = waku::SecretKey::from_str(&private_key).ok();
 
         // Print out base32 encoded public key, use in discovery URL TXT field
@@ -134,7 +164,7 @@ impl GossipAgent {
             );
         }
 
-        let node_handle = setup_node_handle(&content_topics, host, port, node_key);
+        let node_handle = setup_node_handle(&content_topics, host, port, advertised_addr, node_key);
         Ok(GossipAgent {
             wallet,
             eth_node,

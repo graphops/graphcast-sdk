@@ -11,7 +11,7 @@ fn main() {
     let mut output = BufWriter::new(output_file);
 
     // Initialize with standard configs
-    writeln!(output, "$ORIGIN testfleet.graphcast.xyz.\n$TTL 86400\ngraphcast.xyz	3600	IN	SOA	graphcast.xyz root.graphcast.xyz 2042508586 7200 3600 86400 3600\ntestfleet.graphcast.xyz.	86400	IN	A	192.168.64.1\ngraphcast.xyz.	1	IN	CNAME	testfleet.graphcast.xyz.").expect("Failed to write default configs");
+    writeln!(output, "$ORIGIN testfleet.graphcast.xyz.\n$TTL 86400\ngraphcast.xyz	3600	IN	SOA	graphcast.xyz root.graphcast.xyz 2042508586 7200 3600 86400 3600\ntestfleet.graphcast.xyz.	86400	IN	A	165.227.156.72\ngraphcast.xyz.	1	IN	CNAME	testfleet.graphcast.xyz.").expect("Failed to write default configs");
     // Iterate over the result tree
     for (key, value) in json
         .as_object()

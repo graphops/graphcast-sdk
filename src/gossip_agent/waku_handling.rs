@@ -1,5 +1,5 @@
 use crate::{
-    app_name, discovery_url,
+    app_name, cf_nameserver, discovery_url,
     gossip_agent::message_typing::{self, GraphcastMessage},
     NoncesMap,
 };
@@ -130,7 +130,8 @@ fn initialize_node_handle(
     protocol_id: ProtocolId,
 ) -> WakuNodeHandle<Running> {
     let node_handle = waku_new(node_config).unwrap().start().unwrap();
-    let all_nodes = match node_handle.dns_discovery(&discovery_url(), None, None) {
+    let all_nodes = match node_handle.dns_discovery(&discovery_url(), Some(&cf_nameserver()), None)
+    {
         Ok(x) => {
             println!("{} {:#?}", "Discovered multiaddresses:".green(), x);
             let mut discovered_nodes = x;
@@ -148,7 +149,6 @@ fn initialize_node_handle(
         }
     };
     let peer_ids = connect_multiaddresses(all_nodes, &node_handle, protocol_id);
-
     println!(
         "Initialized node handle\nLocal node peer_id: {:#?}\nConnected to peers: {:#?}",
         node_handle.peer_id(),
@@ -162,19 +162,22 @@ fn connect_multiaddresses(
     nodes: Vec<Multiaddr>,
     node_handle: &WakuNodeHandle<Running>,
     protocol_id: ProtocolId,
-) -> Vec<String> {
+) -> Vec<Multiaddr> {
     nodes
-        .iter()
-        .map(|address| {
+        .into_iter()
+        .filter(|address| {
             let peer_id = node_handle
                 .add_peer(address, protocol_id)
                 .unwrap_or_else(|_| String::from("Could not add peer"));
-            if let Err(e) = node_handle.connect_peer_with_id(peer_id.clone(), None) {
-                println!("Could not connect to peer with id: {}", e);
-            };
-            peer_id
+            match node_handle.connect_peer_with_id(peer_id, None) {
+                Ok(_) => true,
+                Err(e) => {
+                    println!("Could not connect to peer: {}", e);
+                    false
+                }
+            }
         })
-        .collect::<Vec<String>>()
+        .collect::<Vec<Multiaddr>>()
 }
 
 /// Subscribe to provided pubsub and content topics wil filtering
@@ -197,13 +200,14 @@ pub fn setup_node_handle(
     content_topics: &[WakuContentTopic],
     host: Option<&str>,
     port: Option<usize>,
+    advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
 ) -> WakuNodeHandle<Running> {
     let graphcast_topic: &Option<WakuPubSubTopic> = &pubsub_topic("1");
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             // Update boot node to declare isFilterFullNode = True
-            let boot_node_config = node_config(host, port, None, node_key, true, true);
+            let boot_node_config = node_config(host, port, advertised_addr, node_key, true, true);
             let boot_node_handle = waku_new(boot_node_config).unwrap().start().unwrap();
             // let peer_ids = connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
@@ -241,7 +245,7 @@ pub fn setup_node_handle(
                 graphcast_topic
             );
 
-            let node_config = node_config(host, port, None, None, false, true);
+            let node_config = node_config(host, port, advertised_addr, node_key, false, true);
             let nodes =
                 Vec::from([Multiaddr::from_str(&boot_node_addr).expect("Could not parse address")]);
             let node_handle = initialize_node_handle(nodes, node_config, ProtocolId::Filter);
@@ -301,10 +305,10 @@ pub async fn handle_signal(
                             )),
                         }
                     } else {
-                        return Err(anyhow::anyhow!(
+                        Err(anyhow::anyhow!(
                             "Content topic '{}' not relevant for this Radio, skipping.",
                             graphcast_message.identifier
-                        ));
+                        ))
                     }
                 }
                 Err(e) => Err(anyhow::anyhow!(

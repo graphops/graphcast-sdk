@@ -45,15 +45,19 @@ async fn main() {
     pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
 
     let gossip_agent = GossipAgent::new(
+        // private_key resolves into ethereum wallet and indexer identity.
         private_key,
         eth_node,
+        // radio_name is used as part of the content topic for the radio application
         radio_name,
         REGISTRY_SUBGRAPH,
         NETWORK_SUBGRAPH,
-        // Content topics that the Radio subscribes to
-        // If we pass in `None` Graphcast will default to using the ipfs hashes of the subgraphs that the Indexer is allocating to.
-        // But in this case we will override it with something much more simple.
+        // subtopic optionally provided and used as the content topic identifier of the message subject,
+        // if not provided then they are generated based on indexer allocations
         Some(vec!["ping-pong-content-topic"]),
+        // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
+        // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
+        None,
         None,
         None,
     )
