@@ -3,13 +3,16 @@ use ethers::{
     providers::{Http, Middleware, Provider},
     types::U64,
 };
-use graphcast_sdk::gossip_agent::message_typing::GraphcastMessage;
-use graphcast_sdk::gossip_agent::GossipAgent;
+use graphcast_sdk::{
+    gossip_agent::{message_typing::GraphcastMessage, GossipAgent},
+    init_tracing,
+};
 use once_cell::sync::OnceCell;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::{thread::sleep, time::Duration};
 use tokio::sync::Mutex as AsyncMutex;
+use tracing::{debug, error, info};
 use types::RadioPayloadMessage;
 
 mod types;
@@ -18,6 +21,11 @@ mod types;
 async fn main() {
     // Loads the environment variables from our .env file
     dotenv().ok();
+
+    // Enables tracing, you can set your preferred log level in your .env file
+    // You can choose one of: TRACE, DEBUG, INFO, WARN, ERROR
+    // If none is provided, defaults to INFO
+    init_tracing();
 
     /// A global static (singleton) instance of A GraphcastMessage vector.
     /// It is used to save incoming messages after they've been validated, in order
@@ -88,8 +96,8 @@ async fn main() {
             )
             .await
         {
-            Ok(sent) => println!("Sent message id:: {}", sent),
-            Err(e) => println!("Failed to send message: {}", e),
+            Ok(sent) => info!("Sent message id: {}", sent),
+            Err(e) => error!("Failed to send message: {}", e),
         };
     }
 
@@ -99,7 +107,6 @@ async fn main() {
     let radio_handler =
         |msg: Result<GraphcastMessage<RadioPayloadMessage>, anyhow::Error>| match msg {
             Ok(msg) => {
-                println!("New message received! {:?}\n Saving to message store.", msg);
                 MESSAGES.get().unwrap().lock().unwrap().push(msg);
             }
             Err(err) => {
@@ -114,7 +121,7 @@ async fn main() {
 
     loop {
         let block_number = U64::as_u64(&provider.get_block_number().await.unwrap());
-        println!("🔗 Block number: {}", block_number);
+        debug!("🔗 Block number: {}", block_number);
 
         if block_number & 2 == 0 {
             let msg = RadioPayloadMessage::new("table".to_string(), "Ping".to_string());

@@ -21,6 +21,7 @@ use std::error::Error;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
+use tracing::debug;
 use waku::{waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle};
 
 use self::message_typing::GraphcastMessage;
@@ -143,7 +144,7 @@ impl GossipAgent {
             let public_key = PublicKey::from_secret_key(&secp, &sk);
             let pk = public_key.serialize();
             let base32_encoded_key = BASE32.encode(&pk);
-            println!(
+            debug!(
                 "Base32 encoded 32byte Public key: {:#?}",
                 base32_encoded_key
             );
