@@ -23,7 +23,7 @@ use std::{
     env,
     sync::{Arc, Mutex},
 };
-use url::Url;
+use url::{Host, Url};
 
 pub mod gossip_agent;
 pub mod graphql;
@@ -54,6 +54,10 @@ pub fn discovery_url() -> Url {
     });
 
     Url::parse(&enr_url).expect("Could not parse discovery url to ENR tree")
+}
+
+pub fn cf_nameserver() -> Host {
+    Host::Domain("konnor.ns.cloudflare.com".to_string())
 }
 
 /// Attempt to read environmental variable
