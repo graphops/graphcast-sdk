@@ -1,6 +1,8 @@
 .envrc
 .env
 /target
+examples/target
+examples/*/target
 /Cargo.lock
 /.idea
 /.fleet

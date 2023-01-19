@@ -12,6 +12,8 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
+
+use tracing::debug;
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
@@ -100,7 +102,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         block_number: i64,
         block_hash: String,
     ) -> Result<Self, Box<dyn Error>> {
-        println!("\n{}", "Constructing message".green());
+        debug!("\n{}", "Constructing message".green());
         let sig = wallet
             .sign_typed_data(
                 payload
@@ -118,7 +120,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             sig.to_string(),
         );
 
-        println!("{}{:#?}", "Encode message: ".cyan(), message,);
+        debug!("{}{:#?}", "Encoded message: ".cyan(), message,);
         Ok(message)
     }
 
@@ -157,7 +159,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             .await?
             .stake_satisfy_requirement()
         {
-            println!("Valid Indexer:  {}", indexer_address);
+            debug!("Valid Indexer:  {}", indexer_address);
             Ok(self)
         } else {
             Err(anyhow!(
@@ -224,7 +226,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                 let nonce = nonces_per_subgraph.get(&address);
                 match nonce {
                     Some(nonce) => {
-                        println!(
+                        debug!(
                             "Latest saved nonce for subgraph {} and address {}: {}",
                             self.identifier, address, nonce
                         );

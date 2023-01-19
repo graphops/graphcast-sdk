@@ -9,9 +9,10 @@ use ethers::{
     types::Block,
 };
 use prost::Message;
-use std::{borrow::Cow, io::prelude::*, sync::Arc};
+use std::{borrow::Cow, env, io::prelude::*, sync::Arc};
 use std::{error::Error, sync::Mutex, time::Duration};
 use std::{fs::File, net::IpAddr, str::FromStr};
+use tracing::{debug, error, info};
 use waku::{
     waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running,
     SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
@@ -93,7 +94,7 @@ pub fn filter_peer_subscriptions(
             }
         })
         .collect();
-    println!("Filter subscription added: {:#?}", filter_subscribe_result);
+    info!("Filter subscription added: {:#?}", filter_subscribe_result);
     Ok(node_handle)
 }
 
@@ -109,6 +110,17 @@ fn node_config(
     enable_relay: bool,
     enable_filter: bool,
 ) -> Option<WakuNodeConfig> {
+    let log_level = match env::var("LOG_LEVEL") {
+        Ok(level) => match level.to_uppercase().as_str() {
+            "INFO" => WakuLogLevel::Info,
+            "DEBUG" => WakuLogLevel::Debug,
+            "WARN" => WakuLogLevel::Warn,
+            "ERROR" => WakuLogLevel::Error,
+            _ => WakuLogLevel::Info,
+        },
+        Err(_) => WakuLogLevel::Info,
+    };
+
     Some(WakuNodeConfig {
         host: host.and_then(|h| IpAddr::from_str(h).ok()),
         port,
@@ -119,7 +131,7 @@ fn node_config(
         relay: Some(enable_relay),     // Default true
         min_peers_to_publish: Some(0), // Default 0
         filter: Some(enable_filter),   // Default false
-        log_level: Some(WakuLogLevel::Info),
+        log_level: Some(log_level),
     })
 }
 
@@ -133,14 +145,14 @@ fn initialize_node_handle(
     let all_nodes = match node_handle.dns_discovery(&discovery_url(), Some(&cf_nameserver()), None)
     {
         Ok(x) => {
-            println!("{} {:#?}", "Discovered multiaddresses:".green(), x);
+            info!("{} {:#?}", "Discovered multiaddresses:".green(), x);
             let mut discovered_nodes = x;
             // Should static node be added or just use as fallback?
             discovered_nodes.extend(nodes.into_iter());
             discovered_nodes
         }
         Err(e) => {
-            println!(
+            error!(
                 "{}{:?}",
                 "Could not discover nodes with provided Url, only add static node list: ".yellow(),
                 e
@@ -149,7 +161,8 @@ fn initialize_node_handle(
         }
     };
     let peer_ids = connect_multiaddresses(all_nodes, &node_handle, protocol_id);
-    println!(
+
+    info!(
         "Initialized node handle\nLocal node peer_id: {:#?}\nConnected to peers: {:#?}",
         node_handle.peer_id(),
         peer_ids,
@@ -172,7 +185,7 @@ fn connect_multiaddresses(
             match node_handle.connect_peer_with_id(peer_id, None) {
                 Ok(_) => true,
                 Err(e) => {
-                    println!("Could not connect to peer: {}", e);
+                    error!("Could not connect to peer: {}", e);
                     false
                 }
             }
@@ -223,7 +236,7 @@ pub fn setup_node_handle(
                 port.unwrap_or(60000),
                 boot_node_id
             );
-            println!(
+            info!(
                 "Boot node - id: {}, address: {}",
                 boot_node_id, boot_node_multiaddress
             );
@@ -239,7 +252,7 @@ pub fn setup_node_handle(
             file.read_to_string(&mut boot_node_addr).unwrap();
 
             // run default nodes with peers hosted with pubsub to graphcast topics
-            println!(
+            info!(
                 "{} {:?}",
                 "Registering the following pubsub topics: ".cyan(),
                 graphcast_topic
@@ -266,19 +279,19 @@ pub async fn handle_signal<
     registry_subgraph: &str,
     network_subgraph: &str,
 ) -> Result<GraphcastMessage<T>, anyhow::Error> {
-    println!("{}", "New message received!".bold().red());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
             match <message_typing::GraphcastMessage<T> as Message>::decode(
                 event.waku_message().payload(),
             ) {
                 Ok(graphcast_message) => {
-                    println!(
-                        "Message id: {}\n{} {:?}",
+                    info!(
+                        "{}{}",
+                        "New message received! Message id: ".bold().cyan(),
                         event.message_id(),
-                        "Graphcast message:".cyan(),
-                        graphcast_message
                     );
+
+                    debug!("{}{:?}", "Message: ".cyan(), graphcast_message);
 
                     if content_topics.iter().any(|content_topic| {
                         content_topic.content_topic_name == graphcast_message.identifier
@@ -349,7 +362,7 @@ pub async fn check_message_validity<
         .valid_hash(block_hash)?
         .valid_nonce(nonces)?;
 
-    println!("{}", "Valid message!".bold().green());
+    info!("{}", "Valid message!".bold().green());
     Ok(graphcast_message.clone())
 }
 

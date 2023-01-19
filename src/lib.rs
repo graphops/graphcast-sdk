@@ -23,6 +23,8 @@ use std::{
     env,
     sync::{Arc, Mutex},
 };
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 
 pub mod gossip_agent;
@@ -63,6 +65,24 @@ pub fn cf_nameserver() -> Host {
 /// Attempt to read environmental variable
 pub fn config_env_var(name: &str) -> Result<String, String> {
     env::var(name).map_err(|e| format!("{}: {}", name, e))
+}
+
+/// Sets up tracing, allows log level to be set from the environment variables
+pub fn init_tracing() {
+    let log_level = match env::var("LOG_LEVEL") {
+        Ok(level) => match level.to_uppercase().as_str() {
+            "INFO" => Level::INFO,
+            "DEBUG" => Level::DEBUG,
+            "TRACE" => Level::TRACE,
+            "WARN" => Level::WARN,
+            "ERROR" => Level::ERROR,
+            _ => Level::INFO,
+        },
+        Err(_) => Level::INFO,
+    };
+
+    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 use graphql_client::{GraphQLQuery, Response};
 use num_bigint::BigUint;
 use num_traits::Zero;
+use tracing::error;
 
 use crate::graphql::QueryError;
 /// Derived GraphQL Query to Network Subgraph
@@ -69,7 +70,7 @@ pub async fn query_network_subgraph(
                     })
                 }
                 Err(e) => {
-                    println!("Indexer not available from the network subgraph: {}", e);
+                    error!("Indexer not available from the network subgraph: {}", e);
                     None
                 }
             },
@@ -195,11 +196,6 @@ mod tests {
                 minimum_indexer_stake: One::one(),
             },
         };
-        println!(
-            "indexer stake {:#?}\nreq {:#?}",
-            network.indexer_stake(),
-            network.stake_satisfy_requirement()
-        );
 
         assert_eq!(network.indexer_allocations().len(), 0);
         assert!(network.indexer_stake().is_zero());
