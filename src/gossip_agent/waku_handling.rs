@@ -1,13 +1,13 @@
 use crate::{
     app_name, cf_nameserver, discovery_url,
-    gossip_agent::message_typing::{self, GraphcastMessage},
+    gossip_agent::{
+        message_typing::{self, GraphcastMessage},
+        AgentError,
+    },
     NoncesMap,
 };
 use colored::*;
-use ethers::{
-    providers::{Http, Middleware, Provider},
-    types::Block,
-};
+use ethers::providers::{Http, Middleware, Provider};
 use prost::Message;
 use std::{borrow::Cow, env, io::prelude::*, sync::Arc};
 use std::{error::Error, sync::Mutex, time::Duration};
@@ -20,8 +20,8 @@ use waku::{
 };
 
 /// Get pubsub topic based on recommendations from https://rfc.vac.dev/spec/23/
-pub fn pubsub_topic(versioning: &str) -> Option<WakuPubSubTopic> {
-    let topic = app_name().to_string() + "-v" + versioning;
+pub fn pubsub_topic(versioning: &str, chain_id: &str) -> Option<WakuPubSubTopic> {
+    let topic = app_name().to_string() + "-v" + versioning + "-" + chain_id;
     Some(WakuPubSubTopic {
         topic_name: Cow::from(topic),
         encoding: Encoding::Proto,
@@ -210,13 +210,13 @@ fn connect_and_subscribe(
 //TODO: Filter full node config for boot nodes
 /// Set up a waku node given pubsub topics
 pub fn setup_node_handle(
+    graphcast_topic: &Option<WakuPubSubTopic>,
     content_topics: &[WakuContentTopic],
     host: Option<&str>,
     port: Option<usize>,
     advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
 ) -> WakuNodeHandle<Running> {
-    let graphcast_topic: &Option<WakuPubSubTopic> = &pubsub_topic("1");
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             // Update boot node to declare isFilterFullNode = True
@@ -229,7 +229,9 @@ pub fn setup_node_handle(
                 .relay_subscribe(graphcast_topic.clone())
                 .expect("Could not subscribe to the topic");
 
-            let boot_node_id = boot_node_handle.peer_id().unwrap();
+            let boot_node_id = boot_node_handle
+                .peer_id()
+                .expect("Could not get node id from local node instance");
             let boot_node_multiaddress = format!(
                 "/ip4/{}/tcp/{}/p2p/{}",
                 host.unwrap_or("0.0.0.0"),
@@ -247,9 +249,11 @@ pub fn setup_node_handle(
             boot_node_handle
         }
         _ => {
-            let mut file = File::open("./boot_node_addr.conf").unwrap();
+            let mut file =
+                File::open("./boot_node_addr.conf").expect("Could not find boot_node_addr.conf");
             let mut boot_node_addr = String::new();
-            file.read_to_string(&mut boot_node_addr).unwrap();
+            file.read_to_string(&mut boot_node_addr)
+                .expect("Could not parse boot node address from boot_node_addr.conf");
 
             // run default nodes with peers hosted with pubsub to graphcast topics
             info!(
@@ -296,13 +300,15 @@ pub async fn handle_signal<
                     if content_topics.iter().any(|content_topic| {
                         content_topic.content_topic_name == graphcast_message.identifier
                     }) {
-                        let block: Block<_> = provider
-                            .get_block(graphcast_message.block_number)
-                            .await
-                            .unwrap()
-                            .unwrap();
-                        let block_hash = format!("{:#x}", block.hash.unwrap());
-
+                        let block_hash: String = format!(
+                            "{:#x}",
+                            provider
+                                .get_block(graphcast_message.block_number)
+                                .await?
+                                .ok_or(AgentError::EmptyResponseError)?
+                                .hash
+                                .ok_or(AgentError::UnexpectedResponseError)?
+                        );
                         match check_message_validity(
                             graphcast_message,
                             block_hash,

@@ -47,4 +47,4 @@ crate-type = ["bin"]
 
 [[bin]]
 name = "rect"
-path = "src/records_to_tree.rs"
+path = "src/tree_to_txt.rs"
