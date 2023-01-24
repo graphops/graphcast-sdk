@@ -11,7 +11,6 @@
 //!
 use ethers::providers::{Http, Middleware, Provider};
 use ethers::signers::{LocalWallet, Signer};
-use ethers::types::Block;
 
 use data_encoding::BASE32;
 use prost::Message;
@@ -22,7 +21,10 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tracing::debug;
-use waku::{waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle};
+use waku::{
+    waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
+    WakuPubSubTopic,
+};
 
 use self::message_typing::GraphcastMessage;
 use self::waku_handling::{build_content_topics, handle_signal, pubsub_topic, setup_node_handle};
@@ -54,6 +56,8 @@ pub struct GossipAgent {
     /// Gossip operator's indexer allocations, used for default topic generation
     pub indexer_allocations: Vec<String>,
     node_handle: WakuNodeHandle<Running>,
+    /// gossip agent waku instance's pubsub topic
+    pubsub_topic: Option<WakuPubSubTopic>,
     /// gossip agent waku instance's content topics
     content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
@@ -107,6 +111,9 @@ impl GossipAgent {
     ) -> Result<GossipAgent, Box<dyn Error>> {
         let wallet = private_key.parse::<LocalWallet>().unwrap();
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
+        let pubsub_topic: Option<WakuPubSubTopic> =
+            pubsub_topic("0", &provider.get_chainid().await?.to_string());
+
         let indexer_address = query_registry_indexer(
             registry_subgraph.to_string(),
             format!("{:?}", wallet.address()),
@@ -150,12 +157,20 @@ impl GossipAgent {
             );
         }
 
-        let node_handle = setup_node_handle(&content_topics, host, port, advertised_addr, node_key);
+        let node_handle = setup_node_handle(
+            &pubsub_topic,
+            &content_topics,
+            host,
+            port,
+            advertised_addr,
+            node_key,
+        );
         Ok(GossipAgent {
             wallet,
             eth_node,
             provider,
             indexer_address,
+            pubsub_topic,
             content_topics,
             indexer_allocations,
             node_handle,
@@ -234,23 +249,37 @@ impl GossipAgent {
         block_number: u64,
         payload: Option<T>,
     ) -> Result<String, Box<dyn Error>> {
-        let block: Block<_> = self
-            .provider
-            .get_block(block_number)
-            .await
-            .expect("Failed to query block from node provider based on block number")
-            .expect("Node Provider returned None for the queried block");
-        let block_hash = format!("{:#x}", block.hash.unwrap());
+        let block_hash: String = format!(
+            "{:#x}",
+            self.provider
+                .get_block(block_number)
+                .await?
+                .ok_or(AgentError::EmptyResponseError)?
+                .hash
+                .ok_or(AgentError::UnexpectedResponseError)?
+        );
         let content_topic = self.match_content_topic(identifier.clone())?;
 
         GraphcastMessage::build(
             &self.wallet,
             identifier,
             payload,
-            block_number.try_into().unwrap(),
-            block_hash.to_string(),
+            block_number
+                .try_into()
+                .expect("Could not format block number"),
+            block_hash,
         )
         .await?
-        .send_to_waku(&self.node_handle, pubsub_topic("1"), content_topic)
+        .send_to_waku(&self.node_handle, self.pubsub_topic.clone(), content_topic)
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AgentError {
+    #[error("Query response is empty")]
+    EmptyResponseError,
+    #[error("Unexpected response format")]
+    UnexpectedResponseError,
+    #[error("Unknown error: {0}")]
+    Other(anyhow::Error),
 }
