@@ -22,8 +22,8 @@ fn main() {
         .unwrap()
         .iter()
     {
-        let record = format!("{}. IN TXT {}", key, value);
-        writeln!(output, "{}", record).expect("Unable to write to file");
+        let record = format!("{key}. IN TXT {value}");
+        writeln!(output, "{record}").expect("Unable to write to file");
     }
     println!("Finished converting, check test_tree_zone.txt");
 }

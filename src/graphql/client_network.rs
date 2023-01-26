@@ -45,8 +45,7 @@ pub async fn query_network_subgraph(
         data
     } else {
         return Err(QueryError::Other(anyhow::anyhow!(format!(
-            "Missing response data from network subgraph for {}",
-            indexer_address
+            "Missing response data from network subgraph for {indexer_address}"
         ))));
     };
 

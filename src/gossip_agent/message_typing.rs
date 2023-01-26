@@ -209,7 +209,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                     .unwrap(),
             )
         }) {
-            Ok(addr) => Ok(format!("{:#x}", addr)),
+            Ok(addr) => Ok(format!("{addr:#x}")),
             Err(x) => Err(anyhow!(x)),
         }
     }

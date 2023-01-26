@@ -16,6 +16,8 @@
 //! For more explanation, see the crate documentation.
 //!
 
+use ethers::signers::{Signer, Wallet};
+use ethers_core::k256::ecdsa::SigningKey;
 use once_cell::sync::OnceCell;
 use std::{
     borrow::Cow,
@@ -23,7 +25,7 @@ use std::{
     env,
     sync::{Arc, Mutex},
 };
-use tracing::Level;
+use tracing::{debug, Level};
 use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 
@@ -64,7 +66,12 @@ pub fn cf_nameserver() -> Host {
 
 /// Attempt to read environmental variable
 pub fn config_env_var(name: &str) -> Result<String, String> {
-    env::var(name).map_err(|e| format!("{}: {}", name, e))
+    env::var(name).map_err(|e| format!("{name}: {e}"))
+}
+
+pub fn operator_address(wallet: &Wallet<SigningKey>) -> String {
+    debug!("{}", format!("Wallet address: {:?}", wallet.address()));
+    format!("{:?}", wallet.address())
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables
@@ -91,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_build_content_topics() {
-        let basics = ["Qmyumyum", "Ymqumqum"].to_vec();
+        let basics = ["Qmyumyum".to_string(), "Ymqumqum".to_string()].to_vec();
         let res = build_content_topics("some-radio", 0, &basics);
         for i in 0..res.len() {
             assert_eq!(res[i].content_topic_name, basics[i]);
