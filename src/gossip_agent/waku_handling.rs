@@ -12,7 +12,7 @@ use prost::Message;
 use std::{borrow::Cow, env, io::prelude::*, sync::Arc};
 use std::{error::Error, sync::Mutex, time::Duration};
 use std::{fs::File, net::IpAddr, str::FromStr};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use waku::{
     waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running,
     SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
@@ -136,12 +136,7 @@ fn node_config(
 }
 
 /// Generate a node instance of 'node_config', connected to the peers using node addresses on specific waku protocol
-fn initialize_node_handle(
-    nodes: Vec<Multiaddr>,
-    node_config: Option<WakuNodeConfig>,
-    protocol_id: ProtocolId,
-) -> WakuNodeHandle<Running> {
-    let node_handle = waku_new(node_config).unwrap().start().unwrap();
+pub fn connect_nodes(node_handle: &WakuNodeHandle<Running>, nodes: Vec<Multiaddr>) {
     let all_nodes = match node_handle.dns_discovery(&discovery_url(), Some(&cf_nameserver()), None)
     {
         Ok(x) => {
@@ -160,14 +155,14 @@ fn initialize_node_handle(
             nodes
         }
     };
-    let peer_ids = connect_multiaddresses(all_nodes, &node_handle, protocol_id);
+    // Connect to peers on the filter protocol
+    let peer_ids = connect_multiaddresses(all_nodes, node_handle, ProtocolId::Filter);
 
     info!(
         "Initialized node handle\nLocal node peer_id: {:#?}\nConnected to peers: {:#?}",
         node_handle.peer_id(),
         peer_ids,
     );
-    node_handle
 }
 
 /// Connect to peers from a list of multiaddresses for a specific protocol
@@ -265,7 +260,9 @@ pub fn setup_node_handle(
             let node_config = node_config(host, port, advertised_addr, node_key, false, true);
             let nodes =
                 Vec::from([Multiaddr::from_str(&boot_node_addr).expect("Could not parse address")]);
-            let node_handle = initialize_node_handle(nodes, node_config, ProtocolId::Filter);
+            let node_handle = waku_new(node_config).unwrap().start().unwrap();
+            // let node_handle = connect_nodes(&node_handle, nodes);
+            connect_nodes(&node_handle, nodes);
             connect_and_subscribe(node_handle, graphcast_topic, content_topics)
                 .expect("Could not connect and subscribe")
         }
@@ -370,6 +367,30 @@ pub async fn check_message_validity<
 
     info!("{}", "Valid message!".bold().green());
     Ok(graphcast_message.clone())
+}
+
+/// Check for peer connectivity, try to reconnect if there are disconnected peers
+pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), Box<dyn Error>> {
+    let binding = node_handle
+        .peer_id()
+        .expect("Failed to get local node's peer id");
+    let local_id = binding.as_str();
+
+    node_handle
+        .peers()?
+        .iter()
+        // filter for nodes that are not self and disconnected
+        .filter(|&peer| (peer.peer_id().as_str() != local_id) & (!peer.connected()))
+        .map(|peer: &WakuPeerData| {
+            debug!("Disconnected peer data: {:#?}", &peer);
+            node_handle.connect_peer_with_id(peer.peer_id().to_string(), None)
+        })
+        .for_each(|res| {
+            if let Err(x) = res {
+                warn!("Could not connect to peer: {}", x)
+            }
+        });
+    Ok(())
 }
 
 #[cfg(test)]
