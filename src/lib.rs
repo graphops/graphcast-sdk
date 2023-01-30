@@ -69,9 +69,34 @@ pub fn config_env_var(name: &str) -> Result<String, String> {
     env::var(name).map_err(|e| format!("{name}: {e}"))
 }
 
+/// Get the operator addresss associated with a given Indexer address
 pub fn operator_address(wallet: &Wallet<SigningKey>) -> String {
     debug!("{}", format!("Wallet address: {:?}", wallet.address()));
     format!("{:?}", wallet.address())
+}
+
+/// Helper function to parse boot node addresses from the environment variables
+/// Defaults to an empty vec if it cannot find the 'BOOT_NODE_ADDRESSES' environment variable
+/// Multiple formats for defining the addresses list are supported, such as:
+/// 1. BOOT_NODE_ADDRESSES=[addr1, addr2, addr3]
+/// 2. BOOT_NODE_ADDRESSES="addr1", "addr2", "addr3"
+/// 3. BOOT_NODE_ADDRESSES="addr1, addr2, addr3"
+/// 4. BOOT_NODE_ADDRESSES=addr1, addr2, addr3
+/// 5. BOOT_NODE_ADDRESSES=addr
+/// 6. BOOT_NODE_ADDRESSES="[addr1, addr2, addr3]"
+pub fn read_boot_node_addresses() -> Vec<String> {
+    let mut addresses = Vec::new();
+    if let Ok(val) = env::var("BOOT_NODE_ADDRESSES") {
+        for address in val.split(',') {
+            let address = address.trim();
+            if address.starts_with('"') && address.ends_with('"') {
+                addresses.push(address[1..address.len() - 1].to_string());
+            } else {
+                addresses.push(address.to_string());
+            }
+        }
+    }
+    addresses
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables
@@ -94,6 +119,7 @@ pub fn init_tracing() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::gossip_agent::waku_handling::build_content_topics;
 
     #[test]
@@ -104,5 +130,54 @@ mod tests {
             assert_eq!(res[i].content_topic_name, basics[i]);
             assert_eq!(res[i].application_name, "some-radio");
         }
+    }
+
+    #[test]
+    fn test_read_boot_node_addresses_empty() {
+        std::env::remove_var("BOOT_NODE_ADDRESSES");
+        let items = read_boot_node_addresses();
+        assert_eq!(items, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_read_boot_node_addresses_no_quotes() {
+        std::env::set_var("BOOT_NODE_ADDRESSES", "addr1, addr2, addr3");
+        let items = read_boot_node_addresses();
+        assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
+    }
+
+    #[test]
+    fn test_read_boot_node_addresses_single_item_no_quotes() {
+        std::env::set_var("BOOT_NODE_ADDRESSES", "addr1");
+        let items = read_boot_node_addresses();
+        assert_eq!(items, vec!["addr1"]);
+    }
+
+    #[test]
+    fn test_read_boot_node_addresses_single_item_with_quotes() {
+        std::env::set_var("BOOT_NODE_ADDRESSES", r#""addr1""#);
+        let items = read_boot_node_addresses();
+        assert_eq!(items, vec!["addr1"]);
+    }
+
+    #[test]
+    fn test_read_boot_node_addresses_with_quotes() {
+        std::env::set_var("BOOT_NODE_ADDRESSES", r#""addr1", "addr2", "addr3""#);
+        let items = read_boot_node_addresses();
+        assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
+    }
+
+    #[test]
+    fn test_read_boot_node_addresses_with_commas_no_quotes() {
+        std::env::set_var("BOOT_NODE_ADDRESSES", "addr1,addr2,addr3");
+        let items = read_boot_node_addresses();
+        assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
+    }
+
+    #[test]
+    fn test_read_boot_node_addresses_with_commas_and_quotes() {
+        std::env::set_var("BOOT_NODE_ADDRESSES", r#""addr1","addr2","addr3""#);
+        let items = read_boot_node_addresses();
+        assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
     }
 }
