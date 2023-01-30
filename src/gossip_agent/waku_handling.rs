@@ -33,7 +33,7 @@ pub fn pubsub_topic(versioning: &str, chain_id: &str) -> Option<WakuPubSubTopic>
 pub fn build_content_topics(
     radio_name: &str,
     radio_version: usize,
-    subtopics: &[&str],
+    subtopics: &[String],
 ) -> Vec<WakuContentTopic> {
     (*subtopics
         .iter()
@@ -61,11 +61,12 @@ pub fn content_filter_subscription(
 }
 
 /// Make filter subscription requests to all peers except for ourselves
+/// Return subscription results for each peer
 pub fn filter_peer_subscriptions(
-    node_handle: WakuNodeHandle<Running>,
+    node_handle: &WakuNodeHandle<Running>,
     graphcast_topic: &Option<WakuPubSubTopic>,
     content_topics: &[WakuContentTopic],
-) -> Result<WakuNodeHandle<Running>, Box<dyn Error>> {
+) -> Result<Vec<String>, Box<dyn Error>> {
     let subscription: FilterSubscription =
         content_filter_subscription(graphcast_topic, content_topics);
     let filter_subscribe_result: Vec<String> = node_handle
@@ -90,12 +91,12 @@ pub fn filter_peer_subscriptions(
                     peer.peer_id(),
                     &subscription
                 ),
-                Err(e) => format!("Failed to filter subscribe with peer: {}", e),
+                Err(e) => format!("Failed to filter subscribe with peer: {e}"),
             }
         })
         .collect();
     info!("Filter subscription added: {:#?}", filter_subscribe_result);
-    Ok(node_handle)
+    Ok(filter_subscribe_result)
 }
 
 /// For boot nodes, configure a Waku Relay Node with filter protocol enabled (Waiting on filterFullNode waku-bindings impl). These node route all messages on the subscribed pubsub topic
@@ -188,25 +189,11 @@ fn connect_multiaddresses(
         .collect::<Vec<Multiaddr>>()
 }
 
-/// Subscribe to provided pubsub and content topics wil filtering
-fn connect_and_subscribe(
-    node_handle: WakuNodeHandle<Running>,
-    graphcast_topic: &Option<WakuPubSubTopic>,
-    content_topics: &[WakuContentTopic],
-) -> Result<WakuNodeHandle<Running>, Box<dyn Error>> {
-    //TODO: remove when filter subscription is enabled
-    node_handle
-        .relay_subscribe(graphcast_topic.clone())
-        .expect("Could not subscribe to the topic");
-    filter_peer_subscriptions(node_handle, graphcast_topic, content_topics)
-}
-
 //TODO: Topic discovery DNS and Discv5
 //TODO: Filter full node config for boot nodes
 /// Set up a waku node given pubsub topics
 pub fn setup_node_handle(
     graphcast_topic: &Option<WakuPubSubTopic>,
-    content_topics: &[WakuContentTopic],
     host: Option<&str>,
     port: Option<usize>,
     advertised_addr: Option<Multiaddr>,
@@ -260,11 +247,15 @@ pub fn setup_node_handle(
             let node_config = node_config(host, port, advertised_addr, node_key, false, true);
             let nodes =
                 Vec::from([Multiaddr::from_str(&boot_node_addr).expect("Could not parse address")]);
+            info!("Static node list: {:#?}", nodes);
+
             let node_handle = waku_new(node_config).unwrap().start().unwrap();
-            // let node_handle = connect_nodes(&node_handle, nodes);
             connect_nodes(&node_handle, nodes);
-            connect_and_subscribe(node_handle, graphcast_topic, content_topics)
-                .expect("Could not connect and subscribe")
+            //TODO: remove when filter subscription is enabled
+            node_handle
+                .relay_subscribe(graphcast_topic.clone())
+                .expect("Could not subscribe to the topic");
+            node_handle
         }
     }
 }
@@ -294,9 +285,11 @@ pub async fn handle_signal<
 
                     debug!("{}{:?}", "Message: ".cyan(), graphcast_message);
 
-                    if content_topics.iter().any(|content_topic| {
-                        content_topic.content_topic_name == graphcast_message.identifier
-                    }) {
+                    if content_topics.is_empty()
+                        | content_topics.iter().any(|content_topic| {
+                            content_topic.content_topic_name == graphcast_message.identifier
+                        })
+                    {
                         let block_hash: String = format!(
                             "{:#x}",
                             provider
@@ -409,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_build_content_topics() {
-        let basics = ["Qmyumyum", "Ymqumqum"].to_vec();
+        let basics = ["Qmyumyum".to_string(), "Ymqumqum".to_string()].to_vec();
         let res = build_content_topics("some-radio", 0, &basics);
         for i in 0..res.len() {
             assert_eq!(res[i].content_topic_name, basics[i]);

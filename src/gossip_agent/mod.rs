@@ -10,17 +10,14 @@
 //! Graphcast messages regardless of specific radio use cases
 //!
 use ethers::providers::{Http, Middleware, Provider};
-use ethers::signers::{LocalWallet, Signer};
-
-use data_encoding::BASE32;
+use ethers::signers::LocalWallet;
 use prost::Message;
-use secp256k1::{PublicKey, Secp256k1, SecretKey as SKey};
 use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use tracing::debug;
+use tracing::info;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
     WakuPubSubTopic,
@@ -28,12 +25,10 @@ use waku::{
 
 use self::message_typing::GraphcastMessage;
 use self::waku_handling::{
-    build_content_topics, handle_signal, network_check, pubsub_topic, setup_node_handle,
+    build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
+    setup_node_handle,
 };
 
-use crate::graphql::{
-    client_network::query_network_subgraph, client_registry::query_registry_indexer,
-};
 use crate::NoncesMap;
 
 pub mod message_typing;
@@ -51,17 +46,13 @@ pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network
 pub struct GossipAgent {
     /// Gossip operator's wallet, used to sign messages
     pub wallet: LocalWallet,
-    /// Gossip operator's indexer address
-    pub indexer_address: String,
     eth_node: String,
     provider: Provider<Http>,
-    /// Gossip operator's indexer allocations, used for default topic generation
-    pub indexer_allocations: Vec<String>,
     node_handle: WakuNodeHandle<Running>,
     /// gossip agent waku instance's pubsub topic
-    pubsub_topic: Option<WakuPubSubTopic>,
+    pub pubsub_topic: Option<WakuPubSubTopic>,
     /// gossip agent waku instance's content topics
-    content_topics: Vec<WakuContentTopic>,
+    pub content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
     /// A constant defining the goerli registry subgraph endpoint.
@@ -104,9 +95,9 @@ impl GossipAgent {
         private_key: String,
         eth_node: String,
         radio_name: &str,
+        subtopics: Option<Vec<String>>,
         registry_subgraph: &str,
         network_subgraph: &str,
-        subtopics: Option<Vec<&str>>,
         waku_host: Option<String>,
         waku_port: Option<String>,
         waku_addr: Option<String>,
@@ -116,25 +107,6 @@ impl GossipAgent {
         let pubsub_topic: Option<WakuPubSubTopic> =
             pubsub_topic("0", &provider.get_chainid().await?.to_string());
 
-        let indexer_address = query_registry_indexer(
-            registry_subgraph.to_string(),
-            format!("{:?}", wallet.address()),
-        )
-        .await?;
-
-        // TODO: Factor out custom topic generation query
-        let indexer_allocations =
-            query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
-                .await?
-                .indexer_allocations();
-        let subtopics = subtopics.unwrap_or_else(|| {
-            indexer_allocations
-                .iter()
-                .map(|s| &**s)
-                .collect::<Vec<&str>>()
-        });
-
-        let content_topics = build_content_topics(radio_name, 0, &subtopics);
         //Should we allow the setting of waku node host and port?
         let host = waku_host.as_deref();
         let port = waku_port.map(|y| y.parse().unwrap());
@@ -145,36 +117,26 @@ impl GossipAgent {
         });
         let node_key = waku::SecretKey::from_str(&private_key).ok();
 
-        // Print out base32 encoded public key, use in discovery URL TXT field
-        // Can be moved to only print for boot nodes
-        let secret_key = SKey::from_str(&private_key);
-        if let Ok(sk) = secret_key {
-            let secp = Secp256k1::new();
-            let public_key = PublicKey::from_secret_key(&secp, &sk);
-            let pk = public_key.serialize();
-            let base32_encoded_key = BASE32.encode(&pk);
-            debug!(
-                "Base32 encoded 32byte Public key: {:#?}",
-                base32_encoded_key
-            );
-        }
+        let node_handle = setup_node_handle(&pubsub_topic, host, port, advertised_addr, node_key);
 
-        let node_handle = setup_node_handle(
-            &pubsub_topic,
-            &content_topics,
-            host,
-            port,
-            advertised_addr,
-            node_key,
-        );
+        // Filter subscriptions only if provided subtopic
+        let content_topics = if let Some(topics) = subtopics {
+            let content_topics = build_content_topics(radio_name, 0, &topics);
+            let res = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
+                .expect("Could not connect and subscribe to the subtopics");
+
+            info!("Subtopic subscription: {:#?}", res);
+            content_topics
+        } else {
+            [].to_vec()
+        };
+
         Ok(GossipAgent {
             wallet,
             eth_node,
             provider,
-            indexer_address,
             pubsub_topic,
             content_topics,
-            indexer_allocations,
             node_handle,
             nonces: Arc::new(Mutex::new(HashMap::new())),
             registry_subgraph: registry_subgraph.to_string(),
@@ -191,6 +153,11 @@ impl GossipAgent {
             .collect()
     }
 
+    pub fn print_subscriptions(&self) {
+        info!("pubsub topic: {:#?}", &self.pubsub_topic);
+        info!("content topics: {:#?}", &self.content_identifiers());
+    }
+
     /// Find the subscribed content topic with an identifier
     /// Error if topic doesn't exist
     pub fn match_content_topic(
@@ -204,8 +171,7 @@ impl GossipAgent {
         {
             Some(topic) => Ok(topic),
             _ => Err(anyhow::anyhow!(format!(
-                "Did not match a content topic with identifier: {}",
-                identifier
+                "Did not match a content topic with identifier: {identifier}"
             )))?,
         }
     }

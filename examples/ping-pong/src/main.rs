@@ -57,6 +57,9 @@ async fn main() {
 
     /// A constant defining the goerli network subgraph endpoint.
     pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
+    // subtopics are optionally provided and used as the content topic identifier of the message subject,
+    // if not provided then they are generated based on indexer allocations
+    let subtopics = vec!["ping-pong-content-topic".to_string()];
 
     let gossip_agent = GossipAgent::new(
         // private_key resolves into ethereum wallet and indexer identity.
@@ -64,11 +67,9 @@ async fn main() {
         eth_node,
         // radio_name is used as part of the content topic for the radio application
         radio_name,
+        Some(subtopics),
         REGISTRY_SUBGRAPH,
         NETWORK_SUBGRAPH,
-        // subtopic optionally provided and used as the content topic identifier of the message subject,
-        // if not provided then they are generated based on indexer allocations
-        Some(vec!["ping-pong-content-topic"]),
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
         // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
         waku_host,
@@ -112,7 +113,7 @@ async fn main() {
                 MESSAGES.get().unwrap().lock().unwrap().push(msg);
             }
             Err(err) => {
-                println!("{}", err);
+                println!("{err}");
             }
         };
 
