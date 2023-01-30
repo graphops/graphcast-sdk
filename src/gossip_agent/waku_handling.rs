@@ -9,9 +9,9 @@ use crate::{
 use colored::*;
 use ethers::providers::{Http, Middleware, Provider};
 use prost::Message;
-use std::{borrow::Cow, env, io::prelude::*, sync::Arc};
+use std::{borrow::Cow, env, sync::Arc};
 use std::{error::Error, sync::Mutex, time::Duration};
-use std::{fs::File, net::IpAddr, str::FromStr};
+use std::{net::IpAddr, str::FromStr};
 use tracing::{debug, error, info, warn};
 use waku::{
     waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running,
@@ -193,6 +193,7 @@ fn connect_multiaddresses(
 //TODO: Filter full node config for boot nodes
 /// Set up a waku node given pubsub topics
 pub fn setup_node_handle(
+    boot_node_addresses: Vec<String>,
     graphcast_topic: &Option<WakuPubSubTopic>,
     host: Option<&str>,
     port: Option<usize>,
@@ -225,19 +226,9 @@ pub fn setup_node_handle(
                 boot_node_id, boot_node_multiaddress
             );
 
-            // Store boot node id to share
-            let mut file = File::create("./boot_node_addr.conf").unwrap();
-            file.write_all(boot_node_multiaddress.as_bytes()).unwrap();
             boot_node_handle
         }
         _ => {
-            let mut file =
-                File::open("./boot_node_addr.conf").expect("Could not find boot_node_addr.conf");
-            let mut boot_node_addr = String::new();
-            file.read_to_string(&mut boot_node_addr)
-                .expect("Could not parse boot node address from boot_node_addr.conf");
-
-            // run default nodes with peers hosted with pubsub to graphcast topics
             info!(
                 "{} {:?}",
                 "Registering the following pubsub topics: ".cyan(),
@@ -245,12 +236,15 @@ pub fn setup_node_handle(
             );
 
             let node_config = node_config(host, port, advertised_addr, node_key, false, true);
-            let nodes =
-                Vec::from([Multiaddr::from_str(&boot_node_addr).expect("Could not parse address")]);
-            info!("Static node list: {:#?}", nodes);
+
+            let static_nodes = boot_node_addresses
+                .iter()
+                .flat_map(|addr| vec![Multiaddr::from_str(addr).unwrap_or(Multiaddr::empty())])
+                .collect::<Vec<_>>();
 
             let node_handle = waku_new(node_config).unwrap().start().unwrap();
-            connect_nodes(&node_handle, nodes);
+            // let node_handle = connect_nodes(&node_handle, nodes);
+            connect_nodes(&node_handle, static_nodes);
             //TODO: remove when filter subscription is enabled
             node_handle
                 .relay_subscribe(graphcast_topic.clone())

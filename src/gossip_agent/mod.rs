@@ -95,9 +95,10 @@ impl GossipAgent {
         private_key: String,
         eth_node: String,
         radio_name: &str,
-        subtopics: Option<Vec<String>>,
         registry_subgraph: &str,
         network_subgraph: &str,
+        boot_node_addresses: Vec<String>,
+        subtopics: Option<Vec<String>>,
         waku_host: Option<String>,
         waku_port: Option<String>,
         waku_addr: Option<String>,
@@ -117,7 +118,14 @@ impl GossipAgent {
         });
         let node_key = waku::SecretKey::from_str(&private_key).ok();
 
-        let node_handle = setup_node_handle(&pubsub_topic, host, port, advertised_addr, node_key);
+        let node_handle = setup_node_handle(
+            boot_node_addresses,
+            &pubsub_topic,
+            host,
+            port,
+            advertised_addr,
+            node_key,
+        );
 
         // Filter subscriptions only if provided subtopic
         let content_topics = if let Some(topics) = subtopics {

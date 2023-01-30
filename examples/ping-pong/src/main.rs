@@ -5,7 +5,7 @@ use ethers::{
 };
 use graphcast_sdk::{
     gossip_agent::{message_typing::GraphcastMessage, GossipAgent},
-    init_tracing,
+    init_tracing, read_boot_node_addresses,
 };
 use once_cell::sync::OnceCell;
 use std::env;
@@ -61,15 +61,18 @@ async fn main() {
     // if not provided then they are generated based on indexer allocations
     let subtopics = vec!["ping-pong-content-topic".to_string()];
 
+    let boot_node_addresses = read_boot_node_addresses();
+
     let gossip_agent = GossipAgent::new(
         // private_key resolves into ethereum wallet and indexer identity.
         private_key,
         eth_node,
         // radio_name is used as part of the content topic for the radio application
         radio_name,
-        Some(subtopics),
         REGISTRY_SUBGRAPH,
         NETWORK_SUBGRAPH,
+        boot_node_addresses,
+        Some(subtopics),
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
         // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
         waku_host,
