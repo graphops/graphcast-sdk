@@ -27,7 +27,9 @@ use waku::{
 };
 
 use self::message_typing::GraphcastMessage;
-use self::waku_handling::{build_content_topics, handle_signal, pubsub_topic, setup_node_handle};
+use self::waku_handling::{
+    build_content_topics, handle_signal, network_check, pubsub_topic, setup_node_handle,
+};
 
 use crate::graphql::{
     client_network::query_network_subgraph, client_registry::query_registry_indexer,
@@ -259,6 +261,9 @@ impl GossipAgent {
                 .ok_or(AgentError::UnexpectedResponseError)?
         );
         let content_topic = self.match_content_topic(identifier.clone())?;
+
+        // Check network before sending a message
+        network_check(&self.node_handle)?;
 
         GraphcastMessage::build(
             &self.wallet,
