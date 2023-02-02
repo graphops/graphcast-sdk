@@ -36,11 +36,11 @@ fn prepare_nonces(
 }
 
 pub async fn get_indexer_stake(
-    address: String,
+    indexer_address: String,
     network_subgraph: &str,
 ) -> Result<BigUint, anyhow::Error> {
     Ok(
-        query_network_subgraph(network_subgraph.to_string(), address.clone())
+        query_network_subgraph(network_subgraph.to_string(), indexer_address)
             .await?
             .indexer_stake(),
     )

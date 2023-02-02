@@ -8,7 +8,13 @@ updates:
         # These are peer deps of Cargo and should not be automatically bumped
         - dependency-name: "semver"
         - dependency-name: "crates-io"
+    commit-message:
+      prefix: chore
+      include: scope
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
       interval: 'daily'
+    commit-message:
+      prefix: chore
+      include: scope
