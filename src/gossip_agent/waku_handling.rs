@@ -21,12 +21,11 @@ use waku::{
 };
 
 /// Get pubsub topic based on recommendations from https://rfc.vac.dev/spec/23/
-pub fn pubsub_topic(versioning: &str, chain_id: &str) -> Option<WakuPubSubTopic> {
-    let topic = app_name().to_string() + "-v" + versioning + "-" + chain_id;
-    Some(WakuPubSubTopic {
-        topic_name: Cow::from(topic),
+pub fn pubsub_topic(versioning: &str, chain_id: &str) -> WakuPubSubTopic {
+    WakuPubSubTopic {
+        topic_name: Cow::from(app_name().to_string() + "-v" + versioning + "-" + chain_id),
         encoding: Encoding::Proto,
-    })
+    }
 }
 
 // TODO: update to content topics
@@ -49,8 +48,9 @@ pub fn build_content_topics(
 }
 
 /// Makes a filter subscription from content topics and optionally pubsub topic
+/// Strictly use the first of pubsub topics as we assume radios only listen to one network (pubsub topic) at a time
 pub fn content_filter_subscription(
-    pubsub_topic: &Option<WakuPubSubTopic>,
+    pubsub_topic: &WakuPubSubTopic,
     content_topics: &[WakuContentTopic],
 ) -> FilterSubscription {
     let filters = (*content_topics
@@ -58,24 +58,28 @@ pub fn content_filter_subscription(
         .map(|topic| ContentFilter::new(topic.clone()))
         .collect::<Vec<ContentFilter>>())
     .to_vec();
-    FilterSubscription::new(filters, pubsub_topic.clone())
+    FilterSubscription::new(filters, Some(pubsub_topic.clone()))
 }
 
 /// Make filter subscription requests to all peers except for ourselves
 /// Return subscription results for each peer
 pub fn filter_peer_subscriptions(
     node_handle: &WakuNodeHandle<Running>,
-    graphcast_topic: &Option<WakuPubSubTopic>,
+    graphcast_topic: &WakuPubSubTopic,
     content_topics: &[WakuContentTopic],
 ) -> Result<Vec<String>, WakuHandlingError> {
     let subscription: FilterSubscription =
         content_filter_subscription(graphcast_topic, content_topics);
-
+    info!(
+        "Subscribe to content topic for filtering: {:#?}",
+        subscription
+    );
     let filter_subscribe_result: Vec<String> = node_handle
         .peers()
         .map_err(WakuHandlingError::UnableToRetrievePeers)?
         .iter()
         .filter(|&peer| {
+            // Filter out local peer_id to prevent self dial
             peer.peer_id().as_str()
                 != node_handle
                     .peer_id()
@@ -83,6 +87,7 @@ pub fn filter_peer_subscriptions(
                     .as_str()
         })
         .map(|peer: &WakuPeerData| {
+            // subscribe to all other peers
             let filter_res = node_handle.filter_subscribe(
                 &subscription,
                 peer.peer_id().clone(),
@@ -90,11 +95,10 @@ pub fn filter_peer_subscriptions(
             );
             match filter_res {
                 Ok(_) => format!(
-                    "Filter subcription request made to: {} - {:#?}",
+                    "Success filter subcription request made to peer {}",
                     peer.peer_id(),
-                    &subscription
                 ),
-                Err(e) => format!("Failed to filter subscribe with peer: {e}"),
+                Err(e) => format!("Filter subcription request failed for peer {e}"),
             }
         })
         .collect();
@@ -111,33 +115,35 @@ fn node_config(
     port: usize,
     ad_addr: Option<Multiaddr>,
     key: Option<SecretKey>,
-    enable_relay: bool,
-    enable_filter: bool,
+    pubsub_topics: Vec<WakuPubSubTopic>,
 ) -> Option<WakuNodeConfig> {
     let log_level = match env::var("WAKU_LOG_LEVEL") {
         Ok(level) => match level.to_uppercase().as_str() {
-            "INFO" => WakuLogLevel::Info,
             "DEBUG" => WakuLogLevel::Debug,
+            "INFO" => WakuLogLevel::Info,
             "WARN" => WakuLogLevel::Warn,
             "ERROR" => WakuLogLevel::Error,
             "FATAL" => WakuLogLevel::Fatal,
             "PANIC" => WakuLogLevel::Panic,
             _ => WakuLogLevel::Info,
         },
-        Err(_) => WakuLogLevel::Info,
+        Err(_) => WakuLogLevel::Warn,
     };
 
     Some(WakuNodeConfig {
         host: host.and_then(|h| IpAddr::from_str(h).ok()),
         port: Some(port),
         advertise_addr: ad_addr, // Fill this for boot nodes
-        // node_key: Some(waku_secret_key),
         node_key: key,
         keep_alive_interval: None,
-        relay: Some(enable_relay),     // Default true
+        relay: Some(true), // Default true - required for filter protocol
         min_peers_to_publish: Some(0), // Default 0
-        filter: Some(enable_filter),   // Default false
+        filter: Some(true), // Default false
         log_level: Some(log_level),
+        relay_topics: pubsub_topics,
+        discv5: Some(false),
+        discv5_bootstrap_nodes: [].to_vec(),
+        discv5_udp_port: None,
     })
 }
 
@@ -165,12 +171,11 @@ pub fn connect_nodes(
         }
     };
     // Connect to peers on the filter protocol
-    let peer_ids = connect_multiaddresses(all_nodes, node_handle, ProtocolId::Filter);
+    connect_multiaddresses(all_nodes, node_handle, ProtocolId::Filter);
 
     info!(
-        "Initialized node handle\nLocal node peer_id: {:#?}\nConnected to peers: {:#?}",
+        "Initialized node handle\nLocal node peer_id: {:#?}",
         node_handle.peer_id(),
-        peer_ids,
     );
 
     Ok(())
@@ -181,22 +186,18 @@ fn connect_multiaddresses(
     nodes: Vec<Multiaddr>,
     node_handle: &WakuNodeHandle<Running>,
     protocol_id: ProtocolId,
-) -> Vec<Multiaddr> {
-    nodes
-        .into_iter()
-        .filter(|address| {
+) {
+    let (connected_peers, unconnected_peers): (Vec<_>, Vec<_>) =
+        nodes.into_iter().partition(|address| {
             let peer_id = node_handle
                 .add_peer(address, protocol_id)
                 .unwrap_or_else(|_| String::from("Could not add peer"));
-            match node_handle.connect_peer_with_id(peer_id, None) {
-                Ok(_) => true,
-                Err(e) => {
-                    error!("Could not connect to peer: {}", e);
-                    false
-                }
-            }
-        })
-        .collect::<Vec<Multiaddr>>()
+            node_handle.connect_peer_with_id(peer_id, None).is_ok()
+        });
+    warn!(
+        "Connected to peers: {:#?}\nFailed to connect to: {:#?}",
+        connected_peers, unconnected_peers
+    )
 }
 
 //TODO: Topic discovery DNS and Discv5
@@ -204,7 +205,7 @@ fn connect_multiaddresses(
 /// Set up a waku node given pubsub topics
 pub fn setup_node_handle(
     boot_node_addresses: Vec<String>,
-    graphcast_topic: &Option<WakuPubSubTopic>,
+    pubsub_topic: &WakuPubSubTopic,
     host: Option<&str>,
     port: Option<&str>,
     advertised_addr: Option<Multiaddr>,
@@ -218,16 +219,21 @@ pub fn setup_node_handle(
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             // Update boot node to declare isFilterFullNode = True
-            let boot_node_config = node_config(host, port, advertised_addr, node_key, true, true);
+            let boot_node_config = node_config(
+                host,
+                port,
+                advertised_addr,
+                node_key,
+                vec![pubsub_topic.clone()],
+            );
             let boot_node_handle = waku_new(boot_node_config)
                 .expect("Could not create Waku boot node")
                 .start()
                 .expect("Could not start Waku boot node");
-            // let peer_ids = connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
             // Relay node subscribe pubsub_topic of graphcast
             boot_node_handle
-                .relay_subscribe(graphcast_topic.clone())
+                .relay_subscribe(Some(pubsub_topic.clone()))
                 .expect("Could not subscribe to the topic");
 
             let boot_node_id = boot_node_handle
@@ -250,15 +256,22 @@ pub fn setup_node_handle(
             info!(
                 "{} {:?}",
                 "Registering the following pubsub topics: ".cyan(),
-                graphcast_topic
+                &pubsub_topic
             );
 
-            let node_config = node_config(host, port, advertised_addr, node_key, false, true);
+            let node_config = node_config(
+                host,
+                port,
+                advertised_addr,
+                node_key,
+                vec![pubsub_topic.clone()],
+            );
 
             let static_nodes = boot_node_addresses
                 .iter()
                 .flat_map(|addr| vec![Multiaddr::from_str(addr).unwrap_or(Multiaddr::empty())])
                 .collect::<Vec<_>>();
+            info!("Static node list: {:#?}", static_nodes);
 
             let node_handle = waku_new(node_config)
                 .expect("Could not create Waku light node")
@@ -266,13 +279,7 @@ pub fn setup_node_handle(
                 .expect("Could not start Waku light node");
             // let node_handle = connect_nodes(&node_handle, nodes);
             connect_nodes(&node_handle, static_nodes)?;
-
-            //TODO: remove when filter subscription is enabled
-            if let Err(e) = node_handle.relay_subscribe(graphcast_topic.clone()) {
-                Err(WakuHandlingError::CannotSubscribe(e))
-            } else {
-                Ok(node_handle)
-            }
+            Ok(node_handle)
         }
     }
 }
@@ -284,7 +291,6 @@ pub async fn handle_signal<
     provider: &Provider<Http>,
     signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
-    content_topics: &[WakuContentTopic],
     registry_subgraph: &str,
     network_subgraph: &str,
 ) -> Result<GraphcastMessage<T>, anyhow::Error> {
@@ -302,41 +308,30 @@ pub async fn handle_signal<
 
                     debug!("{}{:?}", "Message: ".cyan(), graphcast_message);
 
-                    if content_topics.is_empty()
-                        | content_topics.iter().any(|content_topic| {
-                            content_topic.content_topic_name == graphcast_message.identifier
-                        })
+                    let block_hash: String = format!(
+                        "{:#x}",
+                        provider
+                            .get_block(graphcast_message.block_number)
+                            .await?
+                            .ok_or(GossipAgentError::EmptyResponseError)?
+                            .hash
+                            .ok_or(GossipAgentError::UnexpectedResponseError)?
+                    );
+                    match check_message_validity(
+                        graphcast_message,
+                        block_hash,
+                        nonces,
+                        registry_subgraph,
+                        network_subgraph,
+                    )
+                    .await
                     {
-                        let block_hash: String = format!(
-                            "{:#x}",
-                            provider
-                                .get_block(graphcast_message.block_number)
-                                .await?
-                                .ok_or(GossipAgentError::EmptyResponseError)?
-                                .hash
-                                .ok_or(GossipAgentError::UnexpectedResponseError)?
-                        );
-                        match check_message_validity(
-                            graphcast_message,
-                            block_hash,
-                            nonces,
-                            registry_subgraph,
-                            network_subgraph,
-                        )
-                        .await
-                        {
-                            Ok(msg) => Ok(msg),
-                            Err(err) => Err(anyhow::anyhow!(
-                                "{}{:#?}",
-                                "Could not handle the message: ".yellow(),
-                                err
-                            )),
-                        }
-                    } else {
-                        Err(anyhow::anyhow!(
-                            "Content topic '{}' not relevant for this Radio, skipping.",
-                            graphcast_message.identifier
-                        ))
+                        Ok(msg) => Ok(msg),
+                        Err(err) => Err(anyhow::anyhow!(
+                            "{}{:#?}",
+                            "Could not handle the message: ".yellow(),
+                            err
+                        )),
                     }
                 }
                 Err(e) => Err(anyhow::anyhow!(
