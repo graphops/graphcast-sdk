@@ -99,6 +99,7 @@ impl GossipAgent {
         network_subgraph: &str,
         boot_node_addresses: Vec<String>,
         subtopics: Option<Vec<String>>,
+        waku_node_key: Option<String>,
         waku_host: Option<String>,
         waku_port: Option<String>,
         waku_addr: Option<String>,
@@ -116,7 +117,7 @@ impl GossipAgent {
                 "Could not make format advertised address into a Multiaddress, do not advertise",
             )
         });
-        let node_key = waku::SecretKey::from_str(&private_key).ok();
+        let node_key = waku_node_key.and_then(|key| waku::SecretKey::from_str(&key).ok());
 
         let node_handle = setup_node_handle(
             boot_node_addresses,

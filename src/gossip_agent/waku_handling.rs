@@ -111,12 +111,14 @@ fn node_config(
     enable_relay: bool,
     enable_filter: bool,
 ) -> Option<WakuNodeConfig> {
-    let log_level = match env::var("LOG_LEVEL") {
+    let log_level = match env::var("WAKU_LOG_LEVEL") {
         Ok(level) => match level.to_uppercase().as_str() {
             "INFO" => WakuLogLevel::Info,
             "DEBUG" => WakuLogLevel::Debug,
             "WARN" => WakuLogLevel::Warn,
             "ERROR" => WakuLogLevel::Error,
+            "FATAL" => WakuLogLevel::Fatal,
+            "PANIC" => WakuLogLevel::Panic,
             _ => WakuLogLevel::Info,
         },
         Err(_) => WakuLogLevel::Info,
