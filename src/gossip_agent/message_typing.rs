@@ -4,11 +4,11 @@ use colored::Colorize;
 use ethers::signers::{Signer, Wallet};
 use ethers_core::{k256::ecdsa::SigningKey, types::Signature};
 use num_bigint::BigUint;
+use num_traits::ToPrimitive;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    error::Error,
     str::FromStr,
     sync::{Arc, Mutex},
 };
@@ -83,14 +83,20 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         block_number: i64,
         block_hash: String,
         signature: String,
-    ) -> Self {
-        GraphcastMessage {
-            identifier,
-            payload,
-            nonce,
-            block_number: block_number.try_into().unwrap(),
-            block_hash,
-            signature,
+    ) -> Result<Self, BuildMessageError> {
+        if let Some(block_number) = block_number.to_u64() {
+            Ok(GraphcastMessage {
+                identifier,
+                payload,
+                nonce,
+                block_number,
+                block_hash,
+                signature,
+            })
+        } else {
+            Err(BuildMessageError::TypeCast(format!(
+                "Error: Invalid block number {block_number}, conversion to u64 failed."
+            )))
         }
     }
 
@@ -101,27 +107,23 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         payload: Option<T>,
         block_number: i64,
         block_hash: String,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self, BuildMessageError> {
         debug!("\n{}", "Constructing message".green());
-        let sig = wallet
-            .sign_typed_data(
-                payload
-                    .as_ref()
-                    .expect("Radio payload failed to satisfy the defined Eip712 typing"),
-            )
-            .await?;
 
-        let message = GraphcastMessage::new(
+        let payload = payload.as_ref().ok_or(BuildMessageError::Payload)?;
+        let sig = wallet
+            .sign_typed_data(payload)
+            .await
+            .map_err(|_| BuildMessageError::Signing)?;
+
+        GraphcastMessage::new(
             identifier.clone(),
-            payload,
+            Some(payload.clone()),
             Utc::now().timestamp(),
             block_number,
             block_hash.to_string(),
             sig.to_string(),
-        );
-
-        debug!("{}{:#?}", "Encoded message: ".cyan(), message,);
-        Ok(message)
+        )
     }
 
     /// Send Graphcast message to the Waku relay network
@@ -130,7 +132,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         node_handle: &WakuNodeHandle<Running>,
         pub_sub_topic: Option<WakuPubSubTopic>,
         content_topic: &WakuContentTopic,
-    ) -> Result<String, Box<dyn Error>> {
+    ) -> Result<String, anyhow::Error> {
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
@@ -141,7 +143,10 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             Utc::now().timestamp() as usize,
         );
 
-        Ok(node_handle.relay_publish_message(&waku_message, pub_sub_topic, None)?)
+        match node_handle.relay_publish_message(&waku_message, pub_sub_topic, None) {
+            Ok(message_id) => Ok(message_id),
+            Err(e) => Err(anyhow!(e)),
+        }
     }
 
     /// Check message from valid sender: resolve indexer address and self stake
@@ -206,7 +211,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                     .as_ref()
                     .expect("No payload in the radio message, just a ping")
                     .encode_eip712()
-                    .unwrap(),
+                    .expect("Could not encode payload using EIP712"),
             )
         }) {
             Ok(addr) => Ok(format!("{addr:#x}")),
@@ -218,7 +223,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
     pub fn valid_nonce(&self, nonces: &Arc<Mutex<NoncesMap>>) -> Result<&Self, anyhow::Error> {
         let address = self.recover_sender_address()?;
 
-        let mut nonces = nonces.lock().unwrap();
+        let mut nonces = nonces.lock().expect("Could not get nonces lock");
         let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());
 
         match nonces_per_subgraph {
@@ -264,6 +269,18 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             }
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BuildMessageError {
+    #[error("Radio payload failed to satisfy the defined Eip712 typing")]
+    Payload,
+    #[error("Could not sign payload")]
+    Signing,
+    #[error("Could not encode message")]
+    Encoding,
+    #[error("{0}")]
+    TypeCast(String),
 }
 
 #[cfg(test)]
@@ -324,7 +341,7 @@ mod tests {
         let wallet = dummy_wallet();
         let msg = GraphcastMessage::build(&wallet, hash, Some(payload), block_number, block_hash)
             .await
-            .unwrap();
+            .expect("Could not build message");
 
         assert_eq!(msg.block_number, 0);
         assert!(msg
@@ -333,9 +350,16 @@ mod tests {
             .is_err());
         assert!(msg.valid_time().is_ok());
         assert!(msg.valid_hash("weeelp".to_string()).is_err());
-        assert_eq!(msg.payload.as_ref().unwrap().content_string(), content);
         assert_eq!(
-            msg.recover_sender_address().unwrap(),
+            msg.payload
+                .as_ref()
+                .expect("Could not get message payload")
+                .content_string(),
+            content
+        );
+        assert_eq!(
+            msg.recover_sender_address()
+                .expect("Could not recover sender address"),
             format!("{:#x}", wallet.address())
         );
     }

@@ -12,7 +12,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use std::{thread::sleep, time::Duration};
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use types::RadioPayloadMessage;
 
 mod types;
@@ -25,7 +25,7 @@ async fn main() {
     // Enables tracing, you can set your preferred log level in your .env file
     // You can choose one of: TRACE, DEBUG, INFO, WARN, ERROR
     // If none is provided, defaults to INFO
-    init_tracing();
+    init_tracing().expect("Could not set up global default subscriber");
 
     /// A global static (singleton) instance of A GraphcastMessage vector.
     /// It is used to save incoming messages after they've been validated, in order
@@ -43,11 +43,15 @@ async fn main() {
     let waku_port = env::var("WAKU_PORT").ok();
     let waku_node_key = env::var("WAKU_NODE_KEY").ok();
     // The private key for you Graphcast operator address
-    let private_key = env::var("PRIVATE_KEY").expect("No operator private key provided.");
+    let private_key = env::var("PRIVATE_KEY").expect(
+        "No operator private key provided. Please specify a PRIVATE_KEY environment variable.",
+    );
 
     // An Ethereum node url in order to read on-chain data using a provider
-    let eth_node = env::var("ETH_NODE").expect("No ETH URL provided.");
-    let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
+    let eth_node = env::var("ETH_NODE")
+        .expect("No ETH URL provided. Please specify an ETH_NODE environment variable.");
+    let provider: Provider<Http> =
+        Provider::<Http>::try_from(eth_node.clone()).expect("Could not create Ethereum provider");
 
     // This can be any string
     let radio_name: &str = "ping-pong";
@@ -82,7 +86,7 @@ async fn main() {
         None,
     )
     .await
-    .unwrap();
+    .expect("Could not create gossip agent");
 
     // A one-off setter to load the Gossip Agent into the global static variable
     _ = GOSSIP_AGENT.set(gossip_agent);
@@ -94,7 +98,7 @@ async fn main() {
     async fn send_message(payload: Option<RadioPayloadMessage>, block_number: u64) {
         match GOSSIP_AGENT
             .get()
-            .unwrap()
+            .expect("Could not retrieve gossip agent")
             .send_message(
                 // The identifier can be any string that suits your Radio logic
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
@@ -115,7 +119,12 @@ async fn main() {
     let radio_handler =
         |msg: Result<GraphcastMessage<RadioPayloadMessage>, anyhow::Error>| match msg {
             Ok(msg) => {
-                MESSAGES.get().unwrap().lock().unwrap().push(msg);
+                MESSAGES
+                    .get()
+                    .expect("Could not retrieve messages")
+                    .lock()
+                    .expect("Could not get lock on messages")
+                    .push(msg);
             }
             Err(err) => {
                 println!("{err}");
@@ -124,20 +133,36 @@ async fn main() {
 
     GOSSIP_AGENT
         .get()
-        .unwrap()
-        .register_handler(Arc::new(Mutex::new(radio_handler)));
+        .expect("Could not retrieve gossip agent")
+        .register_handler(Arc::new(Mutex::new(radio_handler)))
+        .expect("Could not register handler");
 
     loop {
-        let block_number = U64::as_u64(&provider.get_block_number().await.unwrap());
+        let block_number = provider.get_block_number().await;
+
+        if let Err(e) = block_number {
+            warn!("Could not get block number from provider. Context: {e}");
+            sleep(Duration::from_secs(1));
+            continue;
+        }
+
+        let block_number = U64::as_u64(&block_number.unwrap());
+
         debug!("🔗 Block number: {}", block_number);
 
         if block_number & 2 == 0 {
-            let msg = RadioPayloadMessage::new("table".to_string(), "Ping".to_string());
             // If block number is even, send ping message
+            let msg = RadioPayloadMessage::new("table".to_string(), "Ping".to_string());
             send_message(Some(msg), block_number).await;
         } else {
             // If block number is odd, process received messages
-            let messages = AsyncMutex::new(MESSAGES.get().unwrap().lock().unwrap());
+            let messages = AsyncMutex::new(
+                MESSAGES
+                    .get()
+                    .expect("Could not retrieve messages")
+                    .lock()
+                    .expect("Could not get lock on messages"),
+            );
             for msg in messages.lock().await.iter() {
                 let payload = msg
                     .payload

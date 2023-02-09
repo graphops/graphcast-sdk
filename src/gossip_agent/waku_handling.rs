@@ -2,17 +2,18 @@ use crate::{
     app_name, cf_nameserver, discovery_url,
     gossip_agent::{
         message_typing::{self, GraphcastMessage},
-        AgentError,
+        GossipAgentError,
     },
     NoncesMap,
 };
 use colored::*;
 use ethers::providers::{Http, Middleware, Provider};
 use prost::Message;
-use std::{borrow::Cow, env, sync::Arc};
-use std::{error::Error, sync::Mutex, time::Duration};
+use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{net::IpAddr, str::FromStr};
+use std::{sync::Mutex, time::Duration};
 use tracing::{debug, error, info, warn};
+use url::ParseError;
 use waku::{
     waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running,
     SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
@@ -66,11 +67,13 @@ pub fn filter_peer_subscriptions(
     node_handle: &WakuNodeHandle<Running>,
     graphcast_topic: &Option<WakuPubSubTopic>,
     content_topics: &[WakuContentTopic],
-) -> Result<Vec<String>, Box<dyn Error>> {
+) -> Result<Vec<String>, WakuHandlingError> {
     let subscription: FilterSubscription =
         content_filter_subscription(graphcast_topic, content_topics);
+
     let filter_subscribe_result: Vec<String> = node_handle
-        .peers()?
+        .peers()
+        .map_err(WakuHandlingError::UnableToRetrievePeers)?
         .iter()
         .filter(|&peer| {
             peer.peer_id().as_str()
@@ -105,7 +108,7 @@ pub fn filter_peer_subscriptions(
 /// For light nodes, config with relay disabled and filter enabled. These node will route all messages but only pull data for messages matching the subscribed content topics.
 fn node_config(
     host: Option<&str>,
-    port: Option<usize>,
+    port: usize,
     ad_addr: Option<Multiaddr>,
     key: Option<SecretKey>,
     enable_relay: bool,
@@ -126,7 +129,7 @@ fn node_config(
 
     Some(WakuNodeConfig {
         host: host.and_then(|h| IpAddr::from_str(h).ok()),
-        port,
+        port: Some(port),
         advertise_addr: ad_addr, // Fill this for boot nodes
         // node_key: Some(waku_secret_key),
         node_key: key,
@@ -139,8 +142,11 @@ fn node_config(
 }
 
 /// Generate a node instance of 'node_config', connected to the peers using node addresses on specific waku protocol
-pub fn connect_nodes(node_handle: &WakuNodeHandle<Running>, nodes: Vec<Multiaddr>) {
-    let all_nodes = match node_handle.dns_discovery(&discovery_url(), Some(&cf_nameserver()), None)
+pub fn connect_nodes(
+    node_handle: &WakuNodeHandle<Running>,
+    nodes: Vec<Multiaddr>,
+) -> Result<(), WakuHandlingError> {
+    let all_nodes = match node_handle.dns_discovery(&discovery_url()?, Some(&cf_nameserver()), None)
     {
         Ok(x) => {
             info!("{} {:#?}", "Discovered multiaddresses:".green(), x);
@@ -166,6 +172,8 @@ pub fn connect_nodes(node_handle: &WakuNodeHandle<Running>, nodes: Vec<Multiaddr
         node_handle.peer_id(),
         peer_ids,
     );
+
+    Ok(())
 }
 
 /// Connect to peers from a list of multiaddresses for a specific protocol
@@ -198,15 +206,23 @@ pub fn setup_node_handle(
     boot_node_addresses: Vec<String>,
     graphcast_topic: &Option<WakuPubSubTopic>,
     host: Option<&str>,
-    port: Option<usize>,
+    port: Option<&str>,
     advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
-) -> WakuNodeHandle<Running> {
+) -> Result<WakuNodeHandle<Running>, WakuHandlingError> {
+    let port = port
+        .unwrap_or("60000")
+        .parse::<usize>()
+        .map_err(WakuHandlingError::ParsePortError)?;
+
     match std::env::args().nth(1) {
         Some(x) if x == *"boot" => {
             // Update boot node to declare isFilterFullNode = True
             let boot_node_config = node_config(host, port, advertised_addr, node_key, true, true);
-            let boot_node_handle = waku_new(boot_node_config).unwrap().start().unwrap();
+            let boot_node_handle = waku_new(boot_node_config)
+                .expect("Could not create Waku boot node")
+                .start()
+                .expect("Could not start Waku boot node");
             // let peer_ids = connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
             // Relay node subscribe pubsub_topic of graphcast
@@ -220,7 +236,7 @@ pub fn setup_node_handle(
             let boot_node_multiaddress = format!(
                 "/ip4/{}/tcp/{}/p2p/{}",
                 host.unwrap_or("0.0.0.0"),
-                port.unwrap_or(60000),
+                port,
                 boot_node_id
             );
             info!(
@@ -228,7 +244,7 @@ pub fn setup_node_handle(
                 boot_node_id, boot_node_multiaddress
             );
 
-            boot_node_handle
+            Ok(boot_node_handle)
         }
         _ => {
             info!(
@@ -244,14 +260,19 @@ pub fn setup_node_handle(
                 .flat_map(|addr| vec![Multiaddr::from_str(addr).unwrap_or(Multiaddr::empty())])
                 .collect::<Vec<_>>();
 
-            let node_handle = waku_new(node_config).unwrap().start().unwrap();
+            let node_handle = waku_new(node_config)
+                .expect("Could not create Waku light node")
+                .start()
+                .expect("Could not start Waku light node");
             // let node_handle = connect_nodes(&node_handle, nodes);
-            connect_nodes(&node_handle, static_nodes);
+            connect_nodes(&node_handle, static_nodes)?;
+
             //TODO: remove when filter subscription is enabled
-            node_handle
-                .relay_subscribe(graphcast_topic.clone())
-                .expect("Could not subscribe to the topic");
-            node_handle
+            if let Err(e) = node_handle.relay_subscribe(graphcast_topic.clone()) {
+                Err(WakuHandlingError::CannotSubscribe(e))
+            } else {
+                Ok(node_handle)
+            }
         }
     }
 }
@@ -291,9 +312,9 @@ pub async fn handle_signal<
                             provider
                                 .get_block(graphcast_message.block_number)
                                 .await?
-                                .ok_or(AgentError::EmptyResponseError)?
+                                .ok_or(GossipAgentError::EmptyResponseError)?
                                 .hash
-                                .ok_or(AgentError::UnexpectedResponseError)?
+                                .ok_or(GossipAgentError::UnexpectedResponseError)?
                         );
                         match check_message_validity(
                             graphcast_message,
@@ -359,14 +380,15 @@ pub async fn check_message_validity<
 }
 
 /// Check for peer connectivity, try to reconnect if there are disconnected peers
-pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), Box<dyn Error>> {
+pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), anyhow::Error> {
     let binding = node_handle
         .peer_id()
         .expect("Failed to get local node's peer id");
     let local_id = binding.as_str();
 
     node_handle
-        .peers()?
+        .peers()
+        .map_err(WakuHandlingError::UnableToRetrievePeers)?
         .iter()
         // filter for nodes that are not self and disconnected
         .filter(|&peer| (peer.peer_id().as_str() != local_id) & (!peer.connected()))
@@ -380,6 +402,18 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), Box<dy
             }
         });
     Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WakuHandlingError {
+    #[error(transparent)]
+    ParseUrlError(#[from] ParseError),
+    #[error("Unable to subscribe to pubsub topic. {}", .0)]
+    CannotSubscribe(String),
+    #[error("Unable to retrieve peers list. {}", .0)]
+    UnableToRetrievePeers(String),
+    #[error(transparent)]
+    ParsePortError(#[from] ParseIntError),
 }
 
 #[cfg(test)]

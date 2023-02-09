@@ -25,7 +25,7 @@ use std::{
     env,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, Level};
+use tracing::{debug, subscriber::SetGlobalDefaultError, Level};
 use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 
@@ -51,13 +51,13 @@ pub fn app_name() -> Cow<'static, str> {
 }
 
 /// Returns hardcoded DNS Url to a discoverable ENR tree that should be used to retrieve boot nodes
-pub fn discovery_url() -> Url {
+pub fn discovery_url() -> Result<Url, url::ParseError> {
     let enr_url = config_env_var("ENR_URL").unwrap_or_else(|_| {
         "enrtree://AMRFINDNF7XHQN2XBYCGYAYSQ3NV77RJIHLX6HJLA6ZAF365NRLMM@testfleet.graphcast.xyz"
             .to_string()
     });
 
-    Url::parse(&enr_url).expect("Could not parse discovery url to ENR tree")
+    Url::parse(&enr_url)
 }
 
 pub fn cf_nameserver() -> Host {
@@ -100,7 +100,7 @@ pub fn read_boot_node_addresses() -> Vec<String> {
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables
-pub fn init_tracing() {
+pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {
     let log_level = match env::var("LOG_LEVEL") {
         Ok(level) => match level.to_uppercase().as_str() {
             "INFO" => Level::INFO,
@@ -114,7 +114,7 @@ pub fn init_tracing() {
     };
 
     let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    tracing::subscriber::set_global_default(subscriber)
 }
 
 #[cfg(test)]

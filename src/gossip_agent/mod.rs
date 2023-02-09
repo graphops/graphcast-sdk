@@ -9,15 +9,15 @@
 //! Gossip agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
-use ethers::providers::{Http, Middleware, Provider};
-use ethers::signers::LocalWallet;
+use ethers::providers::{Http, Middleware, Provider, ProviderError};
+use ethers::signers::{LocalWallet, WalletError};
 use prost::Message;
 use std::collections::HashMap;
-use std::error::Error;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tracing::info;
+use url::ParseError;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
     WakuPubSubTopic,
@@ -26,7 +26,7 @@ use waku::{
 use self::message_typing::GraphcastMessage;
 use self::waku_handling::{
     build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
-    setup_node_handle,
+    setup_node_handle, WakuHandlingError,
 };
 
 use crate::NoncesMap;
@@ -103,20 +103,17 @@ impl GossipAgent {
         waku_host: Option<String>,
         waku_port: Option<String>,
         waku_addr: Option<String>,
-    ) -> Result<GossipAgent, Box<dyn Error>> {
-        let wallet = private_key.parse::<LocalWallet>().unwrap();
-        let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone()).unwrap();
+    ) -> Result<GossipAgent, GossipAgentError> {
+        let wallet = private_key.parse::<LocalWallet>()?;
+        let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone())?;
         let pubsub_topic: Option<WakuPubSubTopic> =
             pubsub_topic("0", &provider.get_chainid().await?.to_string());
 
         //Should we allow the setting of waku node host and port?
         let host = waku_host.as_deref();
-        let port = waku_port.map(|y| y.parse().unwrap());
-        let advertised_addr = waku_addr.map(|addr| {
-            Multiaddr::from_str(&addr).expect(
-                "Could not make format advertised address into a Multiaddress, do not advertise",
-            )
-        });
+        let port = waku_port.as_deref();
+
+        let advertised_addr = waku_addr.and_then(|a| Multiaddr::from_str(&a).ok());
         let node_key = waku_node_key.and_then(|key| waku::SecretKey::from_str(&key).ok());
 
         let node_handle = setup_node_handle(
@@ -126,7 +123,8 @@ impl GossipAgent {
             port,
             advertised_addr,
             node_key,
-        );
+        )
+        .map_err(GossipAgentError::NodeHandleError)?;
 
         // Filter subscriptions only if provided subtopic
         let content_topics = if let Some(topics) = subtopics {
@@ -172,7 +170,7 @@ impl GossipAgent {
     pub fn match_content_topic(
         &self,
         identifier: String,
-    ) -> Result<&WakuContentTopic, Box<dyn Error>> {
+    ) -> Result<&WakuContentTopic, anyhow::Error> {
         match self
             .content_topics
             .iter()
@@ -195,10 +193,10 @@ impl GossipAgent {
     >(
         &'static self,
         radio_handler_mutex: Arc<Mutex<F>>,
-    ) {
-        let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone()).unwrap();
+    ) -> Result<(), GossipAgentError> {
+        let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone())?;
         let handle_async = move |signal: Signal| {
-            let rt = Runtime::new().unwrap();
+            let rt = Runtime::new().expect("Could not create Tokio runtime");
 
             rt.block_on(async {
                 let msg = handle_signal(
@@ -210,11 +208,14 @@ impl GossipAgent {
                     &self.network_subgraph,
                 )
                 .await;
-                let mut radio_handler = radio_handler_mutex.lock().unwrap();
+                let mut radio_handler = radio_handler_mutex
+                    .lock()
+                    .expect("Could not get Radio handler lock");
                 radio_handler(msg);
             });
         };
         waku_set_event_callback(handle_async);
+        Ok(())
     }
 
     /// For each topic, construct with custom write function and send
@@ -225,15 +226,15 @@ impl GossipAgent {
         identifier: String,
         block_number: u64,
         payload: Option<T>,
-    ) -> Result<String, Box<dyn Error>> {
+    ) -> Result<String, anyhow::Error> {
         let block_hash: String = format!(
             "{:#x}",
             self.provider
                 .get_block(block_number)
                 .await?
-                .ok_or(AgentError::EmptyResponseError)?
+                .ok_or(GossipAgentError::EmptyResponseError)?
                 .hash
-                .ok_or(AgentError::UnexpectedResponseError)?
+                .ok_or(GossipAgentError::UnexpectedResponseError)?
         );
         let content_topic = self.match_content_topic(identifier.clone())?;
 
@@ -255,11 +256,21 @@ impl GossipAgent {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum AgentError {
+pub enum GossipAgentError {
     #[error("Query response is empty")]
     EmptyResponseError,
     #[error("Unexpected response format")]
     UnexpectedResponseError,
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
+    #[error(transparent)]
+    EthereumProviderError(#[from] ProviderError),
+    #[error("Cannot instantiate Ethereum wallet from given private key.")]
+    EthereumWalletError(#[from] WalletError),
+    #[error(transparent)]
+    UrlParseError(#[from] ParseError),
+    #[error("Could not set up node handle. More info: {}", .0)]
+    NodeHandleError(WakuHandlingError),
+    #[error("Could not parse Waku port")]
+    WakuPortError,
 }
