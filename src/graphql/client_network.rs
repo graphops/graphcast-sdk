@@ -27,8 +27,7 @@ pub async fn query_network_subgraph(
     let request_body = NetworkSubgraph::build_query(variables);
     let client = reqwest::Client::builder()
         .user_agent("network-subgraph")
-        .build()
-        .unwrap();
+        .build()?;
     let request = client.post(url.clone()).json(&request_body);
     let response = request.send().await?.error_for_status()?;
     let response_body: Response<network_subgraph::ResponseData> = response.json().await?;

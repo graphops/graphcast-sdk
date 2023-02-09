@@ -15,11 +15,11 @@ fn main() {
     // Iterate over the result tree
     for (key, value) in json
         .as_object()
-        .unwrap()
+        .expect("Could not convert JSON to object")
         .get("result")
         .expect("Unable to get result from JSON file")
         .as_object()
-        .unwrap()
+        .expect("Could not convert JSON to object")
         .iter()
     {
         let record = format!("{key}. IN TXT {value}");
