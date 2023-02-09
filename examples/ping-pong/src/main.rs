@@ -41,6 +41,7 @@ async fn main() {
 
     let waku_host = env::var("WAKU_HOST").ok();
     let waku_port = env::var("WAKU_PORT").ok();
+    let waku_node_key = env::var("WAKU_NODE_KEY").ok();
     // The private key for you Graphcast operator address
     let private_key = env::var("PRIVATE_KEY").expect("No operator private key provided.");
 
@@ -75,6 +76,7 @@ async fn main() {
         Some(subtopics),
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
         // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
+        waku_node_key,
         waku_host,
         waku_port,
         None,
