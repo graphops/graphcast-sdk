@@ -1,12 +1,12 @@
-//! Type for representing a Gossip agent for interacting with Graphcast.
+//! Type for representing a Graphcast agent for interacting with Graphcast.
 //!
-//! A "GossipAgent" has access to
-//! - Gossip operator wallet: resolve Graph Account identity
+//! A "GraphcastAgent" has access to
+//! - Graphcast operator wallet: resolve Graph Account identity
 //! - Ethereum node provider endpoint: provider access
-//! - Waku Node Instance: interact with the gossip network
+//! - Waku Node Instance: interact with the Graphcast network
 //! - Pubsub and Content filter topics: interaction configurations
 //!
-//! Gossip agent shall be able to construct, send, receive, validate, and attest
+//! Graphcast agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
 use ethers::providers::{Http, Middleware, Provider, ProviderError};
@@ -42,16 +42,16 @@ pub const REGISTRY_SUBGRAPH: &str =
 /// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
 
-/// A gossip agent representation
-pub struct GossipAgent {
-    /// Gossip operator's wallet, used to sign messages
+/// A Graphcast agent representation
+pub struct GraphcastAgent {
+    /// Graphcast operator's wallet, used to sign messages
     pub wallet: LocalWallet,
     eth_node: String,
     provider: Provider<Http>,
     node_handle: WakuNodeHandle<Running>,
-    /// gossip agent waku instance's pubsub topics
+    /// Graphcast agent waku instance's pubsub topic
     pub pubsub_topic: WakuPubSubTopic,
-    /// gossip agent waku instance's content topics
+    /// Graphcast agent waku instance's content topics
     pub content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
@@ -61,10 +61,10 @@ pub struct GossipAgent {
     pub network_subgraph: String,
 }
 
-impl GossipAgent {
-    /// Construct a new gossip agent
+impl GraphcastAgent {
+    /// Construct a new Graphcast agent
     ///
-    /// Inputs are utilized to construct different components of the Gossip agent:
+    /// Inputs are utilized to construct different components of the Graphcast agent:
     /// private_key resolves into ethereum wallet and indexer identity.
     /// radio_name is used as part of the content topic for the radio application
     /// subtopic optionally provided and used as the content topic identifier of the message subject,
@@ -78,7 +78,7 @@ impl GossipAgent {
     /// # Examples
     ///
     /// ```ignore
-    /// let agent = GossipAgent::new(
+    /// let agent = GraphcastAgent::new(
     ///     String::from("1231231231231231231231231231231231231231231231231231231231231230"),
     ///     String::from("https://goerli.infura.io/v3/api_key"),
     ///     "test_topic",
@@ -103,7 +103,7 @@ impl GossipAgent {
         waku_host: Option<String>,
         waku_port: Option<String>,
         waku_addr: Option<String>,
-    ) -> Result<GossipAgent, GossipAgentError> {
+    ) -> Result<GraphcastAgent, GraphcastAgentError> {
         let wallet = private_key.parse::<LocalWallet>()?;
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone())?;
         let pubsub_topic: WakuPubSubTopic =
@@ -124,7 +124,7 @@ impl GossipAgent {
             advertised_addr,
             node_key,
         )
-        .map_err(GossipAgentError::NodeHandleError)?;
+        .map_err(GraphcastAgentError::NodeHandleError)?;
 
         // Filter subscriptions only if provided subtopic
         let content_topics = if let Some(topics) = subtopics {
@@ -136,7 +136,7 @@ impl GossipAgent {
             [].to_vec()
         };
 
-        Ok(GossipAgent {
+        Ok(GraphcastAgent {
             wallet,
             eth_node,
             provider,
@@ -191,7 +191,7 @@ impl GossipAgent {
     >(
         &'static self,
         radio_handler_mutex: Arc<Mutex<F>>,
-    ) -> Result<(), GossipAgentError> {
+    ) -> Result<(), GraphcastAgentError> {
         let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone())?;
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().expect("Could not create Tokio runtime");
@@ -229,9 +229,9 @@ impl GossipAgent {
             self.provider
                 .get_block(block_number)
                 .await?
-                .ok_or(GossipAgentError::EmptyResponseError)?
+                .ok_or(GraphcastAgentError::EmptyResponseError)?
                 .hash
-                .ok_or(GossipAgentError::UnexpectedResponseError)?
+                .ok_or(GraphcastAgentError::UnexpectedResponseError)?
         );
         let content_topic = self.match_content_topic(identifier.clone())?;
 
@@ -253,7 +253,7 @@ impl GossipAgent {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum GossipAgentError {
+pub enum GraphcastAgentError {
     #[error("Query response is empty")]
     EmptyResponseError,
     #[error("Unexpected response format")]
