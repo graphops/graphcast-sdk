@@ -1,11 +1,12 @@
-type GossipOperatorOf {
+input Indexer_filter {
   id: String!
 }
 
-type GraphAccount {
-  gossipOperatorOf: GossipOperatorOf
+type Indexer {
+  id: String!
+  operator: String!
 }
 
 type Query {
-    graphAccount(id: String!): GraphAccount
+    indexers(filter: Indexer_filter): [Indexer!]!
 }

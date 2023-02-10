@@ -12,7 +12,8 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
-use tracing::debug;
+
+use tracing::{debug, info};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
@@ -184,6 +185,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         registry_subgraph: &str,
         network_subgraph: &str,
     ) -> Result<&Self, anyhow::Error> {
+        info!("okk where are youuuuuyu");
         let indexer_address = query_registry_indexer(
             registry_subgraph.to_string(),
             self.recover_sender_address()?,
@@ -358,7 +360,7 @@ mod tests {
     #[tokio::test]
     async fn test_standard_message() {
         let registry_subgraph =
-            "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+            "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry";
         let network_subgraph = "https://gateway.testnet.thegraph.com/network";
 
         let hash: String = "Qmtest".to_string();

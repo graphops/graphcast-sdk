@@ -38,7 +38,7 @@ pub mod waku_handling;
 pub const MSG_REPLAY_LIMIT: i64 = 3_600_000;
 /// A constant defining the goerli registry subgraph endpoint.
 pub const REGISTRY_SUBGRAPH: &str =
-    "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+    "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry";
 /// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
 
@@ -82,7 +82,7 @@ impl GraphcastAgent {
     ///     String::from("1231231231231231231231231231231231231231231231231231231231231230"),
     ///     String::from("https://goerli.infura.io/v3/api_key"),
     ///     "test_topic",
-    ///     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
+    ///     "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry",
     ///     "https://gateway.testnet.thegraph.com/network",
     ///     Some(["some_subgraph_hash"].to_vec()),
     ///     Some(String::from("0.0.0.0")),

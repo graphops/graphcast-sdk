@@ -58,7 +58,7 @@ async fn main() {
 
     /// A constant defining the goerli registry subgraph endpoint.
     pub const REGISTRY_SUBGRAPH: &str =
-        "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+        "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry";
 
     /// A constant defining the goerli network subgraph endpoint.
     pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
