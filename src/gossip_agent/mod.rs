@@ -9,10 +9,20 @@
 //! Gossip agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
+use autometrics::{autometrics, encode_global_metrics, global_metrics_exporter};
+use axum::http::StatusCode;
+
+use axum::routing::{get};
+use axum::Router;
 use ethers::providers::{Http, Middleware, Provider, ProviderError};
 use ethers::signers::{LocalWallet, WalletError};
+use once_cell::sync::Lazy;
+use opentelemetry::{global, metrics::Counter, Context};
 use prost::Message;
 use std::collections::HashMap;
+use std::io::ErrorKind;
+use std::net::SocketAddr;
+use std::process::{Stdio, Command};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
@@ -41,6 +51,37 @@ pub const REGISTRY_SUBGRAPH: &str =
     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
 /// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
+
+/// This handler serializes the metrics into a string for Prometheus to scrape
+pub async fn get_metrics() -> (StatusCode, String) {
+    match encode_global_metrics() {
+        Ok(metrics) => (StatusCode::OK, metrics),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{err:?}")),
+    }
+}
+
+/// Run the API server as well as Prometheus and a traffic generator
+async fn handle_serve() {
+    // Set up the exporter to collect metrics
+    let _exporter = global_metrics_exporter();
+
+    let app = Router::new().route("/metrics", get(get_metrics));
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let server = axum::Server::bind(&addr);
+
+    server
+        .serve(app.into_make_service())
+        .await
+        .expect("Error starting example API server");
+}
+
+// Increment received (and validated) messages counter
+static COUNTER: Lazy<Counter<u64>> = Lazy::new(|| {
+    global::meter("")
+        .u64_counter("custom_opentelemetry_counter")
+        .init()
+});
 
 /// A gossip agent representation
 pub struct GossipAgent {
@@ -138,6 +179,29 @@ impl GossipAgent {
             [].to_vec()
         };
 
+        const PROMETHEUS_CONFIG_PATH: &str = "./prometheus.yml";
+
+        match Command::new("prometheus")
+        .args(["--config.file", PROMETHEUS_CONFIG_PATH])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            panic!("Failed to start prometheus (do you have the prometheus binary installed and in your path?)");
+        }
+        Err(err) => {
+            panic!("Failed to start prometheus: {err}");
+        }
+        Ok(_) => {
+            eprintln!(
+                "Running Prometheus on port 9090 (using config file: {PROMETHEUS_CONFIG_PATH})\n"
+            );
+        }
+    }
+
+        tokio::spawn(handle_serve());
+
         Ok(GossipAgent {
             wallet,
             eth_node,
@@ -184,6 +248,7 @@ impl GossipAgent {
     }
 
     /// Establish custom handler for incoming Waku messages
+    #[autometrics]
     pub fn register_handler<
         F: FnMut(Result<GraphcastMessage<T>, anyhow::Error>)
             + std::marker::Sync
@@ -211,6 +276,11 @@ impl GossipAgent {
                 let mut radio_handler = radio_handler_mutex
                     .lock()
                     .expect("Could not get Radio handler lock");
+
+                if msg.is_ok() {
+                    COUNTER.add(&Context::current(), 1, &[]);
+                }
+
                 radio_handler(msg);
             });
         };
