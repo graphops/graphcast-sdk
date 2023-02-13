@@ -12,16 +12,15 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
-
 use tracing::debug;
-use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
+use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
     graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
     NoncesMap,
 };
 
-use super::MSG_REPLAY_LIMIT;
+use super::{waku_handling::WakuHandlingError, MSG_REPLAY_LIMIT};
 
 /// Prepare sender:nonce to update
 fn prepare_nonces(
@@ -130,7 +129,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
     pub fn send_to_waku(
         &self,
         node_handle: &WakuNodeHandle<Running>,
-        pub_sub_topic: Option<WakuPubSubTopic>,
+        pubsub_topic: WakuPubSubTopic,
         content_topic: &WakuContentTopic,
     ) -> Result<String, anyhow::Error> {
         let mut buff = Vec::new();
@@ -143,10 +142,40 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             Utc::now().timestamp() as usize,
         );
 
-        match node_handle.relay_publish_message(&waku_message, pub_sub_topic, None) {
-            Ok(message_id) => Ok(message_id),
-            Err(e) => Err(anyhow!(e)),
-        }
+        let sent_result = node_handle
+            .peers()
+            .map_err(WakuHandlingError::UnableToRetrievePeers)?
+            .iter()
+            .filter(|&peer| {
+                // Filter out local peer_id to prevent self dial
+                peer.peer_id().as_str()
+                    != node_handle
+                        .peer_id()
+                        .expect("Failed to find local node's peer id")
+                        .as_str()
+            })
+            .map(|peer: &WakuPeerData| {
+                // Filter subscribe to all other peers
+                match node_handle.lightpush_publish(
+                    &waku_message,
+                    Some(pubsub_topic.clone()),
+                    peer.peer_id().to_string(),
+                    None,
+                ) {
+                    Ok(msg_id) => format!(
+                        "Successfully sent message {:#?} to peer {:#?}\n",
+                        msg_id,
+                        peer.peer_id().to_string()
+                    ),
+                    Err(e) => format!(
+                        "Failed to send message to peer {:#?}: {}\n",
+                        peer.peer_id().to_string(),
+                        e
+                    ),
+                }
+            })
+            .collect();
+        Ok(sent_result)
     }
 
     /// Check message from valid sender: resolve indexer address and self stake

@@ -49,8 +49,8 @@ pub struct GossipAgent {
     eth_node: String,
     provider: Provider<Http>,
     node_handle: WakuNodeHandle<Running>,
-    /// gossip agent waku instance's pubsub topic
-    pub pubsub_topic: Option<WakuPubSubTopic>,
+    /// gossip agent waku instance's pubsub topics
+    pub pubsub_topic: WakuPubSubTopic,
     /// gossip agent waku instance's content topics
     pub content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
@@ -106,7 +106,7 @@ impl GossipAgent {
     ) -> Result<GossipAgent, GossipAgentError> {
         let wallet = private_key.parse::<LocalWallet>()?;
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone())?;
-        let pubsub_topic: Option<WakuPubSubTopic> =
+        let pubsub_topic: WakuPubSubTopic =
             pubsub_topic("0", &provider.get_chainid().await?.to_string());
 
         //Should we allow the setting of waku node host and port?
@@ -129,10 +129,8 @@ impl GossipAgent {
         // Filter subscriptions only if provided subtopic
         let content_topics = if let Some(topics) = subtopics {
             let content_topics = build_content_topics(radio_name, 0, &topics);
-            let res = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
+            let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
                 .expect("Could not connect and subscribe to the subtopics");
-
-            info!("Subtopic subscription: {:#?}", res);
             content_topics
         } else {
             [].to_vec()
@@ -203,7 +201,6 @@ impl GossipAgent {
                     &provider,
                     signal,
                     &self.nonces,
-                    &self.content_topics,
                     &self.registry_subgraph,
                     &self.network_subgraph,
                 )
