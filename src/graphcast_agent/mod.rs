@@ -1,7 +1,7 @@
 //! Type for representing a Graphcast agent for interacting with Graphcast.
 //!
 //! A "GraphcastAgent" has access to
-//! - Graphcast operator wallet: resolve Graph Account identity
+//! - GraphcastID wallet: resolve Graph Account identity
 //! - Ethereum node provider endpoint: provider access
 //! - Waku Node Instance: interact with the Graphcast network
 //! - Pubsub and Content filter topics: interaction configurations
@@ -38,13 +38,13 @@ pub mod waku_handling;
 pub const MSG_REPLAY_LIMIT: i64 = 3_600_000;
 /// A constant defining the goerli registry subgraph endpoint.
 pub const REGISTRY_SUBGRAPH: &str =
-    "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry";
+    "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
 /// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
 
 /// A Graphcast agent representation
 pub struct GraphcastAgent {
-    /// Graphcast operator's wallet, used to sign messages
+    /// GraphcastID's wallet, used to sign messages
     pub wallet: LocalWallet,
     eth_node: String,
     provider: Provider<Http>,
@@ -82,7 +82,7 @@ impl GraphcastAgent {
     ///     String::from("1231231231231231231231231231231231231231231231231231231231231230"),
     ///     String::from("https://goerli.infura.io/v3/api_key"),
     ///     "test_topic",
-    ///     "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry",
+    ///     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
     ///     "https://gateway.testnet.thegraph.com/network",
     ///     Some(["some_subgraph_hash"].to_vec()),
     ///     Some(String::from("0.0.0.0")),

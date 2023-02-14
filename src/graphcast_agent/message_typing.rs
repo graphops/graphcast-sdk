@@ -360,7 +360,7 @@ mod tests {
     #[tokio::test]
     async fn test_standard_message() {
         let registry_subgraph =
-            "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry";
+            "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
         let network_subgraph = "https://gateway.testnet.thegraph.com/network";
 
         let hash: String = "Qmtest".to_string();

@@ -69,8 +69,8 @@ pub fn config_env_var(name: &str) -> Result<String, String> {
     env::var(name).map_err(|e| format!("{name}: {e}"))
 }
 
-/// Get the operator addresss associated with a given Indexer address
-pub fn operator_address(wallet: &Wallet<SigningKey>) -> String {
+/// Get the graphcastID addresss associated with a given Indexer address
+pub fn graphcast_id_address(wallet: &Wallet<SigningKey>) -> String {
     debug!("{}", format!("Wallet address: {:?}", wallet.address()));
     format!("{:?}", wallet.address())
 }

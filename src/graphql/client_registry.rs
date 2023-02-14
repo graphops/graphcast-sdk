@@ -12,7 +12,7 @@ use serde_derive::{Deserialize, Serialize};
 pub struct Indexers;
 
 /// Query registry subgraph endpoint for resolving Graphcast ID and indexer address
-pub async fn perform_operator_indexer_query(
+pub async fn perform_graphcast_id_indexer_query(
     registry_subgraph_endpoint: String,
     variables: indexers::Variables,
 ) -> Result<reqwest::Response, reqwest::Error> {
@@ -29,13 +29,13 @@ pub async fn perform_operator_indexer_query(
 /// Construct GraphQL variables and parse result for indexer address
 pub async fn query_registry_indexer(
     registry_subgraph_endpoint: String,
-    operator_address: String,
+    graphcast_id_address: String,
 ) -> Result<String, anyhow::Error> {
     let variables: indexers::Variables = indexers::Variables {
-        address: operator_address,
+        address: graphcast_id_address,
     };
     let queried_result =
-        perform_operator_indexer_query(registry_subgraph_endpoint, variables).await?;
+        perform_graphcast_id_indexer_query(registry_subgraph_endpoint, variables).await?;
     let response_body: Response<indexers::ResponseData> = queried_result.json().await?;
     if let Some(data) = response_body.data {
         data.indexers

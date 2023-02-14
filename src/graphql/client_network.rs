@@ -85,7 +85,7 @@ pub async fn query_network_subgraph(
     })
 }
 
-/// Network tracks the operator's indexer and general Graph network data
+/// Network tracks the GraphcastID's indexer and general Graph network data
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Network {
     pub indexer: Option<Indexer>,

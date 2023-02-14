@@ -4,7 +4,7 @@ input Indexer_filter {
 
 type Indexer {
   id: String!
-  operator: String!
+  graphcastID: String!
 }
 
 type Query {

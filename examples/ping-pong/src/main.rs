@@ -42,9 +42,9 @@ async fn main() {
     let waku_host = env::var("WAKU_HOST").ok();
     let waku_port = env::var("WAKU_PORT").ok();
     let waku_node_key = env::var("WAKU_NODE_KEY").ok();
-    // The private key for you Graphcast operator address
+    // The private key for you GraphcastID's address
     let private_key = env::var("PRIVATE_KEY").expect(
-        "No operator private key provided. Please specify a PRIVATE_KEY environment variable.",
+        "No GraphcastID's private key provided. Please specify a PRIVATE_KEY environment variable.",
     );
 
     // An Ethereum node url in order to read on-chain data using a provider
@@ -58,7 +58,7 @@ async fn main() {
 
     /// A constant defining the goerli registry subgraph endpoint.
     pub const REGISTRY_SUBGRAPH: &str =
-        "https://api.thegraph.com/subgraphs/name/juanmardefago/graphcast-registry";
+        "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
 
     /// A constant defining the goerli network subgraph endpoint.
     pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";

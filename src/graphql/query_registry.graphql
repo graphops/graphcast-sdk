@@ -1,6 +1,6 @@
 query Indexers($address: String!) {
-  indexers(where: {operator: $address}) {
-    operator
+  indexers(where: {graphcastID: $address}) {
+    graphcastID
     id
   }
 }
