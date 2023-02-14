@@ -1,6 +1,7 @@
 # Graphcast SDK
 
 [![Docs](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://docs.graphops.xyz/graphcast/intro)
+[![crates.io](https://img.shields.io/crates/v/graphcast-sdk.svg)](https://crates.io/crates/graphcast-sdk)
 
 ## Introduction
 
@@ -10,7 +11,7 @@ To see the full idea behind Graphcast, you can check out the [GRC](https://forum
 
 ## Upgrading
 
-Updates to the SDK will be merged into the `main` branch once their respective PR has been approved. The SDK will soon be published on [crates.io](https://crates.io/).
+Updates to the SDK will be merged into the `main` branch once their respective PR has been approved.
 
 ## Testing
 

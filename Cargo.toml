@@ -1,12 +1,12 @@
 [package]
 name = "graphcast-sdk"
-version = "0.0.1"
+version = "0.0.4"
 edition = "2021"
 authors = ["GraphOps (axiomatic-aardvark, hopeyen)"]
 description="SDK to build Graphcast Radios"
 license="Apache-2.0"
 repository="https://github.com/graphops/graphcast-sdk"
-keywords=["graphprotocol", "gossip network", "sdk"]
+keywords=["graphprotocol", "gossip-network", "sdk", "waku", "p2p"]
 categories=["network-programming", "web-programming::http-client"]
 
 [dependencies]
