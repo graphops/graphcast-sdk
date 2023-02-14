@@ -42,9 +42,9 @@ async fn main() {
     let waku_host = env::var("WAKU_HOST").ok();
     let waku_port = env::var("WAKU_PORT").ok();
     let waku_node_key = env::var("WAKU_NODE_KEY").ok();
-    // The private key for you Graphcast operator address
+    // The private key for you GraphcastID's address
     let private_key = env::var("PRIVATE_KEY").expect(
-        "No operator private key provided. Please specify a PRIVATE_KEY environment variable.",
+        "No GraphcastID's private key provided. Please specify a PRIVATE_KEY environment variable.",
     );
 
     // An Ethereum node url in order to read on-chain data using a provider

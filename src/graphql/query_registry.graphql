@@ -1,7 +1,6 @@
-query GraphAccount($address: String!) {
-  graphAccount(id: $address) {
-    gossipOperatorOf {
-      id
-    }
+query Indexers($address: String!) {
+  indexers(where: {graphcastID: $address}) {
+    graphcastID
+    id
   }
 }

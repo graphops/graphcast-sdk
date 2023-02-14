@@ -12,7 +12,8 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
-use tracing::debug;
+
+use tracing::{debug, info};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
@@ -184,6 +185,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         registry_subgraph: &str,
         network_subgraph: &str,
     ) -> Result<&Self, anyhow::Error> {
+        info!("okk where are youuuuuyu");
         let indexer_address = query_registry_indexer(
             registry_subgraph.to_string(),
             self.recover_sender_address()?,

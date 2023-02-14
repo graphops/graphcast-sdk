@@ -1,7 +1,7 @@
 //! Type for representing a Graphcast agent for interacting with Graphcast.
 //!
 //! A "GraphcastAgent" has access to
-//! - Graphcast operator wallet: resolve Graph Account identity
+//! - GraphcastID wallet: resolve Graph Account identity
 //! - Ethereum node provider endpoint: provider access
 //! - Waku Node Instance: interact with the Graphcast network
 //! - Pubsub and Content filter topics: interaction configurations
@@ -44,7 +44,7 @@ pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network
 
 /// A Graphcast agent representation
 pub struct GraphcastAgent {
-    /// Graphcast operator's wallet, used to sign messages
+    /// GraphcastID's wallet, used to sign messages
     pub wallet: LocalWallet,
     eth_node: String,
     provider: Provider<Http>,
