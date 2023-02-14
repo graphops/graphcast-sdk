@@ -4,7 +4,7 @@ use ethers::{
     types::U64,
 };
 use graphcast_sdk::{
-    gossip_agent::{message_typing::GraphcastMessage, GossipAgent},
+    graphcast_agent::{message_typing::GraphcastMessage, GraphcastAgent},
     init_tracing, read_boot_node_addresses,
 };
 use once_cell::sync::OnceCell;
@@ -34,10 +34,10 @@ async fn main() {
     pub static MESSAGES: OnceCell<Arc<Mutex<Vec<GraphcastMessage<RadioPayloadMessage>>>>> =
         OnceCell::new();
 
-    /// The Gossip Agent instance must be a global static variable (for the time being).
+    /// The Graphcast Agent instance must be a global static variable (for the time being).
     /// This is because the Radio handler requires a static immutable context and
-    /// the handler itself is being passed into the Gossip Agent, so it needs to be static as well.
-    pub static GOSSIP_AGENT: OnceCell<GossipAgent> = OnceCell::new();
+    /// the handler itself is being passed into the Graphcast Agent, so it needs to be static as well.
+    pub static GRAPHCAST_AGENT: OnceCell<GraphcastAgent> = OnceCell::new();
 
     let waku_host = env::var("WAKU_HOST").ok();
     let waku_port = env::var("WAKU_PORT").ok();
@@ -68,7 +68,7 @@ async fn main() {
 
     let boot_node_addresses = read_boot_node_addresses();
 
-    let gossip_agent = GossipAgent::new(
+    let graphcast_agent = GraphcastAgent::new(
         // private_key resolves into ethereum wallet and indexer identity.
         private_key,
         eth_node,
@@ -86,19 +86,19 @@ async fn main() {
         None,
     )
     .await
-    .expect("Could not create gossip agent");
+    .expect("Could not create Graphcast agent");
 
-    // A one-off setter to load the Gossip Agent into the global static variable
-    _ = GOSSIP_AGENT.set(gossip_agent);
+    // A one-off setter to load the Graphcast Agent into the global static variable
+    _ = GRAPHCAST_AGENT.set(graphcast_agent);
 
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
 
     // Helper function to reuse message sending code
     async fn send_message(payload: Option<RadioPayloadMessage>, block_number: u64) {
-        match GOSSIP_AGENT
+        match GRAPHCAST_AGENT
             .get()
-            .expect("Could not retrieve gossip agent")
+            .expect("Could not retrieve Graphcast agent")
             .send_message(
                 // The identifier can be any string that suits your Radio logic
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
@@ -131,9 +131,9 @@ async fn main() {
             }
         };
 
-    GOSSIP_AGENT
+    GRAPHCAST_AGENT
         .get()
-        .expect("Could not retrieve gossip agent")
+        .expect("Could not retrieve Graphcast agent")
         .register_handler(Arc::new(Mutex::new(radio_handler)))
         .expect("Could not register handler");
 

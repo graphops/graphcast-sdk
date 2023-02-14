@@ -11,7 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 )]
 pub struct GraphAccount;
 
-/// Query registry subgraph endpoint for resolving gossip operator and indexer address
+/// Query registry subgraph endpoint for resolving Graphcast ID and indexer address
 pub async fn perform_operator_indexer_query(
     registry_subgraph_endpoint: String,
     variables: graph_account::Variables,

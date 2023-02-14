@@ -1,6 +1,6 @@
 //! # Graphcast
 //!
-//! `graphcast` is a development kit to build The Graph network
+//! `graphcast-sdk` is a development kit to build The Graph network
 //! gossip p2p messaging apps on top of the Waku Relay network.
 //!
 //! This library is a work in progress, in particular
@@ -29,7 +29,7 @@ use tracing::{debug, subscriber::SetGlobalDefaultError, Level};
 use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 
-pub mod gossip_agent;
+pub mod graphcast_agent;
 pub mod graphql;
 pub mod slack_bot;
 
@@ -120,7 +120,7 @@ pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gossip_agent::waku_handling::build_content_topics;
+    use crate::graphcast_agent::waku_handling::build_content_topics;
 
     #[test]
     fn test_build_content_topics() {

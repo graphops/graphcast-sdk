@@ -1,8 +1,8 @@
 use crate::{
     app_name, cf_nameserver, discovery_url,
-    gossip_agent::{
+    graphcast_agent::{
         message_typing::{self, GraphcastMessage},
-        GossipAgentError,
+        GraphcastAgentError,
     },
     NoncesMap,
 };
@@ -313,9 +313,9 @@ pub async fn handle_signal<
                         provider
                             .get_block(graphcast_message.block_number)
                             .await?
-                            .ok_or(GossipAgentError::EmptyResponseError)?
+                            .ok_or(GraphcastAgentError::EmptyResponseError)?
                             .hash
-                            .ok_or(GossipAgentError::UnexpectedResponseError)?
+                            .ok_or(GraphcastAgentError::UnexpectedResponseError)?
                     );
                     match check_message_validity(
                         graphcast_message,
@@ -350,7 +350,7 @@ pub async fn handle_signal<
 }
 
 /// Check validity of the message:
-/// Sender check verifies sender's on-chain identity with gossip registry
+/// Sender check verifies sender's on-chain identity with Graphcast registry
 /// Time check verifies that message was from within the acceptable timestamp
 /// Block hash check verifies sender's access to valid Ethereum node provider and blocks
 /// Nonce check ensures the ordering of the messages and avoids past messages

@@ -204,7 +204,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 
     /// Check timestamp: prevent past message replay
     pub fn valid_time(&self) -> Result<&Self, anyhow::Error> {
-        //Can store for measuring overall gossip message latency
+        //Can store for measuring overall Graphcast message latency
         let message_age = Utc::now().timestamp() - self.nonce;
         // 0 allow instant atomic messaging, use 1 to exclude them
         if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
