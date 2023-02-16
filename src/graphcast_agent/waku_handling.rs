@@ -144,6 +144,10 @@ fn node_config(
         discv5: Some(false),
         discv5_bootstrap_nodes: [].to_vec(),
         discv5_udp_port: None,
+        store: None,
+        database_url: None,
+        store_retention_max_messages: None,
+        store_retention_max_seconds: None,
     })
 }
 
@@ -192,7 +196,7 @@ fn connect_multiaddresses(
             let peer_id = node_handle
                 .add_peer(address, protocol_id)
                 .unwrap_or_else(|_| String::from("Could not add peer"));
-            node_handle.connect_peer_with_id(peer_id, None).is_ok()
+            node_handle.connect_peer_with_id(&peer_id, None).is_ok()
         });
     warn!(
         "Connected to peers: {:#?}\nFailed to connect to: {:#?}",
@@ -389,7 +393,7 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), anyhow
         .filter(|&peer| (peer.peer_id().as_str() != local_id) & (!peer.connected()))
         .map(|peer: &WakuPeerData| {
             debug!("Disconnected peer data: {:#?}", &peer);
-            node_handle.connect_peer_with_id(peer.peer_id().to_string(), None)
+            node_handle.connect_peer_with_id(peer.peer_id(), None)
         })
         .for_each(|res| {
             if let Err(x) = res {
