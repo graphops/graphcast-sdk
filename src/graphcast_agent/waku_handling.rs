@@ -1,13 +1,9 @@
 use crate::{
     app_name, cf_nameserver, discovery_url,
-    graphcast_agent::{
-        message_typing::{self, GraphcastMessage},
-        GraphcastAgentError,
-    },
+    graphcast_agent::message_typing::{self, GraphcastMessage},
     NoncesMap,
 };
 use colored::*;
-use ethers::providers::{Http, Middleware, Provider};
 use prost::Message;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{net::IpAddr, str::FromStr};
@@ -297,11 +293,11 @@ pub fn setup_node_handle(
 pub async fn handle_signal<
     T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
 >(
-    provider: &Provider<Http>,
     signal: Signal,
     nonces: &Arc<Mutex<NoncesMap>>,
     registry_subgraph: &str,
     network_subgraph: &str,
+    graph_node_endpoint: &str,
 ) -> Result<GraphcastMessage<T>, anyhow::Error> {
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -314,24 +310,14 @@ pub async fn handle_signal<
                         "New message received! Message id: ".bold().cyan(),
                         event.message_id(),
                     );
-
                     debug!("{}{:?}", "Message: ".cyan(), graphcast_message);
 
-                    let block_hash: String = format!(
-                        "{:#x}",
-                        provider
-                            .get_block(graphcast_message.block_number)
-                            .await?
-                            .ok_or(GraphcastAgentError::EmptyResponseError)?
-                            .hash
-                            .ok_or(GraphcastAgentError::UnexpectedResponseError)?
-                    );
                     match check_message_validity(
                         graphcast_message,
-                        block_hash,
                         nonces,
                         registry_subgraph,
                         network_subgraph,
+                        graph_node_endpoint,
                     )
                     .await
                     {
@@ -367,16 +353,17 @@ pub async fn check_message_validity<
     T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
 >(
     graphcast_message: GraphcastMessage<T>,
-    block_hash: String,
     nonces: &Arc<Mutex<NoncesMap>>,
     registry_subgraph: &str,
     network_subgraph: &str,
+    graph_node_endpoint: &str,
 ) -> Result<GraphcastMessage<T>, anyhow::Error> {
     graphcast_message
         .valid_sender(registry_subgraph, network_subgraph)
         .await?
         .valid_time()?
-        .valid_hash(block_hash)?
+        .valid_hash(graph_node_endpoint)
+        .await?
         .valid_nonce(nonces)?;
 
     info!("{}", "Valid message!".bold().green());

@@ -32,6 +32,6 @@ type Query {
   ): String
   blockHashFromNumber(
     network: String!
-    blockNumber: Int!
+    blockNumber: UInt!
   ): String
 }

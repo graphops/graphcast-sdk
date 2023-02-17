@@ -5,7 +5,7 @@ use ethers::{
 };
 use graphcast_sdk::{
     graphcast_agent::{message_typing::GraphcastMessage, GraphcastAgent},
-    init_tracing, read_boot_node_addresses, BlockPointer,
+    init_tracing, read_boot_node_addresses, NetworkName,
 };
 use once_cell::sync::OnceCell;
 use std::env;
@@ -50,6 +50,14 @@ async fn main() {
     // An Ethereum node url in order to read on-chain data using a provider
     let eth_node = env::var("ETH_NODE")
         .expect("No ETH URL provided. Please specify an ETH_NODE environment variable.");
+    // Graph node status endpoint
+    let graph_node_endpoint = env::var("GRAPH_NODE_STATUS_ENDPOINT")
+        .expect("No GRAPH_NODE_STATUS_ENDPOINT provided. Please specify an endpoint.");
+    // Define the pubsub namespace of Graphcast network
+    let graphcast_network = env::var("GRAPHCAST_NETWORK")
+        .expect("No GRAPHCAST_NETWORK provided. Please specify 1 for mainnet, 5 for goerli.");
+
+    // Provider is only used to generate block number for Ping-pong
     let provider: Provider<Http> =
         Provider::<Http>::try_from(eth_node.clone()).expect("Could not create Ethereum provider");
 
@@ -71,13 +79,13 @@ async fn main() {
     let graphcast_agent = GraphcastAgent::new(
         // private_key resolves into ethereum wallet and indexer identity.
         private_key,
-        eth_node,
         // radio_name is used as part of the content topic for the radio application
         radio_name,
         REGISTRY_SUBGRAPH,
         NETWORK_SUBGRAPH,
+        &graph_node_endpoint,
         boot_node_addresses,
-        Some("testnet"),
+        Some(&graphcast_network),
         Some(subtopics),
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
         // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
@@ -96,7 +104,11 @@ async fn main() {
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
 
     // Helper function to reuse message sending code
-    async fn send_message(payload: Option<RadioPayloadMessage>, block: BlockPointer) {
+    async fn send_message(
+        payload: Option<RadioPayloadMessage>,
+        network: NetworkName,
+        block_number: u64,
+    ) {
         match GRAPHCAST_AGENT
             .get()
             .expect("Could not retrieve Graphcast agent")
@@ -104,7 +116,8 @@ async fn main() {
                 // The identifier can be any string that suits your Radio logic
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
                 "ping-pong-content-topic".to_string(),
-                block,
+                network,
+                block_number,
                 payload,
             )
             .await
@@ -138,6 +151,13 @@ async fn main() {
         .register_handler(Arc::new(Mutex::new(radio_handler)))
         .expect("Could not register handler");
 
+    // Limit Ping-pong radio for testing purposes, update after nwaku nodes update their namespace
+    let network = if *"1" == graphcast_network {
+        NetworkName::from_string("mainnet")
+    } else {
+        NetworkName::from_string("goerli")
+    };
+
     loop {
         let block_number = match provider.get_block_number().await {
             Ok(num) => U64::as_u64(&num),
@@ -147,30 +167,12 @@ async fn main() {
                 continue;
             }
         };
-        let block_hash = match GRAPHCAST_AGENT
-            .get()
-            .expect("Could not retrive Graphcast agent")
-            .get_block_hash(block_number)
-            .await
-        {
-            Ok(hash) => hash,
-            Err(e) => {
-                warn!("Could not get block hash from provider. Context: {e}");
-                sleep(Duration::from_secs(1));
-                continue;
-            }
-        };
-
         debug!("🔗 Block number: {}", block_number);
 
         if block_number & 2 == 0 {
             // If block number is even, send ping message
             let msg = RadioPayloadMessage::new("table".to_string(), "Ping222".to_string());
-            send_message(
-                Some(msg),
-                BlockPointer::new(block_number, block_hash.clone()),
-            )
-            .await;
+            send_message(Some(msg), network, block_number).await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(
@@ -188,11 +190,7 @@ async fn main() {
                 if *payload.content == *"Ping" {
                     let replay_msg =
                         RadioPayloadMessage::new("table".to_string(), "Pong".to_string());
-                    send_message(
-                        Some(replay_msg),
-                        BlockPointer::new(block_number, block_hash.clone()),
-                    )
-                    .await;
+                    send_message(Some(replay_msg), network, block_number).await;
                 };
             }
 

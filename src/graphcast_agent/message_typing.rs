@@ -17,8 +17,11 @@ use tracing::debug;
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
-    graphql::{client_network::query_network_subgraph, client_registry::query_registry_indexer},
-    NoncesMap,
+    graphql::{
+        client_graph_node::query_graph_node_network_block_hash,
+        client_network::query_network_subgraph, client_registry::query_registry_indexer,
+    },
+    NetworkName, NoncesMap,
 };
 
 use super::{waku_handling::WakuHandlingError, MSG_REPLAY_LIMIT};
@@ -61,14 +64,17 @@ where
     /// nonce cached to check against the next incoming message
     #[prost(int64, tag = "3")]
     pub nonce: i64,
+    /// blockchain relevant to the message
+    #[prost(string, tag = "4")]
+    pub network: String,
     /// block relevant to the message
-    #[prost(uint64, tag = "4")]
+    #[prost(uint64, tag = "5")]
     pub block_number: u64,
     /// block hash generated from the block number
-    #[prost(string, tag = "5")]
+    #[prost(string, tag = "6")]
     pub block_hash: String,
     /// signature over radio payload
-    #[prost(string, tag = "6")]
+    #[prost(string, tag = "7")]
     pub signature: String,
 }
 
@@ -80,7 +86,8 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         identifier: String,
         payload: Option<T>,
         nonce: i64,
-        block_number: i64,
+        network: NetworkName,
+        block_number: u64,
         block_hash: String,
         signature: String,
     ) -> Result<Self, BuildMessageError> {
@@ -89,6 +96,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                 identifier,
                 payload,
                 nonce,
+                network: network.to_string(),
                 block_number,
                 block_hash,
                 signature,
@@ -105,10 +113,13 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         wallet: &Wallet<SigningKey>,
         identifier: String,
         payload: Option<T>,
-        block_number: i64,
+        network: NetworkName,
+        block_number: u64,
         block_hash: String,
     ) -> Result<Self, BuildMessageError> {
         debug!("\n{}", "Constructing message".green());
+
+        //TODO: block number and hash can be generated here???
 
         let payload = payload.as_ref().ok_or(BuildMessageError::Payload)?;
         let sig = wallet
@@ -120,6 +131,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             identifier.clone(),
             Some(payload.clone()),
             Utc::now().timestamp(),
+            network,
             block_number,
             block_hash.to_string(),
             sig.to_string(),
@@ -219,8 +231,23 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         }
     }
 
-    /// Check timestamp: prevent messages with incorrect provider
-    pub fn valid_hash(&self, block_hash: String) -> Result<&Self, anyhow::Error> {
+    /// Check timestamp: prevent messages with incorrect graph node's block provider
+    pub async fn valid_hash(&self, graph_node_endpoint: &str) -> Result<&Self, anyhow::Error> {
+        let block_hash: String = query_graph_node_network_block_hash(
+            graph_node_endpoint.to_string(),
+            self.network.clone(),
+            self.block_number,
+        )
+        .await?;
+
+        debug!(
+            "{} {}: {} -> {:?}",
+            "Queried block hash from graph node on".cyan(),
+            self.network.clone(),
+            self.block_number,
+            block_hash
+        );
+
         if self.block_hash == block_hash {
             Ok(self)
         } else {
@@ -232,7 +259,6 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         }
     }
 
-    //TODO: update to Result<>
     /// Recover sender address from Graphcast message radio payload
     pub fn recover_sender_address(&self) -> Result<String, anyhow::Error> {
         match Signature::from_str(&self.signature).and_then(|sig| {
@@ -361,17 +387,25 @@ mod tests {
         let registry_subgraph =
             "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
         let network_subgraph = "https://gateway.testnet.thegraph.com/network";
+        let network = NetworkName::from_string("goerli");
 
         let hash: String = "Qmtest".to_string();
         let content: String = "0x0000".to_string();
         let payload: RadioPayloadMessage = RadioPayloadMessage::new(hash.clone(), content.clone());
-        let block_number: i64 = 0;
+        let block_number: u64 = 0;
         let block_hash: String = "0xblahh".to_string();
 
         let wallet = dummy_wallet();
-        let msg = GraphcastMessage::build(&wallet, hash, Some(payload), block_number, block_hash)
-            .await
-            .expect("Could not build message");
+        let msg = GraphcastMessage::build(
+            &wallet,
+            hash,
+            Some(payload),
+            network,
+            block_number,
+            block_hash,
+        )
+        .await
+        .expect("Could not build message");
 
         assert_eq!(msg.block_number, 0);
         assert!(msg
@@ -379,7 +413,8 @@ mod tests {
             .await
             .is_err());
         assert!(msg.valid_time().is_ok());
-        assert!(msg.valid_hash("weeelp".to_string()).is_err());
+        // TODO: set up test with mocked graph node responses
+        // assert!(msg.valid_hash("weeelp".to_string()).is_err());
         assert_eq!(
             msg.payload
                 .as_ref()
