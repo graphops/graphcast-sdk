@@ -5,7 +5,7 @@ use ethers::{
 };
 use graphcast_sdk::{
     graphcast_agent::{message_typing::GraphcastMessage, GraphcastAgent},
-    init_tracing, read_boot_node_addresses,
+    init_tracing, read_boot_node_addresses, BlockPointer,
 };
 use once_cell::sync::OnceCell;
 use std::env;
@@ -96,7 +96,7 @@ async fn main() {
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
 
     // Helper function to reuse message sending code
-    async fn send_message(payload: Option<RadioPayloadMessage>, block_number: u64) {
+    async fn send_message(payload: Option<RadioPayloadMessage>, block: BlockPointer) {
         match GRAPHCAST_AGENT
             .get()
             .expect("Could not retrieve Graphcast agent")
@@ -104,7 +104,7 @@ async fn main() {
                 // The identifier can be any string that suits your Radio logic
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
                 "ping-pong-content-topic".to_string(),
-                block_number,
+                block,
                 payload,
             )
             .await
@@ -139,22 +139,38 @@ async fn main() {
         .expect("Could not register handler");
 
     loop {
-        let block_number = provider.get_block_number().await;
-
-        if let Err(e) = block_number {
-            warn!("Could not get block number from provider. Context: {e}");
-            sleep(Duration::from_secs(1));
-            continue;
-        }
-
-        let block_number = U64::as_u64(&block_number.unwrap());
+        let block_number = match provider.get_block_number().await {
+            Ok(num) => U64::as_u64(&num),
+            Err(e) => {
+                warn!("Could not get block number from provider. Context: {e}");
+                sleep(Duration::from_secs(1));
+                continue;
+            }
+        };
+        let block_hash = match GRAPHCAST_AGENT
+            .get()
+            .expect("Could not retrive Graphcast agent")
+            .get_block_hash(block_number)
+            .await
+        {
+            Ok(hash) => hash,
+            Err(e) => {
+                warn!("Could not get block hash from provider. Context: {e}");
+                sleep(Duration::from_secs(1));
+                continue;
+            }
+        };
 
         debug!("🔗 Block number: {}", block_number);
 
         if block_number & 2 == 0 {
             // If block number is even, send ping message
-            let msg = RadioPayloadMessage::new("table".to_string(), "Ping".to_string());
-            send_message(Some(msg), block_number).await;
+            let msg = RadioPayloadMessage::new("table".to_string(), "Ping222".to_string());
+            send_message(
+                Some(msg),
+                BlockPointer::new(block_number, block_hash.clone()),
+            )
+            .await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(
@@ -172,7 +188,11 @@ async fn main() {
                 if *payload.content == *"Ping" {
                     let replay_msg =
                         RadioPayloadMessage::new("table".to_string(), "Pong".to_string());
-                    send_message(Some(replay_msg), block_number).await;
+                    send_message(
+                        Some(replay_msg),
+                        BlockPointer::new(block_number, block_hash.clone()),
+                    )
+                    .await;
                 };
             }
 

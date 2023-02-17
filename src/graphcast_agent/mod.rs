@@ -29,7 +29,7 @@ use self::waku_handling::{
     setup_node_handle, WakuHandlingError,
 };
 
-use crate::NoncesMap;
+use crate::{BlockPointer, NoncesMap};
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -224,18 +224,9 @@ impl GraphcastAgent {
     >(
         &self,
         identifier: String,
-        block_number: u64,
+        block_ptr: BlockPointer,
         payload: Option<T>,
     ) -> Result<String, anyhow::Error> {
-        let block_hash: String = format!(
-            "{:#x}",
-            self.provider
-                .get_block(block_number)
-                .await?
-                .ok_or(GraphcastAgentError::EmptyResponseError)?
-                .hash
-                .ok_or(GraphcastAgentError::UnexpectedResponseError)?
-        );
         let content_topic = self.match_content_topic(identifier.clone())?;
 
         // Check network before sending a message
@@ -245,13 +236,27 @@ impl GraphcastAgent {
             &self.wallet,
             identifier,
             payload,
-            block_number
+            block_ptr
+                .number
                 .try_into()
                 .expect("Could not format block number"),
-            block_hash,
+            block_ptr.hash,
         )
         .await?
         .send_to_waku(&self.node_handle, self.pubsub_topic.clone(), content_topic)
+    }
+
+    pub async fn get_block_hash(&self, block_number: u64) -> Result<String, GraphcastAgentError> {
+        let hash = format!(
+            "{:#x}",
+            self.provider
+                .get_block(block_number)
+                .await?
+                .ok_or(GraphcastAgentError::EmptyResponseError)?
+                .hash
+                .ok_or(GraphcastAgentError::UnexpectedResponseError)?
+        );
+        Ok(hash)
     }
 }
 
