@@ -81,13 +81,16 @@ impl GraphcastAgent {
     /// let agent = GraphcastAgent::new(
     ///     String::from("1231231231231231231231231231231231231231231231231231231231231230"),
     ///     String::from("https://goerli.infura.io/v3/api_key"),
-    ///     "test_topic",
+    ///     "test_radio",
     ///     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
     ///     "https://gateway.testnet.thegraph.com/network",
+    ///     vec![String::from("/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMy9AbMEgjd5iz")],
+    ///     Some("test_namespace_in_pubsub_topic"),
     ///     Some(["some_subgraph_hash"].to_vec()),
+    ///     String::from("waku_node_key_can_be_same_as_private1231231231231231231231231230"),
     ///     Some(String::from("0.0.0.0")),
     ///     Some(String::from("60000")),
-    ///     Some(String::from(/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMy9AbMEgjd5iz")),
+    ///     Some(String::from(/ip4/321.1.1.2/tcp/60001/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMysomeoneelse")),
     /// )
     /// ```
     #[allow(clippy::too_many_arguments)]
@@ -98,6 +101,7 @@ impl GraphcastAgent {
         registry_subgraph: &str,
         network_subgraph: &str,
         boot_node_addresses: Vec<String>,
+        graphcast_namespace: Option<&str>,
         subtopics: Option<Vec<String>>,
         waku_node_key: Option<String>,
         waku_host: Option<String>,
@@ -106,8 +110,7 @@ impl GraphcastAgent {
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
         let wallet = private_key.parse::<LocalWallet>()?;
         let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone())?;
-        let pubsub_topic: WakuPubSubTopic =
-            pubsub_topic("0", &provider.get_chainid().await?.to_string());
+        let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace);
 
         //Should we allow the setting of waku node host and port?
         let host = waku_host.as_deref();

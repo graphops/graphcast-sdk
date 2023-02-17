@@ -77,6 +77,7 @@ async fn main() {
         REGISTRY_SUBGRAPH,
         NETWORK_SUBGRAPH,
         boot_node_addresses,
+        Some("testnet"),
         Some(subtopics),
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
         // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)

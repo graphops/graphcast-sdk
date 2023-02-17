@@ -20,10 +20,15 @@ use waku::{
     WakuPeerData, WakuPubSubTopic,
 };
 
+pub const SDK_VERSION: &str = "0";
+
 /// Get pubsub topic based on recommendations from https://rfc.vac.dev/spec/23/
-pub fn pubsub_topic(versioning: &str, chain_id: &str) -> WakuPubSubTopic {
+/// With the default namespace of "default"
+pub fn pubsub_topic(namespace: Option<&str>) -> WakuPubSubTopic {
+    let namespace = namespace.unwrap_or("default");
+
     WakuPubSubTopic {
-        topic_name: Cow::from(app_name().to_string() + "-v" + versioning + "-" + chain_id),
+        topic_name: Cow::from(app_name().to_string() + "-v" + SDK_VERSION + "-" + namespace),
         encoding: Encoding::Proto,
     }
 }
