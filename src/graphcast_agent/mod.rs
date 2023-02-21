@@ -9,7 +9,7 @@
 //! Graphcast agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
-use ethers::providers::{Http, Middleware, Provider, ProviderError};
+
 use ethers::signers::{LocalWallet, WalletError};
 use prost::Message;
 use std::collections::HashMap;
@@ -29,7 +29,9 @@ use self::waku_handling::{
     setup_node_handle, WakuHandlingError,
 };
 
-use crate::NoncesMap;
+use crate::graphql::client_graph_node::query_graph_node_network_block_hash;
+use crate::graphql::QueryError;
+use crate::{NetworkName, NoncesMap};
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -46,8 +48,6 @@ pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network
 pub struct GraphcastAgent {
     /// GraphcastID's wallet, used to sign messages
     pub wallet: LocalWallet,
-    eth_node: String,
-    provider: Provider<Http>,
     node_handle: WakuNodeHandle<Running>,
     /// Graphcast agent waku instance's pubsub topic
     pub pubsub_topic: WakuPubSubTopic,
@@ -55,10 +55,12 @@ pub struct GraphcastAgent {
     pub content_topics: Vec<WakuContentTopic>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
-    /// A constant defining the goerli registry subgraph endpoint.
+    /// A constant defining Graphcast registry subgraph endpoint
     pub registry_subgraph: String,
-    /// A constant defining the goerli network subgraph endpoint.
+    /// A constant defining The Graph network subgraph endpoint
     pub network_subgraph: String,
+    /// A constant defining the graph node endpoint
+    pub graph_node_endpoint: String,
 }
 
 impl GraphcastAgent {
@@ -96,10 +98,10 @@ impl GraphcastAgent {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         private_key: String,
-        eth_node: String,
         radio_name: &str,
         registry_subgraph: &str,
         network_subgraph: &str,
+        graph_node_endpoint: &str,
         boot_node_addresses: Vec<String>,
         graphcast_namespace: Option<&str>,
         subtopics: Option<Vec<String>>,
@@ -109,7 +111,6 @@ impl GraphcastAgent {
         waku_addr: Option<String>,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
         let wallet = private_key.parse::<LocalWallet>()?;
-        let provider: Provider<Http> = Provider::<Http>::try_from(eth_node.clone())?;
         let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace);
 
         //Should we allow the setting of waku node host and port?
@@ -141,14 +142,13 @@ impl GraphcastAgent {
 
         Ok(GraphcastAgent {
             wallet,
-            eth_node,
-            provider,
             pubsub_topic,
             content_topics,
             node_handle,
             nonces: Arc::new(Mutex::new(HashMap::new())),
             registry_subgraph: registry_subgraph.to_string(),
             network_subgraph: network_subgraph.to_string(),
+            graph_node_endpoint: graph_node_endpoint.to_string(),
         })
     }
 
@@ -195,17 +195,16 @@ impl GraphcastAgent {
         &'static self,
         radio_handler_mutex: Arc<Mutex<F>>,
     ) -> Result<(), GraphcastAgentError> {
-        let provider: Provider<Http> = Provider::<Http>::try_from(&self.eth_node.clone())?;
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().expect("Could not create Tokio runtime");
 
             rt.block_on(async {
                 let msg = handle_signal(
-                    &provider,
                     signal,
                     &self.nonces,
                     &self.registry_subgraph,
                     &self.network_subgraph,
+                    &self.graph_node_endpoint,
                 )
                 .await;
                 let mut radio_handler = radio_handler_mutex
@@ -224,19 +223,14 @@ impl GraphcastAgent {
     >(
         &self,
         identifier: String,
+        network: NetworkName,
         block_number: u64,
         payload: Option<T>,
     ) -> Result<String, anyhow::Error> {
-        let block_hash: String = format!(
-            "{:#x}",
-            self.provider
-                .get_block(block_number)
-                .await?
-                .ok_or(GraphcastAgentError::EmptyResponseError)?
-                .hash
-                .ok_or(GraphcastAgentError::UnexpectedResponseError)?
-        );
         let content_topic = self.match_content_topic(identifier.clone())?;
+        let block_hash = self
+            .get_block_hash(network.to_string().clone(), block_number)
+            .await?;
 
         // Check network before sending a message
         network_check(&self.node_handle)?;
@@ -245,13 +239,26 @@ impl GraphcastAgent {
             &self.wallet,
             identifier,
             payload,
-            block_number
-                .try_into()
-                .expect("Could not format block number"),
+            network,
+            block_number,
             block_hash,
         )
         .await?
         .send_to_waku(&self.node_handle, self.pubsub_topic.clone(), content_topic)
+    }
+
+    pub async fn get_block_hash(
+        &self,
+        network: String,
+        block_number: u64,
+    ) -> Result<String, GraphcastAgentError> {
+        let hash: String = query_graph_node_network_block_hash(
+            self.graph_node_endpoint.to_string(),
+            network,
+            block_number,
+        )
+        .await?;
+        Ok(hash)
     }
 }
 
@@ -261,10 +268,8 @@ pub enum GraphcastAgentError {
     EmptyResponseError,
     #[error("Unexpected response format")]
     UnexpectedResponseError,
-    #[error("Unknown error: {0}")]
-    Other(anyhow::Error),
     #[error(transparent)]
-    EthereumProviderError(#[from] ProviderError),
+    GraphNodeError(#[from] QueryError),
     #[error("Cannot instantiate Ethereum wallet from given private key.")]
     EthereumWalletError(#[from] WalletError),
     #[error(transparent)]
@@ -273,4 +278,6 @@ pub enum GraphcastAgentError {
     NodeHandleError(WakuHandlingError),
     #[error("Could not parse Waku port")]
     WakuPortError,
+    #[error("Unknown error: {0}")]
+    Other(anyhow::Error),
 }

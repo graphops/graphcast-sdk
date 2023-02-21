@@ -1,0 +1,22 @@
+query IndexingStatuses {
+  indexingStatuses {
+    subgraph
+    synced
+    health
+    fatalError {
+      handler
+      message
+    }
+    chains {
+      network
+      latestBlock {
+        number
+        hash
+      }
+      chainHeadBlock {
+        number
+        hash
+      }
+    }
+  }
+}

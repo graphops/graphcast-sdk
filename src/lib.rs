@@ -18,7 +18,9 @@
 
 use ethers::signers::{Signer, Wallet};
 use ethers_core::k256::ecdsa::SigningKey;
+use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
+use std::fmt;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -98,6 +100,126 @@ pub fn read_boot_node_addresses() -> Vec<String> {
     }
     addresses
 }
+
+/// Struct for a block pointer
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BlockPointer {
+    pub number: u64,
+    pub hash: String,
+}
+
+impl BlockPointer {
+    pub fn new(number: u64, hash: String) -> Self {
+        BlockPointer { number, hash }
+    }
+}
+
+/// Struct for Network and block interval for updates
+#[derive(Debug, Clone)]
+pub struct Network {
+    pub name: NetworkName,
+    pub interval: u64,
+}
+
+/// List of supported networks
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NetworkName {
+    Goerli,
+    Mainnet,
+    Gnosis,
+    Hardhat,
+    ArbitrumOne,
+    ArbitrumGoerli,
+    Avalanche,
+    Polygon,
+    Celo,
+    Optimism,
+    Unknown,
+}
+
+impl NetworkName {
+    pub fn from_string(name: &str) -> Self {
+        match name {
+            "goerli" => NetworkName::Goerli,
+            "mainnet" => NetworkName::Mainnet,
+            "gnosis" => NetworkName::Gnosis,
+            "hardhat" => NetworkName::Hardhat,
+            "arbitrum-one" => NetworkName::ArbitrumOne,
+            "arbitrum-goerli" => NetworkName::ArbitrumGoerli,
+            "avalanche" => NetworkName::Avalanche,
+            "polygon" => NetworkName::Polygon,
+            "celo" => NetworkName::Celo,
+            "optimism" => NetworkName::Optimism,
+            _ => NetworkName::Unknown,
+        }
+    }
+}
+
+impl fmt::Display for NetworkName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            NetworkName::Goerli => "goerli",
+            NetworkName::Mainnet => "mainnet",
+            NetworkName::Gnosis => "gnosis",
+            NetworkName::Hardhat => "hardhat",
+            NetworkName::ArbitrumOne => "arbitrum-one",
+            NetworkName::ArbitrumGoerli => "arbitrum-goerli",
+            NetworkName::Avalanche => "avalanche",
+            NetworkName::Polygon => "polygon",
+            NetworkName::Celo => "celo",
+            NetworkName::Optimism => "optimism",
+            NetworkName::Unknown => "unknown",
+        };
+
+        write!(f, "{name}")
+    }
+}
+
+/// Maintained static list of supported Networks
+pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
+    vec![
+        Network {
+            name: NetworkName::from_string("goerli"),
+            interval: 2,
+        },
+        Network {
+            name: NetworkName::from_string("mainnet"),
+            interval: 10,
+        },
+        Network {
+            name: NetworkName::from_string("gnosis"),
+            interval: 5,
+        },
+        Network {
+            name: NetworkName::from_string("hardhat"),
+            interval: 5,
+        },
+        Network {
+            name: NetworkName::from_string("arbitrum-one"),
+            interval: 5,
+        },
+        Network {
+            name: NetworkName::from_string("arbitrum-goerli"),
+            interval: 5,
+        },
+        Network {
+            name: NetworkName::from_string("avalanche"),
+            interval: 5,
+        },
+        Network {
+            name: NetworkName::from_string("polygon"),
+            interval: 5,
+        },
+        Network {
+            name: NetworkName::from_string("celo"),
+            interval: 5,
+        },
+        Network {
+            name: NetworkName::from_string("optimism"),
+            interval: 5,
+        },
+    ]
+});
 
 /// Sets up tracing, allows log level to be set from the environment variables
 pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {

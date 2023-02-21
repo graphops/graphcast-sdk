@@ -1,5 +1,6 @@
 use num_bigint::ParseBigIntError;
 
+pub mod client_graph_node;
 pub mod client_network;
 pub mod client_registry;
 
@@ -11,8 +12,8 @@ pub enum QueryError {
     ParseBigIntError(#[from] ParseBigIntError),
     #[error("The subgraph is in a failed state")]
     IndexingError,
-    #[error("Query response is empty")]
-    EmptyResponseError,
+    #[error("Query response is empty: {0}")]
+    EmptyResponseError(String),
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
 }

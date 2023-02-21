@@ -1,0 +1,37 @@
+type BlockPointer {
+  number: String!
+  hash: String!
+}
+                                                                                                                                                                                                                                                        
+type IndexingError {
+  handler: String
+  message: String!
+}
+
+type ChainIndexingStatus {
+  network: String!
+  latestBlock: BlockPointer
+  chainHeadBlock: BlockPointer
+}
+
+type IndexerDeployment {
+  subgraph: String!
+  synced: Boolean!
+  health: String!
+  fatalError: IndexingError
+  chains: [ChainIndexingStatus!]!
+}
+
+type Query {
+  indexingStatuses: [IndexerDeployment!]!
+  proofOfIndexing(
+    subgraph: String!
+    blockNumber: Int!
+    blockHash: String!
+    indexer: String
+  ): String
+  blockHashFromNumber(
+    network: String!
+    blockNumber: UInt!
+  ): String
+}
