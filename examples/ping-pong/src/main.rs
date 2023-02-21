@@ -86,7 +86,7 @@ async fn main() {
         &graph_node_endpoint,
         boot_node_addresses,
         Some(&graphcast_network),
-        Some(subtopics),
+        subtopics,
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
         // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
         waku_node_key,

@@ -143,17 +143,13 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         &self,
         node_handle: &WakuNodeHandle<Running>,
         pubsub_topic: WakuPubSubTopic,
-        content_topic: &WakuContentTopic,
+        content_topic: WakuContentTopic,
     ) -> Result<String, anyhow::Error> {
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
-        let waku_message = WakuMessage::new(
-            buff,
-            content_topic.clone(),
-            2,
-            Utc::now().timestamp() as usize,
-        );
+        let waku_message =
+            WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
 
         let sent_result = node_handle
             .peers()

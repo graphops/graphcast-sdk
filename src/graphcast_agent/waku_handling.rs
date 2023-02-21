@@ -11,9 +11,9 @@ use std::{sync::Mutex, time::Duration};
 use tracing::{debug, error, info, warn};
 use url::ParseError;
 use waku::{
-    waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running,
-    SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
-    WakuPeerData, WakuPubSubTopic,
+    waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr,
+    ProtocolId, Running, SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig,
+    WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 pub const SDK_VERSION: &str = "0";
@@ -107,6 +107,28 @@ pub fn filter_peer_subscriptions(
     Ok(filter_subscribe_result)
 }
 
+/// Make filter subscription requests to all peers except for ourselves
+/// Return subscription results for each peer
+pub fn unsubscribe_peer(
+    node_handle: &WakuNodeHandle<Running>,
+    graphcast_topic: &WakuPubSubTopic,
+    content_topics: &[WakuContentTopic],
+) -> Result<(), WakuHandlingError> {
+    let subscription: FilterSubscription =
+        content_filter_subscription(graphcast_topic, content_topics);
+    info!(
+        "Unsubscribe content topics on filter protocol: {:#?}",
+        subscription
+    );
+    node_handle
+        .filter_unsubscribe(&subscription, Duration::new(6000, 0))
+        .map_err(|e| {
+            WakuHandlingError::CannotUnsubscribe(format!(
+                "Waku node cannot unsubscribe to the topics: {e}"
+            ))
+        })
+}
+
 /// For boot nodes, configure a Waku Relay Node with filter protocol enabled (Waiting on filterFullNode waku-bindings impl). These node route all messages on the subscribed pubsub topic
 /// Preferrably also provide advertise_addr and Secp256k1 private key in Hex format (0x123...abc).
 ///
@@ -157,11 +179,11 @@ pub fn connect_nodes(
     node_handle: &WakuNodeHandle<Running>,
     nodes: Vec<Multiaddr>,
 ) -> Result<(), WakuHandlingError> {
-    let all_nodes = match node_handle.dns_discovery(&discovery_url()?, Some(&cf_nameserver()), None)
-    {
-        Ok(x) => {
-            info!("{} {:#?}", "Discovered multiaddresses:".green(), x);
-            let mut discovered_nodes = x;
+    let all_nodes = match waku_dns_discovery(&discovery_url()?, Some(&cf_nameserver()), None) {
+        Ok(a) => {
+            info!("{} {:#?}", "Discovered multiaddresses:".green(), a);
+            let mut discovered_nodes: Vec<Multiaddr> =
+                a.iter().flat_map(|d| d.addresses.iter()).cloned().collect();
             // Should static node be added or just use as fallback?
             discovered_nodes.extend(nodes.into_iter());
             discovered_nodes
@@ -401,6 +423,8 @@ pub enum WakuHandlingError {
     ParseUrlError(#[from] ParseError),
     #[error("Unable to subscribe to pubsub topic. {}", .0)]
     CannotSubscribe(String),
+    #[error("Unable to unsubscribe to pubsub topic. {}", .0)]
+    CannotUnsubscribe(String),
     #[error("Unable to retrieve peers list. {}", .0)]
     UnableToRetrievePeers(String),
     #[error(transparent)]

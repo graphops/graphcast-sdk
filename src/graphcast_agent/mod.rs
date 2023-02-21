@@ -29,6 +29,7 @@ use self::waku_handling::{
     setup_node_handle, WakuHandlingError,
 };
 
+use crate::graphcast_agent::waku_handling::unsubscribe_peer;
 use crate::graphql::client_graph_node::query_graph_node_network_block_hash;
 use crate::graphql::QueryError;
 use crate::{NetworkName, NoncesMap};
@@ -49,10 +50,12 @@ pub struct GraphcastAgent {
     /// GraphcastID's wallet, used to sign messages
     pub wallet: LocalWallet,
     node_handle: WakuNodeHandle<Running>,
+    /// Graphcast agent waku instance's radio application
+    pub radio_name: &'static str,
     /// Graphcast agent waku instance's pubsub topic
     pub pubsub_topic: WakuPubSubTopic,
     /// Graphcast agent waku instance's content topics
-    pub content_topics: Vec<WakuContentTopic>,
+    pub content_topics: Arc<Mutex<Vec<WakuContentTopic>>>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<Mutex<NoncesMap>>,
     /// A constant defining Graphcast registry subgraph endpoint
@@ -98,13 +101,13 @@ impl GraphcastAgent {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         private_key: String,
-        radio_name: &str,
+        radio_name: &'static str,
         registry_subgraph: &str,
         network_subgraph: &str,
         graph_node_endpoint: &str,
         boot_node_addresses: Vec<String>,
         graphcast_namespace: Option<&str>,
-        subtopics: Option<Vec<String>>,
+        subtopics: Vec<String>,
         waku_node_key: Option<String>,
         waku_host: Option<String>,
         waku_port: Option<String>,
@@ -131,19 +134,16 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::NodeHandleError)?;
 
         // Filter subscriptions only if provided subtopic
-        let content_topics = if let Some(topics) = subtopics {
-            let content_topics = build_content_topics(radio_name, 0, &topics);
-            let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
-                .expect("Could not connect and subscribe to the subtopics");
-            content_topics
-        } else {
-            [].to_vec()
-        };
+
+        let content_topics = build_content_topics(radio_name, 0, &subtopics);
+        let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
+            .expect("Could not connect and subscribe to the subtopics");
 
         Ok(GraphcastAgent {
             wallet,
+            radio_name,
             pubsub_topic,
-            content_topics,
+            content_topics: Arc::new(Mutex::new(content_topics)),
             node_handle,
             nonces: Arc::new(Mutex::new(HashMap::new())),
             registry_subgraph: registry_subgraph.to_string(),
@@ -153,10 +153,13 @@ impl GraphcastAgent {
     }
 
     /// Get identifiers of Radio content topics
+    #[allow(clippy::unnecessary_to_owned)]
     pub fn content_identifiers(&self) -> Vec<String> {
         self.content_topics
-            .clone()
-            .into_iter()
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
             .map(|topic| topic.content_topic_name.into_owned())
             .collect()
     }
@@ -171,13 +174,15 @@ impl GraphcastAgent {
     pub fn match_content_topic(
         &self,
         identifier: String,
-    ) -> Result<&WakuContentTopic, anyhow::Error> {
+    ) -> Result<WakuContentTopic, anyhow::Error> {
         match self
             .content_topics
+            .lock()
+            .unwrap()
             .iter()
             .find(|&x| x.content_topic_name == identifier.clone())
         {
-            Some(topic) => Ok(topic),
+            Some(topic) => Ok(topic.clone()),
             _ => Err(anyhow::anyhow!(format!(
                 "Did not match a content topic with identifier: {identifier}"
             )))?,
@@ -259,6 +264,31 @@ impl GraphcastAgent {
         )
         .await?;
         Ok(hash)
+    }
+
+    // TODO: Could register the query function at intialization and call it within this fn
+    pub fn update_content_topics(&self, subtopics: Vec<String>) {
+        info!("updating the topics: {:#?}", subtopics);
+        // build content topics
+        let content_topics = build_content_topics(self.radio_name, 0, &subtopics);
+        let old_contents = self.content_topics.lock().unwrap();
+        // Check if an update to the content topic is necessary
+        if *old_contents != content_topics {
+            // subscribe to the new content topics
+            let _ =
+                filter_peer_subscriptions(&self.node_handle, &self.pubsub_topic, &content_topics)
+                    .expect("Could not connect and subscribe to the subtopics");
+
+            //TODO: unsubscribe to the old content topics
+            unsubscribe_peer(&self.node_handle, &self.pubsub_topic, &old_contents)
+                .expect("Could not connect and subscribe to the subtopics");
+
+            //TODO: need &mut self to update this field, graphcast is usually static so invovles unsafe operation changes
+            // optionally content_topics field doesn't necessary need to be with graphcast, or somehow derived when called
+
+            self.content_topics.lock().unwrap().clear();
+            self.content_topics.lock().unwrap().extend(content_topics);
+        }
     }
 }
 
