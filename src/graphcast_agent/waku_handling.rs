@@ -15,9 +15,9 @@ use std::{sync::Mutex, time::Duration};
 use tracing::{debug, error, info, warn};
 use url::ParseError;
 use waku::{
-    waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr, ProtocolId, Running,
-    SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig, WakuNodeHandle,
-    WakuPeerData, WakuPubSubTopic,
+    waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr,
+    ProtocolId, Running, SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig,
+    WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 pub const SDK_VERSION: &str = "0";
@@ -161,11 +161,14 @@ pub fn connect_nodes(
     node_handle: &WakuNodeHandle<Running>,
     nodes: Vec<Multiaddr>,
 ) -> Result<(), WakuHandlingError> {
-    let all_nodes = match node_handle.dns_discovery(&discovery_url()?, Some(&cf_nameserver()), None)
-    {
+    let all_nodes = match waku_dns_discovery(&discovery_url()?, Some(&cf_nameserver()), None) {
         Ok(x) => {
             info!("{} {:#?}", "Discovered multiaddresses:".green(), x);
-            let mut discovered_nodes = x;
+            let mut discovered_nodes: Vec<Multiaddr> = x
+                .iter()
+                .flat_map(|dns_info| dns_info.addresses.iter())
+                .cloned()
+                .collect();
             // Should static node be added or just use as fallback?
             discovered_nodes.extend(nodes.into_iter());
             discovered_nodes
