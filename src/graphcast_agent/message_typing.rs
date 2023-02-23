@@ -7,11 +7,8 @@ use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    str::FromStr,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
+use tokio::sync::Mutex;
 
 use tracing::debug;
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
@@ -144,7 +141,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         node_handle: &WakuNodeHandle<Running>,
         pubsub_topic: WakuPubSubTopic,
         content_topic: WakuContentTopic,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<String, WakuHandlingError> {
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
@@ -153,7 +150,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 
         let sent_result = node_handle
             .peers()
-            .map_err(WakuHandlingError::UnableToRetrievePeers)?
+            .map_err(WakuHandlingError::RetrievePeersError)?
             .iter()
             .filter(|&peer| {
                 // Filter out local peer_id to prevent self dial
@@ -272,10 +269,13 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
     }
 
     /// Check historic nonce: ensure message sequencing
-    pub fn valid_nonce(&self, nonces: &Arc<Mutex<NoncesMap>>) -> Result<&Self, anyhow::Error> {
+    pub async fn valid_nonce(
+        &self,
+        nonces: &Arc<Mutex<NoncesMap>>,
+    ) -> Result<&Self, anyhow::Error> {
         let address = self.recover_sender_address()?;
 
-        let mut nonces = nonces.lock().expect("Could not get nonces lock");
+        let mut nonces = nonces.lock().await;
         let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());
 
         match nonces_per_subgraph {

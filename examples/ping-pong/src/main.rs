@@ -148,7 +148,7 @@ async fn main() {
     GRAPHCAST_AGENT
         .get()
         .expect("Could not retrieve Graphcast agent")
-        .register_handler(Arc::new(Mutex::new(radio_handler)))
+        .register_handler(Arc::new(AsyncMutex::new(radio_handler)))
         .expect("Could not register handler");
 
     // Limit Ping-pong radio for testing purposes, update after nwaku nodes update their namespace

@@ -410,9 +410,9 @@ dependencies = [
 
 [[package]]
 name = "camino"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c77df041dc383319cc661b428b6961a005db4d6808d5e12536931b1ca9556055"
+checksum = "6031a462f977dd38968b6f23378356512feeace69cef817e1a4475108093cec3"
 dependencies = [
  "serde",
 ]
@@ -1471,7 +1471,7 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
 name = "graphcast-sdk"
-version = "0.0.7"
+version = "0.0.9"
 dependencies = [
  "anyhow",
  "cargo-husky",
@@ -3804,8 +3804,9 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "waku-bindings"
-version = "0.1.0-beta.5"
-source = "git+https://github.com/waku-org/waku-rust-bindings?branch=fix-nil-enr#2c4653e1a9458c307e148f5f05128fcd7796b656"
+version = "0.1.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecbc8d956c2b3f115147c7f55a089f07b29880e83a38a05fd54d70b3ffaa4a85"
 dependencies = [
  "aes-gcm",
  "base64 0.21.0",
@@ -3825,8 +3826,9 @@ dependencies = [
 
 [[package]]
 name = "waku-sys"
-version = "0.1.0-beta.5"
-source = "git+https://github.com/waku-org/waku-rust-bindings?branch=fix-nil-enr#2c4653e1a9458c307e148f5f05128fcd7796b656"
+version = "0.1.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3ff0dcf3195d6afab95178263605cb471f6ddf10d976913f3deb28ff16b6a73"
 dependencies = [
  "bindgen",
 ]
