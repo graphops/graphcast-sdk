@@ -175,38 +175,47 @@ fn node_config(
     })
 }
 
-/// Generate a node instance of 'node_config', connected to the peers using node addresses on specific waku protocol
-pub fn connect_nodes(
-    node_handle: &WakuNodeHandle<Running>,
-    nodes: Vec<Multiaddr>,
-) -> Result<(), WakuHandlingError> {
-    let all_nodes = match waku_dns_discovery(&discovery_url()?, Some(&cf_nameserver()), None) {
-        Ok(a) => {
-            info!("{} {:#?}", "Discovered multiaddresses:".green(), a);
-            let mut discovered_nodes: Vec<Multiaddr> =
-                a.iter().flat_map(|d| d.addresses.iter()).cloned().collect();
-            // Should static node be added or just use as fallback?
-            discovered_nodes.extend(nodes.into_iter());
-            discovered_nodes
-        }
+/// Gather multiaddresses from different sources of Waku nodes to connect as peers
+pub fn gather_nodes(
+    boot_node_addresses: Vec<String>,
+    pubsub_topic: &WakuPubSubTopic,
+) -> Vec<Multiaddr> {
+    let static_nodes = boot_node_addresses
+        .iter()
+        .flat_map(|addr| vec![Multiaddr::from_str(addr).unwrap_or(Multiaddr::empty())])
+        .collect::<Vec<_>>();
+    info!("Static node list: {:#?}", static_nodes);
+
+    let disc_url = discovery_url(pubsub_topic);
+    let dns_nodes = match disc_url {
+        Ok(url) => match waku_dns_discovery(&url, Some(&cf_nameserver()), None) {
+            Ok(a) => {
+                info!("{} {:#?}", "Discovered multiaddresses:".green(), a);
+                a.iter().flat_map(|d| d.addresses.iter()).cloned().collect()
+            }
+            Err(e) => {
+                error!(
+                    "{}{:?}",
+                    "Could not discover nodes with provided Url, only add static node list: "
+                        .yellow(),
+                    e
+                );
+                vec![]
+            }
+        },
         Err(e) => {
             error!(
                 "{}{:?}",
                 "Could not discover nodes with provided Url, only add static node list: ".yellow(),
                 e
             );
-            nodes
+            vec![]
         }
     };
-    // Connect to peers on the filter protocol
-    connect_multiaddresses(all_nodes, node_handle, ProtocolId::Filter);
-
-    info!(
-        "Initialized node handle\nLocal node peer_id: {:#?}",
-        node_handle.peer_id(),
-    );
-
-    Ok(())
+    //TODO: update to smarter way of combining the nodes when adding Discv5
+    let mut nodes = static_nodes;
+    nodes.extend(dns_nodes);
+    nodes
 }
 
 /// Connect to peers from a list of multiaddresses for a specific protocol
@@ -268,12 +277,6 @@ pub fn setup_node_handle(
                 vec![pubsub_topic.clone()],
             );
 
-            let static_nodes = boot_node_addresses
-                .iter()
-                .flat_map(|addr| vec![Multiaddr::from_str(addr).unwrap_or(Multiaddr::empty())])
-                .collect::<Vec<_>>();
-            info!("Static node list: {:#?}", static_nodes);
-
             let node_handle = waku_new(node_config)
                 .map_err(|_e| {
                     WakuHandlingError::CreateNodeError(
@@ -286,8 +289,15 @@ pub fn setup_node_handle(
                         "Could not start Waku light node".to_string(),
                     )
                 })?;
+            let nodes = gather_nodes(boot_node_addresses, pubsub_topic);
+            // Connect to peers on the filter protocol
+            connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
-            connect_nodes(&node_handle, static_nodes)?;
+            info!(
+                "Initialized node handle\nLocal node peer_id: {:#?}",
+                node_handle.peer_id(),
+            );
+
             Ok(node_handle)
         }
     }

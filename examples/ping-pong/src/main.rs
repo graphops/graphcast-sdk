@@ -171,7 +171,7 @@ async fn main() {
 
         if block_number & 2 == 0 {
             // If block number is even, send ping message
-            let msg = RadioPayloadMessage::new("table".to_string(), "Ping222".to_string());
+            let msg = RadioPayloadMessage::new("table".to_string(), "Ping".to_string());
             send_message(Some(msg), network, block_number).await;
         } else {
             // If block number is odd, process received messages
