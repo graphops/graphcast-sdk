@@ -14,8 +14,9 @@ use ethers::signers::{LocalWallet, WalletError};
 use prost::Message;
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 use tracing::{debug, info};
 use url::ParseError;
 use waku::{
@@ -153,37 +154,36 @@ impl GraphcastAgent {
     }
 
     /// Get identifiers of Radio content topics
-    #[allow(clippy::unnecessary_to_owned)]
-    pub fn content_identifiers(&self) -> Vec<String> {
+    pub async fn content_identifiers(&self) -> Vec<String> {
         self.content_topics
             .lock()
-            .unwrap()
+            .await
             .iter()
             .cloned()
             .map(|topic| topic.content_topic_name.into_owned())
             .collect()
     }
 
-    pub fn print_subscriptions(&self) {
+    pub async fn print_subscriptions(&self) {
         info!("pubsub topic: {:#?}", &self.pubsub_topic);
-        info!("content topics: {:#?}", &self.content_identifiers());
+        info!("content topics: {:#?}", &self.content_identifiers().await);
     }
 
     /// Find the subscribed content topic with an identifier
     /// Error if topic doesn't exist
-    pub fn match_content_topic(
+    pub async fn match_content_topic(
         &self,
         identifier: String,
     ) -> Result<WakuContentTopic, anyhow::Error> {
         debug!(
             "Target content topics: {:#?}\nSubscribed content topics: {:#?}",
             identifier,
-            self.content_topics.lock(),
+            self.content_topics.lock().await,
         );
         match self
             .content_topics
             .lock()
-            .unwrap()
+            .await
             .iter()
             .find(|&x| x.content_topic_name == identifier.clone())
         {
@@ -195,7 +195,6 @@ impl GraphcastAgent {
     }
 
     /// Establish custom handler for incoming Waku messages
-    #[allow(clippy::await_holding_lock)]
     pub fn register_handler<
         F: FnMut(Result<GraphcastMessage<T>, anyhow::Error>)
             + std::marker::Sync
@@ -213,15 +212,13 @@ impl GraphcastAgent {
                 let msg = handle_signal(
                     signal,
                     &self.nonces,
-                    &self.content_topics.lock().unwrap().clone(),
+                    &self.content_topics.lock().await.clone(),
                     &self.registry_subgraph,
                     &self.network_subgraph,
                     &self.graph_node_endpoint,
                 )
                 .await;
-                let mut radio_handler = radio_handler_mutex
-                    .lock()
-                    .expect("Could not get Radio handler lock");
+                let mut radio_handler = radio_handler_mutex.lock().await;
                 radio_handler(msg);
             });
         };
@@ -241,6 +238,7 @@ impl GraphcastAgent {
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self
             .match_content_topic(identifier.clone())
+            .await
             .map_err(GraphcastAgentError::SendMessageError)?;
         debug!("Selected content topic: {:#?}", content_topic);
 
@@ -281,11 +279,11 @@ impl GraphcastAgent {
     }
 
     // TODO: Could register the query function at intialization and call it within this fn
-    pub fn update_content_topics(&self, subtopics: Vec<String>) {
+    pub async fn update_content_topics(&self, subtopics: Vec<String>) {
         info!("updating the topics: {:#?}", subtopics);
         // build content topics
         let content_topics = build_content_topics(self.radio_name, 0, &subtopics);
-        let old_contents = self.content_topics.lock().unwrap();
+        let old_contents = self.content_topics.lock().await;
         // Check if an update to the content topic is necessary
         if *old_contents != content_topics {
             // subscribe to the new content topics
@@ -300,8 +298,8 @@ impl GraphcastAgent {
             //TODO: need &mut self to update this field, graphcast is usually static so invovles unsafe operation changes
             // optionally content_topics field doesn't necessary need to be with graphcast, or somehow derived when called
 
-            self.content_topics.lock().unwrap().clear();
-            self.content_topics.lock().unwrap().extend(content_topics);
+            self.content_topics.lock().await.clear();
+            self.content_topics.lock().await.extend(content_topics);
         }
     }
 }
