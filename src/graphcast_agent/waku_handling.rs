@@ -5,9 +5,10 @@ use crate::{
 };
 use colored::*;
 use prost::Message;
+use std::time::Duration;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{net::IpAddr, str::FromStr};
-use std::{sync::Mutex, time::Duration};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use url::ParseError;
 use waku::{
@@ -428,7 +429,8 @@ pub async fn check_message_validity<
         .valid_time()?
         .valid_hash(graph_node_endpoint)
         .await?
-        .valid_nonce(nonces)?;
+        .valid_nonce(nonces)
+        .await?;
 
     info!("{}", "Valid message!".bold().green());
     Ok(graphcast_message.clone())
