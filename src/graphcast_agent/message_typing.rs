@@ -144,7 +144,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         node_handle: &WakuNodeHandle<Running>,
         pubsub_topic: WakuPubSubTopic,
         content_topic: WakuContentTopic,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<String, WakuHandlingError> {
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
@@ -153,7 +153,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 
         let sent_result = node_handle
             .peers()
-            .map_err(WakuHandlingError::UnableToRetrievePeers)?
+            .map_err(WakuHandlingError::RetrievePeersError)?
             .iter()
             .filter(|&peer| {
                 // Filter out local peer_id to prevent self dial

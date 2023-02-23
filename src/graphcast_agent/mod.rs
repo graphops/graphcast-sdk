@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use tracing::info;
+use tracing::{debug, info};
 use url::ParseError;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
@@ -175,6 +175,11 @@ impl GraphcastAgent {
         &self,
         identifier: String,
     ) -> Result<WakuContentTopic, anyhow::Error> {
+        debug!(
+            "Target content topics: {:#?}\nSubscribed content topics: {:#?}",
+            identifier,
+            self.content_topics.lock(),
+        );
         match self
             .content_topics
             .lock()
@@ -190,6 +195,7 @@ impl GraphcastAgent {
     }
 
     /// Establish custom handler for incoming Waku messages
+    #[allow(clippy::await_holding_lock)]
     pub fn register_handler<
         F: FnMut(Result<GraphcastMessage<T>, anyhow::Error>)
             + std::marker::Sync
@@ -207,6 +213,7 @@ impl GraphcastAgent {
                 let msg = handle_signal(
                     signal,
                     &self.nonces,
+                    &self.content_topics.lock().unwrap().clone(),
                     &self.registry_subgraph,
                     &self.network_subgraph,
                     &self.graph_node_endpoint,
@@ -231,14 +238,19 @@ impl GraphcastAgent {
         network: NetworkName,
         block_number: u64,
         payload: Option<T>,
-    ) -> Result<String, anyhow::Error> {
-        let content_topic = self.match_content_topic(identifier.clone())?;
+    ) -> Result<String, GraphcastAgentError> {
+        let content_topic = self
+            .match_content_topic(identifier.clone())
+            .map_err(GraphcastAgentError::SendMessageError)?;
+        debug!("Selected content topic: {:#?}", content_topic);
+
         let block_hash = self
             .get_block_hash(network.to_string().clone(), block_number)
             .await?;
 
         // Check network before sending a message
-        network_check(&self.node_handle)?;
+        network_check(&self.node_handle)
+            .map_err(|e| GraphcastAgentError::SendMessageError(e.into()))?;
 
         GraphcastMessage::build(
             &self.wallet,
@@ -248,8 +260,10 @@ impl GraphcastAgent {
             block_number,
             block_hash,
         )
-        .await?
+        .await
+        .map_err(|e| GraphcastAgentError::SendMessageError(e.into()))?
         .send_to_waku(&self.node_handle, self.pubsub_topic.clone(), content_topic)
+        .map_err(|e| GraphcastAgentError::SendMessageError(e.into()))
     }
 
     pub async fn get_block_hash(
@@ -306,6 +320,8 @@ pub enum GraphcastAgentError {
     UrlParseError(#[from] ParseError),
     #[error("Could not set up node handle. More info: {}", .0)]
     NodeHandleError(WakuHandlingError),
+    #[error("Could not send message on the waku networks. More info: {}", .0)]
+    SendMessageError(anyhow::Error),
     #[error("Could not parse Waku port")]
     WakuPortError,
     #[error("Unknown error: {0}")]
