@@ -27,7 +27,8 @@ use std::{
     env,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, subscriber::SetGlobalDefaultError, Level};
+use tracing::{debug, subscriber::SetGlobalDefaultError};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 use waku::WakuPubSubTopic;
@@ -230,19 +231,18 @@ pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
 
 /// Sets up tracing, allows log level to be set from the environment variables
 pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {
-    let log_level = match env::var("LOG_LEVEL") {
-        Ok(level) => match level.to_uppercase().as_str() {
-            "INFO" => Level::INFO,
-            "DEBUG" => Level::DEBUG,
-            "TRACE" => Level::TRACE,
-            "WARN" => Level::WARN,
-            "ERROR" => Level::ERROR,
-            _ => Level::INFO,
-        },
-        Err(_) => Level::INFO,
-    };
+    let filter = EnvFilter::from_default_env();
+    // let level_filter = filter.max_level_hint().unwrap_or(Level::ERROR.into());
 
-    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(filter)
+        // .with_max_level(level_filter)
+        .with_ansi(true)
+        .with_target(true)
+        .with_level(true)
+        .with_line_number(true)
+        .pretty()
+        .finish();
     tracing::subscriber::set_global_default(subscriber)
 }
 

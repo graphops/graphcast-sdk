@@ -1,6 +1,6 @@
 use crate::{
     app_name, cf_nameserver, discovery_url,
-    graphcast_agent::message_typing::{self, GraphcastMessage},
+    graphcast_agent::message_typing::{self, check_message_validity, GraphcastMessage},
     NoncesMap,
 };
 use colored::*;
@@ -20,9 +20,9 @@ use waku::{
 pub const SDK_VERSION: &str = "0";
 
 /// Get pubsub topic based on recommendations from https://rfc.vac.dev/spec/23/
-/// With the default namespace of "default"
+/// With the default namespace of "testnet"
 pub fn pubsub_topic(namespace: Option<&str>) -> WakuPubSubTopic {
-    let namespace = namespace.unwrap_or("default");
+    let namespace = namespace.unwrap_or("testnet");
 
     WakuPubSubTopic {
         topic_name: Cow::from(app_name().to_string() + "-v" + SDK_VERSION + "-" + namespace),
@@ -124,7 +124,7 @@ pub fn unsubscribe_peer(
     node_handle
         .filter_unsubscribe(&subscription, Duration::new(6000, 0))
         .map_err(|e| {
-            WakuHandlingError::UnsubscribeError(format!(
+            WakuHandlingError::ContentTopicsError(format!(
                 "Waku node cannot unsubscribe to the topics: {e}"
             ))
         })
@@ -149,9 +149,9 @@ fn node_config(
             "ERROR" => WakuLogLevel::Error,
             "FATAL" => WakuLogLevel::Fatal,
             "PANIC" => WakuLogLevel::Panic,
-            _ => WakuLogLevel::Info,
+            _ => WakuLogLevel::Warn,
         },
-        Err(_) => WakuLogLevel::Warn,
+        Err(_) => WakuLogLevel::Error,
     };
 
     Some(WakuNodeConfig {
@@ -231,10 +231,10 @@ fn connect_multiaddresses(
                 .unwrap_or_else(|_| String::from("Could not add peer"));
             node_handle.connect_peer_with_id(&peer_id, None).is_ok()
         });
-    warn!(
-        "Connected to peers: {:#?}\nFailed to connect to: {:#?}",
-        connected_peers, unconnected_peers
-    )
+    info!("Connected to peers: {:#?}", connected_peers,);
+    if !unconnected_peers.is_empty() {
+        warn!("Failed to connect to: {:#?}", unconnected_peers);
+    }
 }
 
 //TODO: Topic discovery DNS and Discv5
@@ -360,7 +360,7 @@ pub async fn handle_signal<
     registry_subgraph: &str,
     network_subgraph: &str,
     graph_node_endpoint: &str,
-) -> Result<GraphcastMessage<T>, anyhow::Error> {
+) -> Result<GraphcastMessage<T>, WakuHandlingError> {
     match signal.event() {
         waku::Event::WakuMessage(event) => {
             match <message_typing::GraphcastMessage<T> as Message>::decode(
@@ -381,7 +381,7 @@ pub async fn handle_signal<
                             content_topic.content_topic_name == graphcast_message.identifier
                         })
                     {
-                        match check_message_validity(
+                        check_message_validity(
                             graphcast_message,
                             nonces,
                             registry_subgraph,
@@ -389,61 +389,28 @@ pub async fn handle_signal<
                             graph_node_endpoint,
                         )
                         .await
-                        {
-                            Ok(msg) => Ok(msg),
-                            Err(err) => Err(anyhow::anyhow!(
-                                "{}{:#?}",
-                                "Could not handle the message: ".yellow(),
-                                err
-                            )),
-                        }
+                        .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
                     } else {
-                        Err(anyhow::anyhow!(format!(
+                        Err(WakuHandlingError::ContentTopicsError(format!(
                             "Skipping Waku message with unsubscribed content topic: {:#?}",
                             graphcast_message.identifier
                         )))
                     }
                 }
-                Err(e) => Err(anyhow::anyhow!(
-                    "Waku message not interpretated as a Graphcast message\nError occurred: {:?}",
-                    e
-                )),
+                Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
+                    "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
+                ))),
             }
         }
 
-        waku::Event::Unrecognized(data) => Err(anyhow::anyhow!("Unrecognized event!\n {:?}", data)),
-        _ => Err(anyhow::anyhow!(
+        waku::Event::Unrecognized(data) => Err(WakuHandlingError::InvalidMessage(format!(
+            "Unrecognized event!\n {data:?}"
+        ))),
+        _ => Err(WakuHandlingError::InvalidMessage(format!(
             "Unrecognized signal!\n {:?}",
             serde_json::to_string(&signal)
-        )),
+        ))),
     }
-}
-
-/// Check validity of the message:
-/// Sender check verifies sender's on-chain identity with Graphcast registry
-/// Time check verifies that message was from within the acceptable timestamp
-/// Block hash check verifies sender's access to valid Ethereum node provider and blocks
-/// Nonce check ensures the ordering of the messages and avoids past messages
-pub async fn check_message_validity<
-    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
->(
-    graphcast_message: GraphcastMessage<T>,
-    nonces: &Arc<Mutex<NoncesMap>>,
-    registry_subgraph: &str,
-    network_subgraph: &str,
-    graph_node_endpoint: &str,
-) -> Result<GraphcastMessage<T>, anyhow::Error> {
-    graphcast_message
-        .valid_sender(registry_subgraph, network_subgraph)
-        .await?
-        .valid_time()?
-        .valid_hash(graph_node_endpoint)
-        .await?
-        .valid_nonce(nonces)
-        .await?;
-
-    info!("{}", "Valid message!".bold().green());
-    Ok(graphcast_message.clone())
 }
 
 /// Check for peer connectivity, try to reconnect if there are disconnected peers
@@ -475,12 +442,14 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHa
 pub enum WakuHandlingError {
     #[error(transparent)]
     ParseUrlError(#[from] ParseError),
-    #[error("Unable to subscribe to pubsub topic. {}", .0)]
-    SubscribeError(String),
-    #[error("Unable to unsubscribe to pubsub topic. {}", .0)]
-    UnsubscribeError(String),
+    #[error("Subscription error to the content topic. {}", .0)]
+    ContentTopicsError(String),
     #[error("Unable to retrieve peers list. {}", .0)]
     RetrievePeersError(String),
+    #[error("Unable to publish message to peer: {}", .0)]
+    PublishMessage(String),
+    #[error("Unable to validate a message from peer: {}", .0)]
+    InvalidMessage(String),
     #[error(transparent)]
     ParsePortError(#[from] ParseIntError),
     #[error("Unable to create waku node: {}", .0)]

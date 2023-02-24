@@ -38,7 +38,7 @@ url = "2.3.1"
 rsb_derive = "0.5.1"
 dotenv = "0.15.0"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "fmt", "std"]}
 
 [dev-dependencies.cargo-husky]
 version = "1"
