@@ -78,6 +78,7 @@ async fn main() {
 
     let boot_node_addresses = read_boot_node_addresses();
 
+    debug!("Initializing the Graphcast Agent");
     let graphcast_agent = GraphcastAgent::new(
         // private_key resolves into ethereum wallet and indexer identity.
         private_key,
@@ -154,7 +155,7 @@ async fn main() {
         .expect("Could not register handler");
 
     // Limit Ping-pong radio for testing purposes, update after nwaku nodes update their namespace
-    let network = if *"1" == graphcast_network {
+    let network = if *"mainnet" == graphcast_network {
         NetworkName::from_string("mainnet")
     } else {
         NetworkName::from_string("goerli")
@@ -173,7 +174,10 @@ async fn main() {
 
         if block_number & 2 == 0 {
             // If block number is even, send ping message
-            let msg = RadioPayloadMessage::new("table".to_string(), "Ping".to_string());
+            let msg = RadioPayloadMessage::new(
+                "table".to_string(),
+                std::env::args().nth(1).unwrap_or("Ping".to_string()),
+            );
             send_message(Some(msg), network, block_number).await;
         } else {
             // If block number is odd, process received messages

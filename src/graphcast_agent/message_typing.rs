@@ -115,7 +115,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         block_number: u64,
         block_hash: String,
     ) -> Result<Self, BuildMessageError> {
-        debug!("\n{}", "Constructing message".green());
+        debug!("\n{}", "Constructing message");
 
         //TODO: block number and hash can be generated here???
 

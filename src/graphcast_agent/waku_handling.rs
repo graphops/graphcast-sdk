@@ -5,11 +5,11 @@ use crate::{
 };
 use colored::*;
 use prost::Message;
-use std::time::Duration;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
+use std::{collections::HashSet, time::Duration};
 use std::{net::IpAddr, str::FromStr};
-use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tokio::sync::Mutex as AsyncMutex;
+use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
 use waku::{
     waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr,
@@ -190,7 +190,7 @@ pub fn gather_nodes(
     let dns_nodes = match disc_url {
         Ok(url) => match waku_dns_discovery(&url, Some(&cf_nameserver()), None) {
             Ok(a) => {
-                info!("{} {:#?}", "Discovered multiaddresses:".green(), a);
+                info!("{} {:#?}", "Discovered multiaddresses:", a);
                 a.iter().flat_map(|d| d.addresses.iter()).cloned().collect()
             }
             Err(e) => {
@@ -265,8 +265,7 @@ pub fn setup_node_handle(
         _ => {
             info!(
                 "{} {:?}",
-                "Registering the following pubsub topics: ".cyan(),
-                &pubsub_topic
+                "Registering the following pubsub topics: ", &pubsub_topic
             );
 
             let node_config = node_config(
@@ -355,46 +354,53 @@ pub async fn handle_signal<
     T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
 >(
     signal: Signal,
-    nonces: &Arc<Mutex<NoncesMap>>,
+    nonces: &Arc<AsyncMutex<NoncesMap>>,
+    old_message_ids: &Arc<AsyncMutex<HashSet<String>>>,
     content_topics: &[WakuContentTopic],
     registry_subgraph: &str,
     network_subgraph: &str,
     graph_node_endpoint: &str,
 ) -> Result<GraphcastMessage<T>, WakuHandlingError> {
+    // Do not accept messages that were already received or sent by self
+    let mut ids = old_message_ids.lock().await;
     match signal.event() {
         waku::Event::WakuMessage(event) => {
             match <message_typing::GraphcastMessage<T> as Message>::decode(
                 event.waku_message().payload(),
             ) {
                 Ok(graphcast_message) => {
-                    info!(
-                        "{}{}",
-                        "New message received! Message id: ".bold().cyan(),
-                        event.message_id(),
-                    );
-                    debug!("{}{:?}", "Message: ".cyan(), graphcast_message);
+                    info!("{}{}", "Message received! Message id: ", event.message_id(),);
+                    trace!("old message ids: {:#?}", ids);
+                    trace!("{}{:?}", "Message: ", graphcast_message);
+                    // Check for content topic and repetitive message id
+                    match (
+                        filter_topic_check(content_topics, graphcast_message.identifier.clone()),
+                        ids.contains(event.message_id()),
+                    ) {
+                        (true, false) => {
+                            ids.insert(event.message_id().clone());
+                            check_message_validity(
+                                graphcast_message,
+                                nonces,
+                                registry_subgraph,
+                                network_subgraph,
+                                graph_node_endpoint,
+                            )
+                            .await
+                            .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
+                        }
+                        (_, true) => {
+                            debug!("old message ids: {:#?}", ids);
+                            debug!("{}{:?}", "event message id", event.message_id());
 
-                    // Allow empty subscription when nothing is provided
-                    // Remove after waku filter protocol has been tested thoroughly
-                    if content_topics.is_empty()
-                        | content_topics.iter().any(|content_topic| {
-                            content_topic.content_topic_name == graphcast_message.identifier
-                        })
-                    {
-                        check_message_validity(
-                            graphcast_message,
-                            nonces,
-                            registry_subgraph,
-                            network_subgraph,
-                            graph_node_endpoint,
-                        )
-                        .await
-                        .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
-                    } else {
-                        Err(WakuHandlingError::ContentTopicsError(format!(
+                            Err(WakuHandlingError::InvalidMessage(
+                                "Skip repeated message".to_string(),
+                            ))
+                        }
+                        (false, _) => Err(WakuHandlingError::ContentTopicsError(format!(
                             "Skipping Waku message with unsubscribed content topic: {:#?}",
                             graphcast_message.identifier
-                        )))
+                        ))),
                     }
                 }
                 Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
@@ -411,6 +417,15 @@ pub async fn handle_signal<
             serde_json::to_string(&signal)
         ))),
     }
+}
+
+// Allow empty subscription when no content topic was created
+// Can be removed after waku filter protocol has been tested thoroughly
+pub fn filter_topic_check(content_topics: &[WakuContentTopic], topic: String) -> bool {
+    content_topics.is_empty()
+        | content_topics
+            .iter()
+            .any(|content_topic| content_topic.content_topic_name == topic)
 }
 
 /// Check for peer connectivity, try to reconnect if there are disconnected peers
