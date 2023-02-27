@@ -30,6 +30,7 @@ use std::{
 use tracing::{debug, subscriber::SetGlobalDefaultError, Level};
 use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
+use waku::WakuPubSubTopic;
 
 pub mod graphcast_agent;
 pub mod graphql;
@@ -53,11 +54,17 @@ pub fn app_name() -> Cow<'static, str> {
 }
 
 /// Returns hardcoded DNS Url to a discoverable ENR tree that should be used to retrieve boot nodes
-pub fn discovery_url() -> Result<Url, url::ParseError> {
+pub fn discovery_url(pubsub_topic: &WakuPubSubTopic) -> Result<Url, url::ParseError> {
     let enr_url = config_env_var("ENR_URL").unwrap_or_else(|_| {
-        "enrtree://AMRFINDNF7XHQN2XBYCGYAYSQ3NV77RJIHLX6HJLA6ZAF365NRLMM@testfleet.graphcast.xyz"
+        if pubsub_topic.topic_name == "graphcast-v0-mainnet"{
+            "enrtree://APDKVCM3Q7TLTBD2FXKMXNIOIDPQRXNNI4ZXKEQLOWAFO3BZXZM3C@mainnet.bootnodes.graphcast.xyz"
             .to_string()
+        }else {
+            "enrtree://AOADZWXPAJ56TIXA74PV7VJP356QNBIKUPRKR676BBOOELU5XDDKM@testnet.bootnodes.graphcast.xyz"
+                .to_string()
+        }
     });
+    debug!("ENRtree url used for DNS discovery: {}", enr_url);
 
     Url::parse(&enr_url)
 }
