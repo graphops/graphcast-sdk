@@ -12,11 +12,11 @@
 
 use ethers::signers::{LocalWallet, WalletError};
 use prost::Message;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, info};
 use url::ParseError;
 use waku::{
@@ -56,15 +56,17 @@ pub struct GraphcastAgent {
     /// Graphcast agent waku instance's pubsub topic
     pub pubsub_topic: WakuPubSubTopic,
     /// Graphcast agent waku instance's content topics
-    pub content_topics: Arc<Mutex<Vec<WakuContentTopic>>>,
+    pub content_topics: Arc<AsyncMutex<Vec<WakuContentTopic>>>,
     /// Nonces map for caching sender nonces in each subtopic
-    pub nonces: Arc<Mutex<NoncesMap>>,
+    pub nonces: Arc<AsyncMutex<NoncesMap>>,
     /// A constant defining Graphcast registry subgraph endpoint
     pub registry_subgraph: String,
     /// A constant defining The Graph network subgraph endpoint
     pub network_subgraph: String,
     /// A constant defining the graph node endpoint
     pub graph_node_endpoint: String,
+    /// A set of message ids sent from the agent
+    pub old_message_ids: Arc<AsyncMutex<HashSet<String>>>,
 }
 
 impl GraphcastAgent {
@@ -144,12 +146,13 @@ impl GraphcastAgent {
             wallet,
             radio_name,
             pubsub_topic,
-            content_topics: Arc::new(Mutex::new(content_topics)),
+            content_topics: Arc::new(AsyncMutex::new(content_topics)),
             node_handle,
-            nonces: Arc::new(Mutex::new(HashMap::new())),
+            nonces: Arc::new(AsyncMutex::new(HashMap::new())),
             registry_subgraph: registry_subgraph.to_string(),
             network_subgraph: network_subgraph.to_string(),
             graph_node_endpoint: graph_node_endpoint.to_string(),
+            old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
         })
     }
 
@@ -203,7 +206,7 @@ impl GraphcastAgent {
         T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
     >(
         &'static self,
-        radio_handler_mutex: Arc<Mutex<F>>,
+        radio_handler_mutex: Arc<AsyncMutex<F>>,
     ) -> Result<(), GraphcastAgentError> {
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().expect("Could not create Tokio runtime");
@@ -212,6 +215,7 @@ impl GraphcastAgent {
                 let msg = handle_signal(
                     signal,
                     &self.nonces,
+                    &self.old_message_ids,
                     &self.content_topics.lock().await.clone(),
                     &self.registry_subgraph,
                     &self.network_subgraph,
@@ -238,6 +242,7 @@ impl GraphcastAgent {
         payload: Option<T>,
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self.match_content_topic(identifier.clone()).await?;
+        // Remove debug log after content topic filtering is stable
         debug!("Selected content topic: {:#?}", content_topic);
         let block_hash = self
             .get_block_hash(network.to_string().clone(), block_number)
@@ -245,6 +250,7 @@ impl GraphcastAgent {
 
         // Check network before sending a message
         network_check(&self.node_handle).map_err(GraphcastAgentError::WakuNodeError)?;
+        let mut ids = self.old_message_ids.lock().await;
 
         GraphcastMessage::build(
             &self.wallet,
@@ -258,6 +264,11 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::MessageError)?
         .send_to_waku(&self.node_handle, self.pubsub_topic.clone(), content_topic)
         .map_err(GraphcastAgentError::WakuNodeError)
+        .map(|id| {
+            ids.insert(id.clone());
+            debug!("inserted msg id: {:#?}", id);
+            id
+        })
     }
 
     pub async fn get_block_hash(
