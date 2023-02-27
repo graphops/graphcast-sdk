@@ -1,6 +1,7 @@
-use anyhow::anyhow;
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
+
+use super::QueryError;
 
 /// Derived Indexer
 #[derive(GraphQLQuery, Serialize, Deserialize, Debug)]
@@ -30,9 +31,9 @@ pub async fn perform_graphcast_id_indexer_query(
 pub async fn query_registry_indexer(
     registry_subgraph_endpoint: String,
     graphcast_id_address: String,
-) -> Result<String, anyhow::Error> {
+) -> Result<String, QueryError> {
     let variables: indexers::Variables = indexers::Variables {
-        address: graphcast_id_address,
+        address: graphcast_id_address.clone(),
     };
     let queried_result =
         perform_graphcast_id_indexer_query(registry_subgraph_endpoint, variables).await?;
@@ -41,8 +42,12 @@ pub async fn query_registry_indexer(
         data.indexers
             .first()
             .map(|indexer| indexer.id.clone())
-            .ok_or(anyhow!("Empty graphAccount data queried from registry"))
+            .ok_or(QueryError::EmptyResponseError(format!(
+                "No indexer data queried from registry for GraphcastID: {graphcast_id_address}"
+            )))
     } else {
-        Err(anyhow!("No response data from registry"))
+        Err(QueryError::EmptyResponseError(
+            "No response data from registry".to_string(),
+        ))
     }
 }

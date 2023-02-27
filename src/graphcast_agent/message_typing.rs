@@ -10,13 +10,14 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
-use tracing::debug;
+use tracing::{debug, info, warn};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
     graphql::{
         client_graph_node::query_graph_node_network_block_hash,
         client_network::query_network_subgraph, client_registry::query_registry_indexer,
+        QueryError,
     },
     NetworkName, NoncesMap,
 };
@@ -38,7 +39,7 @@ fn prepare_nonces(
 pub async fn get_indexer_stake(
     indexer_address: String,
     network_subgraph: &str,
-) -> Result<BigUint, anyhow::Error> {
+) -> Result<BigUint, QueryError> {
     Ok(
         query_network_subgraph(network_subgraph.to_string(), indexer_address)
             .await?
@@ -148,9 +149,10 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         let waku_message =
             WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
 
-        let sent_result = node_handle
+        let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
             .peers()
-            .map_err(WakuHandlingError::RetrievePeersError)?
+            .map_err(WakuHandlingError::RetrievePeersError)
+            .unwrap_or_default()
             .iter()
             .filter(|&peer| {
                 // Filter out local peer_id to prevent self dial
@@ -162,26 +164,26 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             })
             .map(|peer: &WakuPeerData| {
                 // Filter subscribe to all other peers
-                match node_handle.lightpush_publish(
-                    &waku_message,
-                    Some(pubsub_topic.clone()),
-                    peer.peer_id().to_string(),
-                    None,
-                ) {
-                    Ok(msg_id) => format!(
-                        "Successfully sent message {:#?} to peer {:#?}\n",
-                        msg_id,
-                        peer.peer_id().to_string()
-                    ),
-                    Err(e) => format!(
-                        "Failed to send message to peer {:#?}: {}\n",
+                node_handle
+                    .lightpush_publish(
+                        &waku_message,
+                        Some(pubsub_topic.clone()),
                         peer.peer_id().to_string(),
-                        e
-                    ),
-                }
+                        None,
+                    )
+                    .map_err(|e| {
+                        warn!("Failed to send message to peer: {e}");
+                        WakuHandlingError::PublishMessage(e)
+                    })
             })
             .collect();
-        Ok(sent_result)
+        // The message id is the same for all successful publish
+        sent_result
+            .into_iter()
+            .find_map(|res| res.ok())
+            .ok_or(WakuHandlingError::PublishMessage(
+                "Message could not be sent do any peers".to_string(),
+            ))
     }
 
     /// Check message from valid sender: resolve indexer address and self stake
@@ -189,49 +191,52 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         &self,
         registry_subgraph: &str,
         network_subgraph: &str,
-    ) -> Result<&Self, anyhow::Error> {
+    ) -> Result<&Self, BuildMessageError> {
         let indexer_address = query_registry_indexer(
             registry_subgraph.to_string(),
             self.recover_sender_address()?,
         )
-        .await?;
+        .await
+        .map_err(BuildMessageError::FieldDerivations)?;
         if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
-            .await?
+            .await
+            .map_err(BuildMessageError::FieldDerivations)?
             .stake_satisfy_requirement()
         {
             debug!("Valid Indexer:  {}", indexer_address);
             Ok(self)
         } else {
-            Err(anyhow!(
+            Err(BuildMessageError::InvalidFields(anyhow!(
                 "Sender stake is less than the minimum requirement, drop message"
-            ))
+            )))
         }
     }
 
     /// Check timestamp: prevent past message replay
-    pub fn valid_time(&self) -> Result<&Self, anyhow::Error> {
+    pub fn valid_time(&self) -> Result<&Self, BuildMessageError> {
         //Can store for measuring overall Graphcast message latency
         let message_age = Utc::now().timestamp() - self.nonce;
         // 0 allow instant atomic messaging, use 1 to exclude them
         if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
             Ok(self)
         } else {
-            Err(anyhow!(
+            Err(BuildMessageError::InvalidFields(anyhow!(
                 "Message timestamp {} outside acceptable range {}, drop message",
                 message_age,
                 MSG_REPLAY_LIMIT
-            ))
+            )))
         }
     }
 
     /// Check timestamp: prevent messages with incorrect graph node's block provider
-    pub async fn valid_hash(&self, graph_node_endpoint: &str) -> Result<&Self, anyhow::Error> {
+    pub async fn valid_hash(&self, graph_node_endpoint: &str) -> Result<&Self, BuildMessageError> {
         let block_hash: String = query_graph_node_network_block_hash(
             graph_node_endpoint.to_string(),
             self.network.clone(),
             self.block_number,
         )
-        .await?;
+        .await
+        .map_err(BuildMessageError::FieldDerivations)?;
 
         debug!(
             "{} {}: {} -> {:?}",
@@ -244,16 +249,16 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         if self.block_hash == block_hash {
             Ok(self)
         } else {
-            Err(anyhow!(
+            Err(BuildMessageError::InvalidFields(anyhow!(
                 "Message hash ({}) differ from trusted provider response ({}), drop message",
                 self.block_hash,
                 block_hash
-            ))
+            )))
         }
     }
 
     /// Recover sender address from Graphcast message radio payload
-    pub fn recover_sender_address(&self) -> Result<String, anyhow::Error> {
+    pub fn recover_sender_address(&self) -> Result<String, BuildMessageError> {
         match Signature::from_str(&self.signature).and_then(|sig| {
             sig.recover(
                 self.payload
@@ -264,7 +269,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             )
         }) {
             Ok(addr) => Ok(format!("{addr:#x}")),
-            Err(x) => Err(anyhow!(x)),
+            Err(x) => Err(BuildMessageError::InvalidFields(x.into())),
         }
     }
 
@@ -272,7 +277,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
     pub async fn valid_nonce(
         &self,
         nonces: &Arc<Mutex<NoncesMap>>,
-    ) -> Result<&Self, anyhow::Error> {
+    ) -> Result<&Self, BuildMessageError> {
         let address = self.recover_sender_address()?;
 
         let mut nonces = nonces.lock().await;
@@ -289,10 +294,10 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                         );
 
                         if nonce > &self.nonce {
-                            Err(anyhow!(
+                            Err(BuildMessageError::InvalidFields(anyhow!(
                                     "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
                                     self.identifier, address, self.nonce, nonce
-                                ))
+                                )))
                         } else {
                             let updated_nonces =
                                 prepare_nonces(nonces_per_subgraph, address, self.nonce);
@@ -304,23 +309,50 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                         let updated_nonces =
                             prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
                         nonces.insert(self.identifier.clone(), updated_nonces);
-                        Err(anyhow!(
+                        Err(BuildMessageError::InvalidFields(anyhow!(
                                     "No saved nonce for address {} on topic {}, saving this one and skipping message...",
                                     address, self.identifier
-                                ))
+                                )))
                     }
                 }
             }
             None => {
                 let updated_nonces = prepare_nonces(&HashMap::new(), address, self.nonce);
                 nonces.insert(self.identifier.clone(), updated_nonces);
-                Err(anyhow!(
+                Err(BuildMessageError::InvalidFields(anyhow!(
                             "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
                             self.identifier
-                        ))
+                        )))
             }
         }
     }
+}
+
+/// Check validity of the message:
+/// Sender check verifies sender's on-chain identity with Graphcast registry
+/// Time check verifies that message was from within the acceptable timestamp
+/// Block hash check verifies sender's access to valid Ethereum node provider and blocks
+/// Nonce check ensures the ordering of the messages and avoids past messages
+pub async fn check_message_validity<
+    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+>(
+    graphcast_message: GraphcastMessage<T>,
+    nonces: &Arc<Mutex<NoncesMap>>,
+    registry_subgraph: &str,
+    network_subgraph: &str,
+    graph_node_endpoint: &str,
+) -> Result<GraphcastMessage<T>, BuildMessageError> {
+    graphcast_message
+        .valid_sender(registry_subgraph, network_subgraph)
+        .await?
+        .valid_time()?
+        .valid_hash(graph_node_endpoint)
+        .await?
+        .valid_nonce(nonces)
+        .await?;
+
+    info!("{}", "Valid message!".bold().green());
+    Ok(graphcast_message.clone())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -331,6 +363,10 @@ pub enum BuildMessageError {
     Signing,
     #[error("Could not encode message")]
     Encoding,
+    #[error("Could not pass message validity checks: {0}")]
+    InvalidFields(anyhow::Error),
+    #[error("Could not derive fields from the existing message: {0}")]
+    FieldDerivations(QueryError),
     #[error("{0}")]
     TypeCast(String),
 }

@@ -4,7 +4,9 @@ use ethers::{
     types::U64,
 };
 use graphcast_sdk::{
-    graphcast_agent::{message_typing::GraphcastMessage, GraphcastAgent},
+    graphcast_agent::{
+        message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
+    },
     init_tracing, read_boot_node_addresses, NetworkName,
 };
 use once_cell::sync::OnceCell;
@@ -131,7 +133,7 @@ async fn main() {
     // There cannot be any non-deterministic (this includes async) code inside the handler.
     // That is why we're saving the message for later processing, where we will check its content and perform some action based on it.
     let radio_handler =
-        |msg: Result<GraphcastMessage<RadioPayloadMessage>, anyhow::Error>| match msg {
+        |msg: Result<GraphcastMessage<RadioPayloadMessage>, WakuHandlingError>| match msg {
             Ok(msg) => {
                 MESSAGES
                     .get()
@@ -141,7 +143,7 @@ async fn main() {
                     .push(msg);
             }
             Err(err) => {
-                println!("{err}");
+                error!("{err}");
             }
         };
 

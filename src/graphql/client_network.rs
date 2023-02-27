@@ -43,9 +43,9 @@ pub async fn query_network_subgraph(
     let data = if let Some(data) = response_body.data {
         data
     } else {
-        return Err(QueryError::Other(anyhow::anyhow!(format!(
+        return Err(QueryError::EmptyResponseError(format!(
             "Missing response data from network subgraph for {indexer_address}"
-        ))));
+        )));
     };
 
     let indexer =
