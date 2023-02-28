@@ -191,29 +191,30 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         &self,
         registry_subgraph: &str,
         network_subgraph: &str,
-        local_indexer_address: String,
+        local_graphcast_id: String,
     ) -> Result<&Self, BuildMessageError> {
-        let indexer_address = query_registry_indexer(
-            registry_subgraph.to_string(),
-            self.recover_sender_address()?,
-        )
-        .await
-        .map_err(BuildMessageError::FieldDerivations)?;
-        if indexer_address == local_indexer_address {
+        let graphcast_id = self.recover_sender_address()?;
+        if graphcast_id == local_graphcast_id {
             Err(BuildMessageError::InvalidFields(anyhow!(
                 "Message is from self, drop message"
             )))
-        } else if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
-            .await
-            .map_err(BuildMessageError::FieldDerivations)?
-            .stake_satisfy_requirement()
-        {
-            debug!("Valid Indexer:  {}", indexer_address);
-            Ok(self)
         } else {
-            Err(BuildMessageError::InvalidFields(anyhow!(
-                "Sender stake is less than the minimum requirement, drop message"
-            )))
+            let indexer_address =
+                query_registry_indexer(registry_subgraph.to_string(), graphcast_id)
+                    .await
+                    .map_err(BuildMessageError::FieldDerivations)?;
+            if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
+                .await
+                .map_err(BuildMessageError::FieldDerivations)?
+                .stake_satisfy_requirement()
+            {
+                debug!("Valid Indexer:  {}", indexer_address);
+                Ok(self)
+            } else {
+                Err(BuildMessageError::InvalidFields(anyhow!(
+                    "Sender stake is less than the minimum requirement, drop message"
+                )))
+            }
         }
     }
 
@@ -346,10 +347,10 @@ pub async fn check_message_validity<
     registry_subgraph: &str,
     network_subgraph: &str,
     graph_node_endpoint: &str,
-    local_indexer_address: String,
+    local_graphcast_id: String,
 ) -> Result<GraphcastMessage<T>, BuildMessageError> {
     graphcast_message
-        .valid_sender(registry_subgraph, network_subgraph, local_indexer_address)
+        .valid_sender(registry_subgraph, network_subgraph, local_graphcast_id)
         .await?
         .valid_time()?
         .valid_hash(graph_node_endpoint)
