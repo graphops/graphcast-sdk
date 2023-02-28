@@ -32,8 +32,9 @@ use self::waku_handling::{
 
 use crate::graphcast_agent::waku_handling::unsubscribe_peer;
 use crate::graphql::client_graph_node::query_graph_node_network_block_hash;
+use crate::graphql::client_registry::query_registry_indexer;
 use crate::graphql::QueryError;
-use crate::{NetworkName, NoncesMap};
+use crate::{graphcast_id_address, NetworkName, NoncesMap};
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -197,6 +198,14 @@ impl GraphcastAgent {
         }
     }
 
+    pub async fn get_indexer_address(&self) -> Result<String, QueryError> {
+        query_registry_indexer(
+            self.registry_subgraph.to_string(),
+            graphcast_id_address(&self.wallet),
+        )
+        .await
+    }
+
     /// Establish custom handler for incoming Waku messages
     pub fn register_handler<
         F: FnMut(Result<GraphcastMessage<T>, WakuHandlingError>)
@@ -210,18 +219,8 @@ impl GraphcastAgent {
     ) -> Result<(), GraphcastAgentError> {
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().expect("Could not create Tokio runtime");
-
             rt.block_on(async {
-                let msg = handle_signal(
-                    signal,
-                    &self.nonces,
-                    &self.old_message_ids,
-                    &self.content_topics.lock().await.clone(),
-                    &self.registry_subgraph,
-                    &self.network_subgraph,
-                    &self.graph_node_endpoint,
-                )
-                .await;
+                let msg = handle_signal(signal, self).await;
                 let mut radio_handler = radio_handler_mutex.lock().await;
                 radio_handler(msg);
             });
@@ -313,12 +312,10 @@ impl GraphcastAgent {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GraphcastAgentError {
-    #[error("Query response is empty")]
-    EmptyResponseError,
     #[error("Unexpected response format")]
     UnexpectedResponseError,
     #[error(transparent)]
-    GraphNodeError(#[from] QueryError),
+    QueryResponseError(#[from] QueryError),
     #[error("Cannot instantiate Ethereum wallet from given private key.")]
     EthereumWalletError(#[from] WalletError),
     #[error(transparent)]

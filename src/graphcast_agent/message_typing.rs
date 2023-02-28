@@ -191,6 +191,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         &self,
         registry_subgraph: &str,
         network_subgraph: &str,
+        local_indexer_address: String,
     ) -> Result<&Self, BuildMessageError> {
         let indexer_address = query_registry_indexer(
             registry_subgraph.to_string(),
@@ -198,7 +199,11 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         )
         .await
         .map_err(BuildMessageError::FieldDerivations)?;
-        if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
+        if indexer_address == local_indexer_address {
+            Err(BuildMessageError::InvalidFields(anyhow!(
+                "Message is from self, drop message"
+            )))
+        } else if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
             .await
             .map_err(BuildMessageError::FieldDerivations)?
             .stake_satisfy_requirement()
@@ -341,9 +346,10 @@ pub async fn check_message_validity<
     registry_subgraph: &str,
     network_subgraph: &str,
     graph_node_endpoint: &str,
+    local_indexer_address: String,
 ) -> Result<GraphcastMessage<T>, BuildMessageError> {
     graphcast_message
-        .valid_sender(registry_subgraph, network_subgraph)
+        .valid_sender(registry_subgraph, network_subgraph, local_indexer_address)
         .await?
         .valid_time()?
         .valid_hash(graph_node_endpoint)
@@ -441,7 +447,7 @@ mod tests {
 
         assert_eq!(msg.block_number, 0);
         assert!(msg
-            .valid_sender(registry_subgraph, network_subgraph)
+            .valid_sender(registry_subgraph, network_subgraph, "".to_string())
             .await
             .is_err());
         assert!(msg.valid_time().is_ok());
