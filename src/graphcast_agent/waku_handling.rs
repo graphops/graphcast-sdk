@@ -1,6 +1,7 @@
 use crate::{
     app_name, cf_nameserver, discovery_url,
     graphcast_agent::message_typing::{self, check_message_validity, GraphcastMessage},
+    graphcast_id_address,
     graphql::QueryError,
 };
 use colored::*;
@@ -386,7 +387,7 @@ pub async fn handle_signal<
                                 &graphcast_agent.registry_subgraph,
                                 &graphcast_agent.network_subgraph,
                                 &graphcast_agent.graph_node_endpoint,
-                                graphcast_agent.get_indexer_address().await?,
+                                graphcast_id_address(&graphcast_agent.wallet),
                             )
                             .await
                             .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
