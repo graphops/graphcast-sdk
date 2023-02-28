@@ -1,7 +1,7 @@
 use crate::{
     app_name, cf_nameserver, discovery_url,
     graphcast_agent::message_typing::{self, check_message_validity, GraphcastMessage},
-    NoncesMap,
+    graphql::QueryError,
 };
 use colored::*;
 use prost::Message;
@@ -16,6 +16,8 @@ use waku::{
     ProtocolId, Running, SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig,
     WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
+
+use super::GraphcastAgent;
 
 pub const SDK_VERSION: &str = "0";
 
@@ -354,14 +356,10 @@ pub async fn handle_signal<
     T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
 >(
     signal: Signal,
-    nonces: &Arc<AsyncMutex<NoncesMap>>,
-    old_message_ids: &Arc<AsyncMutex<HashSet<String>>>,
-    content_topics: &[WakuContentTopic],
-    registry_subgraph: &str,
-    network_subgraph: &str,
-    graph_node_endpoint: &str,
+    graphcast_agent: &GraphcastAgent,
 ) -> Result<GraphcastMessage<T>, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
+    let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &graphcast_agent.old_message_ids;
     let mut ids = old_message_ids.lock().await;
     match signal.event() {
         waku::Event::WakuMessage(event) => {
@@ -370,33 +368,32 @@ pub async fn handle_signal<
             ) {
                 Ok(graphcast_message) => {
                     info!("{}{}", "Message received! Message id: ", event.message_id(),);
-                    trace!("old message ids: {:#?}", ids);
-                    trace!("{}{:?}", "Message: ", graphcast_message);
+                    debug!("{}{:?}", "Message: ", graphcast_message);
+                    trace!("Old message ids: {:#?}", ids);
                     // Check for content topic and repetitive message id
                     match (
-                        filter_topic_check(content_topics, graphcast_message.identifier.clone()),
+                        filter_topic_check(
+                            &graphcast_agent.content_topics.lock().await.clone(),
+                            graphcast_message.identifier.clone(),
+                        ),
                         ids.contains(event.message_id()),
                     ) {
                         (true, false) => {
                             ids.insert(event.message_id().clone());
                             check_message_validity(
                                 graphcast_message,
-                                nonces,
-                                registry_subgraph,
-                                network_subgraph,
-                                graph_node_endpoint,
+                                &graphcast_agent.nonces,
+                                &graphcast_agent.registry_subgraph,
+                                &graphcast_agent.network_subgraph,
+                                &graphcast_agent.graph_node_endpoint,
+                                graphcast_agent.get_indexer_address().await?,
                             )
                             .await
                             .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
                         }
-                        (_, true) => {
-                            debug!("old message ids: {:#?}", ids);
-                            debug!("{}{:?}", "event message id", event.message_id());
-
-                            Err(WakuHandlingError::InvalidMessage(
-                                "Skip repeated message".to_string(),
-                            ))
-                        }
+                        (_, true) => Err(WakuHandlingError::InvalidMessage(
+                            "Skip repeated message".to_string(),
+                        )),
                         (false, _) => Err(WakuHandlingError::ContentTopicsError(format!(
                             "Skipping Waku message with unsubscribed content topic: {:#?}",
                             graphcast_message.identifier
@@ -471,6 +468,8 @@ pub enum WakuHandlingError {
     CreateNodeError(String),
     #[error("Unable to get peer information: {}", .0)]
     PeerInfoError(String),
+    #[error(transparent)]
+    QueryResponseError(#[from] QueryError),
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
 }
