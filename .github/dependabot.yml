@@ -3,7 +3,7 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
     ignore:
         # These are peer deps of Cargo and should not be automatically bumped
         - dependency-name: "semver"
@@ -14,7 +14,7 @@ updates:
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
-      interval: 'daily'
+      interval: 'weekly'
     commit-message:
       prefix: chore
       include: scope
