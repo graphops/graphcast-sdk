@@ -21,6 +21,13 @@ changelog:
     - title: Dependencies 👒
       labels:
         - dependencies
+        - chore
+    - title: Bug fixes 🐛
+      labels:
+        - bug
+    - title: Refactor 🌱
+      labels:
+        - refactor
     - title: Other Changes
       labels:
         - "*"
