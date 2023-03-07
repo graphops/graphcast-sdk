@@ -25,7 +25,7 @@ reqwest = {version = "0.11.0", features = ["json"]}
 ethers = "1.0.0"
 ethers-contract = "1.0.0"
 ethers-core = "1.0.0"
-ethers-derive-eip712 = "1.0.0"
+ethers-derive-eip712 = "2.0.0"
 colored = "2.0.0"
 partial_application = "0.2.1"
 num-bigint = "0.4.3"
