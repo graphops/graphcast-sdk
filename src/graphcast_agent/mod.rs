@@ -30,11 +30,12 @@ use self::waku_handling::{
     setup_node_handle, WakuHandlingError,
 };
 
+use crate::config::NetworkName;
 use crate::graphcast_agent::waku_handling::unsubscribe_peer;
 use crate::graphql::client_graph_node::query_graph_node_network_block_hash;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::graphql::QueryError;
-use crate::{graphcast_id_address, NetworkName, NoncesMap};
+use crate::{graphcast_id_address, NoncesMap};
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -312,8 +313,6 @@ impl GraphcastAgent {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GraphcastAgentError {
-    #[error("Unexpected response format")]
-    UnexpectedResponseError,
     #[error(transparent)]
     QueryResponseError(#[from] QueryError),
     #[error("Cannot instantiate Ethereum wallet from given private key.")]

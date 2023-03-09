@@ -42,12 +42,12 @@ pub async fn query_registry_indexer(
         data.indexers
             .first()
             .map(|indexer| indexer.id.clone())
-            .ok_or(QueryError::EmptyResponseError(format!(
+            .ok_or(QueryError::ParseResponseError(format!(
                 "No indexer data queried from registry for GraphcastID: {graphcast_id_address}"
             )))
     } else {
-        Err(QueryError::EmptyResponseError(
-            "No response data from registry".to_string(),
-        ))
+        Err(QueryError::ParseResponseError(format!(
+            "No response data from registry for graphcastID {graphcast_id_address}"
+        )))
     }
 }
