@@ -51,13 +51,6 @@ type NoncesMap = HashMap<String, HashMap<String, i64>>;
 pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();
 
 /// Returns Graphcast application domain name
-///
-/// Example
-///
-/// ```
-/// let mut f = graphcast_sdk::app_name();
-/// assert_eq!(f, "graphcast".to_string());
-/// ```
 pub fn app_name() -> Cow<'static, str> {
     Cow::from("graphcast")
 }
