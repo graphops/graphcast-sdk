@@ -1,20 +1,19 @@
 use dotenv::dotenv;
-use ethers::{
-    providers::{Http, Middleware, Provider},
-    types::U64,
-};
+
 use graphcast_sdk::{
+    config::{BlockPointer, NetworkName},
     graphcast_agent::{
         message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
     },
-    init_tracing, read_boot_node_addresses, NetworkName,
+    graphql::client_graph_node::{get_indexing_statuses, update_network_chainheads},
+    init_tracing, read_boot_node_addresses,
 };
 use once_cell::sync::OnceCell;
-use std::env;
 use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, env};
 use std::{thread::sleep, time::Duration};
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use types::RadioPayloadMessage;
 
 mod types;
@@ -49,19 +48,12 @@ async fn main() {
         "No GraphcastID's private key provided. Please specify a PRIVATE_KEY environment variable.",
     );
 
-    // An Ethereum node url in order to read on-chain data using a provider
-    let eth_node = env::var("ETH_NODE")
-        .expect("No ETH URL provided. Please specify an ETH_NODE environment variable.");
     // Graph node status endpoint
     let graph_node_endpoint = env::var("GRAPH_NODE_STATUS_ENDPOINT")
         .expect("No GRAPH_NODE_STATUS_ENDPOINT provided. Please specify an endpoint.");
     // Define the pubsub namespace of Graphcast network
     let graphcast_network = env::var("GRAPHCAST_NETWORK")
         .expect("No GRAPHCAST_NETWORK provided. Please specify 1 for mainnet, 5 for goerli.");
-
-    // Provider is only used to generate block number for Ping-pong
-    let provider: Provider<Http> =
-        Provider::<Http>::try_from(eth_node.clone()).expect("Could not create Ethereum provider");
 
     // This can be any string
     let radio_name: &str = "ping-pong";
@@ -106,6 +98,7 @@ async fn main() {
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
 
+    let mut network_chainhead_blocks: HashMap<NetworkName, BlockPointer> = HashMap::new();
     // Helper function to reuse message sending code
     async fn send_message(
         payload: Option<RadioPayloadMessage>,
@@ -162,14 +155,22 @@ async fn main() {
     };
 
     loop {
-        let block_number = match provider.get_block_number().await {
-            Ok(num) => U64::as_u64(&num),
+        let indexing_statuses = match get_indexing_statuses(graph_node_endpoint.clone()).await {
+            Ok(res) => res,
             Err(e) => {
-                warn!("Could not get block number from provider. Context: {e}");
-                sleep(Duration::from_secs(1));
+                error!("Could not query indexing statuses, pull again later: {e}");
+                sleep(Duration::from_secs(5));
                 continue;
             }
         };
+        update_network_chainheads(indexing_statuses, &mut network_chainhead_blocks).await;
+        let block_number = network_chainhead_blocks
+            .entry(network)
+            .or_insert(BlockPointer {
+                number: 0,
+                hash: "temp".to_string(),
+            })
+            .number;
         debug!("🔗 Block number: {}", block_number);
 
         if block_number & 2 == 0 {

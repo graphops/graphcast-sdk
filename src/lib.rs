@@ -16,23 +16,31 @@
 //! For more explanation, see the crate documentation.
 //!
 
+use config::BlockPointer;
+use config::NetworkName;
+use config::NETWORKS;
 use ethers::signers::{Signer, Wallet};
 use ethers_core::k256::ecdsa::SigningKey;
-use once_cell::sync::Lazy;
+use graphcast_agent::message_typing::GraphcastMessage;
+
 use once_cell::sync::OnceCell;
-use std::fmt;
+use prost::Message;
+
 use std::{
     borrow::Cow,
     collections::HashMap,
     env,
     sync::{Arc, Mutex},
 };
+use tokio::sync::Mutex as AsyncMutex;
+use tracing::warn;
 use tracing::{debug, subscriber::SetGlobalDefaultError};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 use waku::WakuPubSubTopic;
 
+pub mod config;
 pub mod graphcast_agent;
 pub mod graphql;
 pub mod slack_bot;
@@ -43,13 +51,6 @@ type NoncesMap = HashMap<String, HashMap<String, i64>>;
 pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();
 
 /// Returns Graphcast application domain name
-///
-/// Example
-///
-/// ```
-/// let mut f = graphcast_sdk::app_name();
-/// assert_eq!(f, "graphcast".to_string());
-/// ```
 pub fn app_name() -> Cow<'static, str> {
     Cow::from("graphcast")
 }
@@ -109,126 +110,6 @@ pub fn read_boot_node_addresses() -> Vec<String> {
     addresses
 }
 
-/// Struct for a block pointer
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct BlockPointer {
-    pub number: u64,
-    pub hash: String,
-}
-
-impl BlockPointer {
-    pub fn new(number: u64, hash: String) -> Self {
-        BlockPointer { number, hash }
-    }
-}
-
-/// Struct for Network and block interval for updates
-#[derive(Debug, Clone)]
-pub struct Network {
-    pub name: NetworkName,
-    pub interval: u64,
-}
-
-/// List of supported networks
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum NetworkName {
-    Goerli,
-    Mainnet,
-    Gnosis,
-    Hardhat,
-    ArbitrumOne,
-    ArbitrumGoerli,
-    Avalanche,
-    Polygon,
-    Celo,
-    Optimism,
-    Unknown,
-}
-
-impl NetworkName {
-    pub fn from_string(name: &str) -> Self {
-        match name {
-            "goerli" => NetworkName::Goerli,
-            "mainnet" => NetworkName::Mainnet,
-            "gnosis" => NetworkName::Gnosis,
-            "hardhat" => NetworkName::Hardhat,
-            "arbitrum-one" => NetworkName::ArbitrumOne,
-            "arbitrum-goerli" => NetworkName::ArbitrumGoerli,
-            "avalanche" => NetworkName::Avalanche,
-            "polygon" => NetworkName::Polygon,
-            "celo" => NetworkName::Celo,
-            "optimism" => NetworkName::Optimism,
-            _ => NetworkName::Unknown,
-        }
-    }
-}
-
-impl fmt::Display for NetworkName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            NetworkName::Goerli => "goerli",
-            NetworkName::Mainnet => "mainnet",
-            NetworkName::Gnosis => "gnosis",
-            NetworkName::Hardhat => "hardhat",
-            NetworkName::ArbitrumOne => "arbitrum-one",
-            NetworkName::ArbitrumGoerli => "arbitrum-goerli",
-            NetworkName::Avalanche => "avalanche",
-            NetworkName::Polygon => "polygon",
-            NetworkName::Celo => "celo",
-            NetworkName::Optimism => "optimism",
-            NetworkName::Unknown => "unknown",
-        };
-
-        write!(f, "{name}")
-    }
-}
-
-/// Maintained static list of supported Networks
-pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
-    vec![
-        Network {
-            name: NetworkName::from_string("goerli"),
-            interval: 2,
-        },
-        Network {
-            name: NetworkName::from_string("mainnet"),
-            interval: 10,
-        },
-        Network {
-            name: NetworkName::from_string("gnosis"),
-            interval: 5,
-        },
-        Network {
-            name: NetworkName::from_string("hardhat"),
-            interval: 5,
-        },
-        Network {
-            name: NetworkName::from_string("arbitrum-one"),
-            interval: 5,
-        },
-        Network {
-            name: NetworkName::from_string("arbitrum-goerli"),
-            interval: 5,
-        },
-        Network {
-            name: NetworkName::from_string("avalanche"),
-            interval: 5,
-        },
-        Network {
-            name: NetworkName::from_string("polygon"),
-            interval: 5,
-        },
-        Network {
-            name: NetworkName::from_string("celo"),
-            interval: 5,
-        },
-        Network {
-            name: NetworkName::from_string("optimism"),
-            interval: 5,
-        },
-    ]
-});
-
 /// Sets up tracing, allows log level to be set from the environment variables
 pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {
     let filter = EnvFilter::from_default_env();
@@ -244,6 +125,71 @@ pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {
         .pretty()
         .finish();
     tracing::subscriber::set_global_default(subscriber)
+}
+
+/* Blocks operation */
+/// Filters for the first message of a particular identifier by block number
+/// get the timestamp it was received from and add the collection duration to
+/// return the time for which message comparisons should be triggered
+pub async fn comparison_trigger<
+    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+>(
+    messages: Arc<AsyncMutex<Vec<GraphcastMessage<T>>>>,
+    identifier: String,
+    collect_duration: i64,
+) -> (u64, i64) {
+    let messages = AsyncMutex::new(messages.lock().await);
+    let msgs = messages.lock().await;
+    // Filter the messages to get only those that have the matching identifier:
+    let matched_msgs = msgs
+        .iter()
+        .filter(|message| message.identifier == identifier);
+    // Use min_by_key to get the message with the minimum value of (block_number, nonce), and add collect_duration to its nonce value to get the trigger time
+    let msg_trigger_time = matched_msgs
+        .min_by_key(|msg| (msg.block_number, msg.nonce))
+        .map(|message| (message.block_number, message.nonce + collect_duration));
+
+    // If no matching message is found, return (0, i64::MAX) as the trigger
+    msg_trigger_time.unwrap_or((0, i64::MAX))
+}
+
+/// This function determines the relevant block to send the message for, depending on the network chainhead block
+/// and its pre-configured examination frequency
+pub fn determine_message_block(
+    network_chainhead_blocks: &HashMap<NetworkName, BlockPointer>,
+    network_name: NetworkName,
+) -> Result<u64, NetworkBlockError> {
+    // Get the pre-configured examination frequency of the network
+    let examination_frequency = NETWORKS
+        .iter()
+        .find(|n| n.name.to_string() == network_name.to_string()).map(|n| n.interval)
+        .ok_or({
+            let err_msg = format!("Subgraph is indexing an unsupported network {network_name}, please report an issue on https://github.com/graphops/graphcast-rs");
+            warn!(err_msg);
+            NetworkBlockError::UnsupportedNetwork(err_msg)
+        })?;
+
+    // Calculate the relevant block for the message
+    match network_chainhead_blocks.get(&network_name) {
+        Some(BlockPointer { hash: _, number }) => Ok(number - number % examination_frequency),
+        None => {
+            let err_msg = format!(
+                "Could not get the chainhead block number on network {network_name} for determining the message's relevant block",
+            );
+            warn!(err_msg);
+            Err(NetworkBlockError::FailedStatus(err_msg))
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum NetworkBlockError {
+    #[error("Unsupported network: {0}")]
+    UnsupportedNetwork(String),
+    #[error("Failed to query syncing status of the network: {0}")]
+    FailedStatus(String),
+    #[error("Cannot get network's block information: {0}")]
+    Other(anyhow::Error),
 }
 
 #[cfg(test)]

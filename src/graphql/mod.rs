@@ -12,8 +12,10 @@ pub enum QueryError {
     ParseBigIntError(#[from] ParseBigIntError),
     #[error("The subgraph is in a failed state")]
     IndexingError,
+    #[error("Query response is unexpected: {0}")]
+    ParseResponseError(String),
     #[error("Query response is empty: {0}")]
-    EmptyResponseError(String),
+    PrometheusError(#[from] prometheus_http_query::Error),
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
 }
