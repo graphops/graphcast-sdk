@@ -1,5 +1,6 @@
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
+use tracing::debug;
 
 use super::QueryError;
 
@@ -37,6 +38,9 @@ pub async fn query_registry_indexer(
     };
     let queried_result =
         perform_graphcast_id_indexer_query(registry_subgraph_endpoint, variables).await?;
+    if !&queried_result.status().is_success() {
+        debug!("Unsuccessful query detail: {:#?}", queried_result);
+    }
     let response_body: Response<indexers::ResponseData> = queried_result.json().await?;
     if let Some(data) = response_body.data {
         data.indexers
