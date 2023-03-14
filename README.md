@@ -23,7 +23,7 @@ cargo nextest run
 
 ## How does the Graphcast SDK work?
 
-The SDK is essentially a base layer that Radio developers can use to build their applications without needing to worry about starting everything scratch. The components that are included in the SDK are:
+The SDK is essentially a base layer that Radio developers can use to build their applications without needing to worry about starting everything from scratch. The components that are included in the SDK are:
 
 - Connecting to the Graphcast network, e.g., a cluster of [Waku](https://waku.org/) nodes. It also provides an interface to subscribe to receive messages on specific topics and to broadcast messages onto the network.
 - Interactions with an Ethereum node.
