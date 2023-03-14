@@ -4,13 +4,12 @@ use crate::{
     graphcast_id_address,
     graphql::QueryError,
 };
-use colored::*;
 use prost::Message;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{collections::HashSet, time::Duration};
 use std::{net::IpAddr, str::FromStr};
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 use url::ParseError;
 use waku::{
     waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr,
@@ -75,7 +74,7 @@ pub fn filter_peer_subscriptions(
 ) -> Result<Vec<String>, WakuHandlingError> {
     let subscription: FilterSubscription =
         content_filter_subscription(graphcast_topic, content_topics);
-    info!(
+    debug!(
         "Subscribe to content topic for filtering: {:#?}",
         subscription
     );
@@ -107,7 +106,7 @@ pub fn filter_peer_subscriptions(
             }
         })
         .collect();
-    info!("Filter subscription added: {:#?}", filter_subscribe_result);
+    debug!("Filter subscription added: {:#?}", filter_subscribe_result);
     Ok(filter_subscribe_result)
 }
 
@@ -120,7 +119,7 @@ pub fn unsubscribe_peer(
 ) -> Result<(), WakuHandlingError> {
     let subscription: FilterSubscription =
         content_filter_subscription(graphcast_topic, content_topics);
-    info!(
+    debug!(
         "Unsubscribe content topics on filter protocol: {:#?}",
         subscription
     );
@@ -180,28 +179,22 @@ fn node_config(
 
 /// Gather multiaddresses from different sources of Waku nodes to connect as peers
 pub fn gather_nodes(
-    boot_node_addresses: Vec<String>,
+    static_nodes: Vec<Multiaddr>,
     pubsub_topic: &WakuPubSubTopic,
 ) -> Vec<Multiaddr> {
-    let static_nodes = boot_node_addresses
-        .iter()
-        .flat_map(|addr| vec![Multiaddr::from_str(addr).unwrap_or(Multiaddr::empty())])
-        .collect::<Vec<_>>();
-    info!("Static node list: {:#?}", static_nodes);
+    debug!("Static node list: {:#?}", static_nodes);
 
     let disc_url = discovery_url(pubsub_topic);
     let dns_nodes = match disc_url {
         Ok(url) => match waku_dns_discovery(&url, Some(&cf_nameserver()), None) {
             Ok(a) => {
-                info!("{} {:#?}", "Discovered multiaddresses:", a);
+                debug!("{} {:#?}", "Discovered multiaddresses:", a);
                 a.iter().flat_map(|d| d.addresses.iter()).cloned().collect()
             }
             Err(e) => {
                 error!(
                     "{}{:?}",
-                    "Could not discover nodes with provided Url, only add static node list: "
-                        .yellow(),
-                    e
+                    "Could not discover nodes with provided Url, only add static node list: ", e
                 );
                 vec![]
             }
@@ -209,8 +202,7 @@ pub fn gather_nodes(
         Err(e) => {
             error!(
                 "{}{:?}",
-                "Could not discover nodes with provided Url, only add static node list: ".yellow(),
-                e
+                "Could not discover nodes with provided Url, only add static node list: ", e
             );
             vec![]
         }
@@ -234,9 +226,9 @@ fn connect_multiaddresses(
                 .unwrap_or_else(|_| String::from("Could not add peer"));
             node_handle.connect_peer_with_id(&peer_id, None).is_ok()
         });
-    info!("Connected to peers: {:#?}", connected_peers,);
+    debug!("Connected to peers: {:#?}", connected_peers,);
     if !unconnected_peers.is_empty() {
-        warn!("Failed to connect to: {:#?}", unconnected_peers);
+        debug!("Failed to connect to: {:#?}", unconnected_peers);
     }
 }
 
@@ -244,7 +236,7 @@ fn connect_multiaddresses(
 //TODO: Filter full node config for boot nodes
 /// Set up a waku node given pubsub topics
 pub fn setup_node_handle(
-    boot_node_addresses: Vec<String>,
+    boot_node_addresses: Vec<Multiaddr>,
     pubsub_topic: &WakuPubSubTopic,
     host: Option<&str>,
     port: Option<&str>,
@@ -257,19 +249,11 @@ pub fn setup_node_handle(
         .map_err(WakuHandlingError::ParsePortError)?;
 
     match std::env::args().nth(1) {
-        Some(x) if x == *"boot" => boot_node_handle(
-            boot_node_addresses,
-            pubsub_topic,
-            host,
-            port,
-            advertised_addr,
-            node_key,
-        ),
+        Some(x) if x == *"boot" => {
+            boot_node_handle(pubsub_topic, host, port, advertised_addr, node_key)
+        }
         _ => {
-            info!(
-                "{} {:?}",
-                "Registering the following pubsub topics: ", &pubsub_topic
-            );
+            info!("{} {:?}", "Subscribing the pubsub topic: ", &pubsub_topic);
 
             let node_config = node_config(
                 host,
@@ -296,7 +280,7 @@ pub fn setup_node_handle(
             connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
             info!(
-                "Initialized node handle\nLocal node peer_id: {:#?}",
+                "Initialized node handle with local peer_id: {:#?}",
                 node_handle.peer_id(),
             );
 
@@ -306,7 +290,6 @@ pub fn setup_node_handle(
 }
 
 pub fn boot_node_handle(
-    _boot_node_addresses: Vec<String>,
     pubsub_topic: &WakuPubSubTopic,
     host: Option<&str>,
     port: usize,
@@ -345,7 +328,7 @@ pub fn boot_node_handle(
         port,
         boot_node_id
     );
-    info!(
+    debug!(
         "Boot node - id: {}, address: {}",
         boot_node_id, boot_node_multiaddress
     );
@@ -368,8 +351,7 @@ pub async fn handle_signal<
                 event.waku_message().payload(),
             ) {
                 Ok(graphcast_message) => {
-                    info!("{}{}", "Message received! Message id: ", event.message_id(),);
-                    debug!("{}{:?}", "Message: ", graphcast_message);
+                    debug!("{}{}", "Message received! Message id: ", event.message_id());
                     trace!("Old message ids: {:#?}", ids);
                     // Check for content topic and repetitive message id
                     match (
@@ -445,7 +427,7 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHa
         })
         .for_each(|res| {
             if let Err(x) = res {
-                warn!("Could not connect to peer: {}", x)
+                debug!("Could not connect to peer: {}", x)
             }
         });
     Ok(())

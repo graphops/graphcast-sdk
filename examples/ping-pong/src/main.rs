@@ -6,7 +6,7 @@ use graphcast_sdk::{
         message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
     },
     graphql::client_graph_node::{get_indexing_statuses, update_network_chainheads},
-    init_tracing, read_boot_node_addresses, BlockPointer,
+    BlockPointer,
 };
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ use types::RadioPayloadMessage;
 mod types;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ! {
     // This can be any string
     let radio_name: &str = "ping-pong";
     // Loads the environment variables from .env
@@ -27,12 +27,9 @@ async fn main() {
 
     // Parse basic configurations
     let config = Config::args();
-
-    // Enables tracing, you can set your preferred log level in your .env file
-    // You can choose one of: TRACE, DEBUG, INFO, WARN, ERROR
-    // If none is provided, defaults to INFO
-    init_tracing().expect("Could not set up global default subscriber");
-
+    if let Err(e) = config.validate_set_up().await {
+        panic!("Could not validate the supplied configurations: {e}")
+    }
     /// A global static (singleton) instance of A GraphcastMessage vector.
     /// It is used to save incoming messages after they've been validated, in order
     /// defer their processing for later, because async code is required for the processing but
@@ -45,9 +42,6 @@ async fn main() {
     /// the handler itself is being passed into the Graphcast Agent, so it needs to be static as well.
     pub static GRAPHCAST_AGENT: OnceCell<GraphcastAgent> = OnceCell::new();
 
-    // Graph node status endpoint
-    let graph_node_endpoint = config.graph_node_endpoint;
-
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
     // if not provided then they are usually generated based on indexer allocations
     let mut subtopics = vec!["ping-pong-content-topic".to_string()];
@@ -57,8 +51,6 @@ async fn main() {
         }
     }
 
-    let boot_node_addresses = read_boot_node_addresses(config.boot_node_addresses);
-
     debug!("Initializing the Graphcast Agent");
     let graphcast_agent = GraphcastAgent::new(
         // private_key resolves into ethereum wallet and indexer identity.
@@ -67,8 +59,8 @@ async fn main() {
         radio_name,
         &config.registry_subgraph,
         &config.network_subgraph,
-        &graph_node_endpoint,
-        boot_node_addresses,
+        &config.graph_node_endpoint,
+        config.boot_node_addresses,
         Some(&config.graphcast_network),
         subtopics,
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
@@ -94,7 +86,7 @@ async fn main() {
         network: NetworkName,
         block_number: u64,
     ) {
-        match GRAPHCAST_AGENT
+        if let Err(e) = GRAPHCAST_AGENT
             .get()
             .expect("Could not retrieve Graphcast agent")
             .send_message(
@@ -107,8 +99,7 @@ async fn main() {
             )
             .await
         {
-            Ok(sent) => info!("Sent message id: {}", sent),
-            Err(e) => error!("Failed to send message: {}", e),
+            error!("Failed to send message: {}", e)
         };
     }
 
@@ -139,14 +130,15 @@ async fn main() {
     let network = NetworkName::from_string(&config.graphcast_network);
 
     loop {
-        let indexing_statuses = match get_indexing_statuses(graph_node_endpoint.clone()).await {
-            Ok(res) => res,
-            Err(e) => {
-                error!("Could not query indexing statuses, pull again later: {e}");
-                sleep(Duration::from_secs(5));
-                continue;
-            }
-        };
+        let indexing_statuses =
+            match get_indexing_statuses(config.graph_node_endpoint.clone()).await {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("Could not query indexing statuses, pull again later: {e}");
+                    sleep(Duration::from_secs(5));
+                    continue;
+                }
+            };
         update_network_chainheads(indexing_statuses, &mut network_chainhead_blocks);
         let block_number = network_chainhead_blocks
             .entry(network)
@@ -155,7 +147,7 @@ async fn main() {
                 hash: "temp".to_string(),
             })
             .number;
-        debug!("🔗 Block number: {}", block_number);
+        info!("🔗 Block number: {}", block_number);
 
         if block_number & 2 == 0 {
             // If block number is even, send ping message
