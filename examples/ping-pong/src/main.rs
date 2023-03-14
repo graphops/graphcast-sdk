@@ -1,16 +1,16 @@
 use dotenv::dotenv;
 
 use graphcast_sdk::{
-    config::{BlockPointer, NetworkName},
+    config::{Config, NetworkName},
     graphcast_agent::{
         message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
     },
     graphql::client_graph_node::{get_indexing_statuses, update_network_chainheads},
-    init_tracing, read_boot_node_addresses,
+    init_tracing, read_boot_node_addresses, BlockPointer,
 };
 use once_cell::sync::OnceCell;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::{collections::HashMap, env};
 use std::{thread::sleep, time::Duration};
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info};
@@ -20,8 +20,13 @@ mod types;
 
 #[tokio::main]
 async fn main() {
-    // Loads the environment variables from our .env file
+    // This can be any string
+    let radio_name: &str = "ping-pong";
+    // Loads the environment variables from .env
     dotenv().ok();
+
+    // Parse basic configurations
+    let config = Config::args();
 
     // Enables tracing, you can set your preferred log level in your .env file
     // You can choose one of: TRACE, DEBUG, INFO, WARN, ERROR
@@ -40,53 +45,37 @@ async fn main() {
     /// the handler itself is being passed into the Graphcast Agent, so it needs to be static as well.
     pub static GRAPHCAST_AGENT: OnceCell<GraphcastAgent> = OnceCell::new();
 
-    let waku_host = env::var("WAKU_HOST").ok();
-    let waku_port = env::var("WAKU_PORT").ok();
-    let waku_node_key = env::var("WAKU_NODE_KEY").ok();
-    // The private key for you GraphcastID's address
-    let private_key = env::var("PRIVATE_KEY").expect(
-        "No GraphcastID's private key provided. Please specify a PRIVATE_KEY environment variable.",
-    );
-
     // Graph node status endpoint
-    let graph_node_endpoint = env::var("GRAPH_NODE_STATUS_ENDPOINT")
-        .expect("No GRAPH_NODE_STATUS_ENDPOINT provided. Please specify an endpoint.");
-    // Define the pubsub namespace of Graphcast network
-    let graphcast_network = env::var("GRAPHCAST_NETWORK")
-        .expect("No GRAPHCAST_NETWORK provided. Please specify 1 for mainnet, 5 for goerli.");
+    let graph_node_endpoint = config.graph_node_endpoint;
 
-    // This can be any string
-    let radio_name: &str = "ping-pong";
-
-    /// A constant defining the goerli registry subgraph endpoint.
-    pub const REGISTRY_SUBGRAPH: &str =
-        "https://api.thegraph.com/subgraphs/name/hopeyen/graphcast-registry-goerli";
-
-    /// A constant defining the goerli network subgraph endpoint.
-    pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
-    // if not provided then they are generated based on indexer allocations
-    let subtopics = vec!["ping-pong-content-topic".to_string()];
+    // if not provided then they are usually generated based on indexer allocations
+    let mut subtopics = vec!["ping-pong-content-topic".to_string()];
+    for topic in config.topics {
+        if !subtopics.contains(&topic) {
+            subtopics.push(topic);
+        }
+    }
 
-    let boot_node_addresses = read_boot_node_addresses();
+    let boot_node_addresses = read_boot_node_addresses(config.boot_node_addresses);
 
     debug!("Initializing the Graphcast Agent");
     let graphcast_agent = GraphcastAgent::new(
         // private_key resolves into ethereum wallet and indexer identity.
-        private_key,
+        config.private_key,
         // radio_name is used as part of the content topic for the radio application
         radio_name,
-        REGISTRY_SUBGRAPH,
-        NETWORK_SUBGRAPH,
+        &config.registry_subgraph,
+        &config.network_subgraph,
         &graph_node_endpoint,
         boot_node_addresses,
-        Some(&graphcast_network),
+        Some(&config.graphcast_network),
         subtopics,
         // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
         // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
-        waku_node_key,
-        waku_host,
-        waku_port,
+        config.waku_node_key,
+        config.waku_host,
+        config.waku_port,
         None,
     )
     .await
@@ -147,12 +136,7 @@ async fn main() {
         .register_handler(Arc::new(AsyncMutex::new(radio_handler)))
         .expect("Could not register handler");
 
-    // Limit Ping-pong radio for testing purposes, update after nwaku nodes update their namespace
-    let network = if *"mainnet" == graphcast_network {
-        NetworkName::from_string("mainnet")
-    } else {
-        NetworkName::from_string("goerli")
-    };
+    let network = NetworkName::from_string(&config.graphcast_network);
 
     loop {
         let indexing_statuses = match get_indexing_statuses(graph_node_endpoint.clone()).await {
@@ -163,7 +147,7 @@ async fn main() {
                 continue;
             }
         };
-        update_network_chainheads(indexing_statuses, &mut network_chainhead_blocks).await;
+        update_network_chainheads(indexing_statuses, &mut network_chainhead_blocks);
         let block_number = network_chainhead_blocks
             .entry(network)
             .or_insert(BlockPointer {

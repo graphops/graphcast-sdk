@@ -16,9 +16,7 @@
 //! For more explanation, see the crate documentation.
 //!
 
-use config::BlockPointer;
-use config::NetworkName;
-use config::NETWORKS;
+use config::{NetworkName, NETWORKS};
 use ethers::signers::{Signer, Wallet};
 use ethers_core::k256::ecdsa::SigningKey;
 use graphcast_agent::message_typing::GraphcastMessage;
@@ -95,16 +93,17 @@ pub fn graphcast_id_address(wallet: &Wallet<SigningKey>) -> String {
 /// 4. BOOT_NODE_ADDRESSES=addr1, addr2, addr3
 /// 5. BOOT_NODE_ADDRESSES=addr
 /// 6. BOOT_NODE_ADDRESSES="[addr1, addr2, addr3]"
-pub fn read_boot_node_addresses() -> Vec<String> {
+// TODO: Simplify according to the clap parser
+pub fn read_boot_node_addresses(boot_addresses: String) -> Vec<String> {
     let mut addresses = Vec::new();
-    if let Ok(val) = env::var("BOOT_NODE_ADDRESSES") {
-        for address in val.split(',') {
-            let address = address.trim();
-            if address.starts_with('"') && address.ends_with('"') {
-                addresses.push(address[1..address.len() - 1].to_string());
-            } else {
-                addresses.push(address.to_string());
-            }
+    for address in boot_addresses.split(',') {
+        let address = address.trim();
+        if address.is_empty() {
+            continue;
+        } else if address.starts_with('"') && address.ends_with('"') {
+            addresses.push(address[1..address.len() - 1].to_string());
+        } else {
+            addresses.push(address.to_string());
         }
     }
     addresses
@@ -182,6 +181,30 @@ pub fn determine_message_block(
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct NetworkPointer {
+    pub network: String,
+    pub block: BlockPointer,
+}
+
+pub struct BlockClock {
+    pub current_block: u64,
+    pub compare_block: u64,
+}
+
+/// Struct for a block pointer
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BlockPointer {
+    pub number: u64,
+    pub hash: String,
+}
+
+impl BlockPointer {
+    pub fn new(number: u64, hash: String) -> Self {
+        BlockPointer { number, hash }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum NetworkBlockError {
     #[error("Unsupported network: {0}")]
@@ -209,50 +232,49 @@ mod tests {
 
     #[test]
     fn test_read_boot_node_addresses_empty() {
-        std::env::remove_var("BOOT_NODE_ADDRESSES");
-        let items = read_boot_node_addresses();
+        let items = read_boot_node_addresses(String::from(""));
         assert_eq!(items, Vec::<String>::new());
     }
 
     #[test]
     fn test_read_boot_node_addresses_no_quotes() {
-        std::env::set_var("BOOT_NODE_ADDRESSES", "addr1, addr2, addr3");
-        let items = read_boot_node_addresses();
+        let addresses = String::from("addr1, addr2, addr3");
+        let items = read_boot_node_addresses(addresses);
         assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
     }
 
     #[test]
     fn test_read_boot_node_addresses_single_item_no_quotes() {
-        std::env::set_var("BOOT_NODE_ADDRESSES", "addr1");
-        let items = read_boot_node_addresses();
+        let addresses = String::from("addr1");
+        let items = read_boot_node_addresses(addresses);
         assert_eq!(items, vec!["addr1"]);
     }
 
     #[test]
     fn test_read_boot_node_addresses_single_item_with_quotes() {
-        std::env::set_var("BOOT_NODE_ADDRESSES", r#""addr1""#);
-        let items = read_boot_node_addresses();
+        let addresses = String::from("addr1");
+        let items = read_boot_node_addresses(addresses);
         assert_eq!(items, vec!["addr1"]);
     }
 
     #[test]
     fn test_read_boot_node_addresses_with_quotes() {
-        std::env::set_var("BOOT_NODE_ADDRESSES", r#""addr1", "addr2", "addr3""#);
-        let items = read_boot_node_addresses();
+        let addresses = String::from(r#""addr1", "addr2", "addr3""#);
+        let items = read_boot_node_addresses(addresses);
         assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
     }
 
     #[test]
     fn test_read_boot_node_addresses_with_commas_no_quotes() {
-        std::env::set_var("BOOT_NODE_ADDRESSES", "addr1,addr2,addr3");
-        let items = read_boot_node_addresses();
+        let addresses = String::from("addr1,addr2,addr3");
+        let items = read_boot_node_addresses(addresses);
         assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
     }
 
     #[test]
     fn test_read_boot_node_addresses_with_commas_and_quotes() {
-        std::env::set_var("BOOT_NODE_ADDRESSES", r#""addr1","addr2","addr3""#);
-        let items = read_boot_node_addresses();
+        let addresses = String::from(r#""addr1","addr2","addr3""#);
+        let items = read_boot_node_addresses(addresses);
         assert_eq!(items, vec!["addr1", "addr2", "addr3"]);
     }
 }

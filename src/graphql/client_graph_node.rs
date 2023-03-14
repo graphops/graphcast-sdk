@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::config::{BlockPointer, NetworkName, NetworkPointer};
 use crate::graphql::QueryError;
+use crate::NetworkPointer;
+use crate::{config::NetworkName, BlockPointer};
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -53,6 +54,9 @@ pub async fn query_graph_node_network_block_hash(
     };
     let queried_result =
         perform_block_hash_from_number(graph_node_endpoint.clone(), variables).await?;
+    if !queried_result.status().is_success() {
+        debug!("Unsuccessful query detail: {:#?}", queried_result);
+    }
     let response_body: Response<block_hash_from_number::ResponseData> =
         queried_result.json().await?;
 
@@ -100,7 +104,7 @@ pub async fn get_indexing_statuses(
 }
 
 /// This function update the chainhead block pointer for each Network according to the indexingStatuses of subgraphs
-pub async fn update_network_chainheads(
+pub fn update_network_chainheads(
     statuses: Vec<IndexingStatusesIndexingStatuses>,
     network_map: &mut HashMap<NetworkName, BlockPointer>,
 ) {
@@ -131,7 +135,7 @@ pub async fn update_network_chainheads(
 }
 
 /// This function gathers the subgraph's network name and latest blocks from the indexing statuses
-pub async fn subgraph_network_blocks(
+pub fn subgraph_network_blocks(
     statuses: Vec<IndexingStatusesIndexingStatuses>,
 ) -> Result<HashMap<String, NetworkPointer>, QueryError> {
     // subgraph (network, latest blocks)
@@ -180,7 +184,6 @@ pub async fn update_chainhead_blocks(
     update_network_chainheads(
         get_indexing_statuses(graph_node_endpoint.clone()).await?,
         network_map,
-    )
-    .await;
-    subgraph_network_blocks(get_indexing_statuses(graph_node_endpoint).await?).await
+    );
+    subgraph_network_blocks(get_indexing_statuses(graph_node_endpoint).await?)
 }
