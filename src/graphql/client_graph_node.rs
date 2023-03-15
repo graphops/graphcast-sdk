@@ -5,7 +5,7 @@ use crate::NetworkPointer;
 use crate::{config::NetworkName, BlockPointer};
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use self::indexing_statuses::IndexingStatusesIndexingStatuses;
 
@@ -55,7 +55,7 @@ pub async fn query_graph_node_network_block_hash(
     let queried_result =
         perform_block_hash_from_number(graph_node_endpoint.clone(), variables).await?;
     if !queried_result.status().is_success() {
-        debug!("Unsuccessful query detail: {:#?}", queried_result);
+        warn!("Unsuccessful query detail: {:#?}", queried_result);
     }
     let response_body: Response<block_hash_from_number::ResponseData> =
         queried_result.json().await?;
@@ -148,7 +148,7 @@ pub fn subgraph_network_blocks(
                 .chains
                 .into_iter()
                 .map(|chain| {
-                    if let Some(blk) = chain.chain_head_block {
+                    if let Some(blk) = chain.latest_block {
                         let blk_ptr = BlockPointer {
                             hash: blk.hash,
                             number: blk.number.as_str().parse::<u64>().unwrap_or_default(),
@@ -165,6 +165,10 @@ pub fn subgraph_network_blocks(
                 .collect::<String>()
         })
         .collect::<Vec<String>>();
+    debug!(
+        "Updated latest block pointers for {} number of subgraphs (currently takes all syncing statuses on graph node, change back to info logs after filtering for appropriate fields)",
+        updated_subgraphs.len()
+    );
     debug!("Updated subgraphs: {:?}", updated_subgraphs);
     trace!(
         "Updated subgraph latest blocks: {:#?}",

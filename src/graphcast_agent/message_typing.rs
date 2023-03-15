@@ -1,6 +1,5 @@
 use anyhow::anyhow;
 use chrono::Utc;
-use colored::Colorize;
 use ethers::signers::{Signer, Wallet};
 use ethers_core::{k256::ecdsa::SigningKey, types::Signature};
 use num_bigint::BigUint;
@@ -10,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
-use tracing::{debug, info, warn};
+use tracing::debug;
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
@@ -116,10 +115,6 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         block_number: u64,
         block_hash: String,
     ) -> Result<Self, BuildMessageError> {
-        debug!("\n{}", "Constructing message");
-
-        //TODO: block number and hash can be generated here???
-
         let payload = payload.as_ref().ok_or(BuildMessageError::Payload)?;
         let sig = wallet
             .sign_typed_data(payload)
@@ -149,6 +144,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 
         let waku_message =
             WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
+        debug!("Sending message: {:#?}", &self);
 
         let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
             .peers()
@@ -173,7 +169,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                         None,
                     )
                     .map_err(|e| {
-                        warn!("Failed to send message to peer: {e}");
+                        debug!("Failed to send message to peer: {e}");
                         WakuHandlingError::PublishMessage(e)
                     })
             })
@@ -247,7 +243,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 
         debug!(
             "{} {}: {} -> {:?}",
-            "Queried block hash from graph node on".cyan(),
+            "Queried block hash from graph node on",
             self.network.clone(),
             self.block_number,
             block_hash
@@ -359,7 +355,10 @@ pub async fn check_message_validity<
         .valid_nonce(nonces)
         .await?;
 
-    info!("{}", "Valid message!".bold().green());
+    debug!(
+        "{}\n{}{:?}",
+        "Valid message!", "Message: ", graphcast_message
+    );
     Ok(graphcast_message.clone())
 }
 

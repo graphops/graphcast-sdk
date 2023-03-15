@@ -110,7 +110,7 @@ impl GraphcastAgent {
         registry_subgraph: &str,
         network_subgraph: &str,
         graph_node_endpoint: &str,
-        boot_node_addresses: Vec<String>,
+        boot_node_addresses: Vec<Multiaddr>,
         graphcast_namespace: Option<&str>,
         subtopics: Vec<String>,
         waku_node_key: Option<String>,
@@ -156,6 +156,22 @@ impl GraphcastAgent {
             graph_node_endpoint: graph_node_endpoint.to_string(),
             old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
         })
+    }
+
+    /// Get the number of peers excluding self
+    pub fn number_of_peers(&self) -> u64 {
+        self.node_handle
+            .peer_count()
+            .unwrap_or({
+                debug!("Could not count the number of peers");
+                0
+            })
+            .try_into()
+            .unwrap_or({
+                debug!("Could not parse peer count usize to u64");
+                0
+            })
+            - 1
     }
 
     /// Get identifiers of Radio content topics
@@ -266,7 +282,7 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::WakuNodeError)
         .map(|id| {
             ids.insert(id.clone());
-            debug!("inserted msg id: {:#?}", id);
+            debug!("Sent msg id: {:#?}", id);
             id
         })
     }
@@ -287,23 +303,23 @@ impl GraphcastAgent {
 
     // TODO: Could register the query function at intialization and call it within this fn
     pub async fn update_content_topics(&self, subtopics: Vec<String>) {
-        info!("updating the topics: {:#?}", subtopics);
         // build content topics
         let content_topics = build_content_topics(self.radio_name, 0, &subtopics);
         let old_contents = self.content_topics.lock().await;
         // Check if an update to the content topic is necessary
         if *old_contents != content_topics {
-            // subscribe to the new content topics
+            debug!(
+                "updating to new set of content topics: {:#?}",
+                content_topics
+            );
+            // Subscribe to the new content topics
             let _ =
                 filter_peer_subscriptions(&self.node_handle, &self.pubsub_topic, &content_topics)
                     .expect("Could not connect and subscribe to the subtopics");
 
-            //TODO: unsubscribe to the old content topics
+            // Unsubscribe to the old content topics
             unsubscribe_peer(&self.node_handle, &self.pubsub_topic, &old_contents)
                 .expect("Could not connect and subscribe to the subtopics");
-
-            //TODO: need &mut self to update this field, graphcast is usually static so invovles unsafe operation changes
-            // optionally content_topics field doesn't necessary need to be with graphcast, or somehow derived when called
 
             self.content_topics.lock().await.clear();
             self.content_topics.lock().await.extend(content_topics);

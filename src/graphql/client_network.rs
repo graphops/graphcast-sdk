@@ -95,6 +95,7 @@ pub struct Network {
 impl Network {
     /// Fetch indexer staked tokens
     pub fn indexer_stake(&self) -> BigUint {
+        // TODO: do division by 1e18 for grt unit
         self.indexer
             .as_ref()
             .map(|i| i.staked_tokens.clone())
