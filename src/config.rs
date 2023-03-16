@@ -146,11 +146,18 @@ pub struct Config {
     pub slack_token: Option<String>,
     #[clap(
         long,
-        value_name = "SLACK_WEBHOOK",
-        help = "Webhook to the Slack bot App",
-        env = "SLACK_WEBHOOK"
+        value_name = "SLACK_CHANNEL",
+        help = "Name of Slack channel to send messages to (has to be a public channel)",
+        env = "SLACK_CHANNEL"
     )]
-    pub slack_webhook: Option<String>,
+    pub slack_channel: Option<String>,
+    #[clap(
+        long,
+        value_name = "DISCORD_WEBHOOK",
+        help = "Discord webhook URL to send messages to",
+        env = "DISCORD_WEBHOOK"
+    )]
+    pub discord_webhook: Option<String>,
 }
 
 impl Config {

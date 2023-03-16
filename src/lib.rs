@@ -38,10 +38,10 @@ use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 use waku::WakuPubSubTopic;
 
+pub mod bots;
 pub mod config;
 pub mod graphcast_agent;
 pub mod graphql;
-pub mod slack_bot;
 
 type NoncesMap = HashMap<String, HashMap<String, i64>>;
 
