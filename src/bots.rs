@@ -24,7 +24,7 @@ impl DiscordBot {
         let mut map = HashMap::new();
         map.insert(
             "content",
-            format!("🚨 Notification from Radio '{}' \n{}", radio_name, content),
+            format!("🚨 Notification from Radio '{radio_name}' \n{content}"),
         );
 
         let client = reqwest::Client::new();
