@@ -6,7 +6,7 @@ use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, env, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
 use tracing::debug;
@@ -339,13 +339,27 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 pub async fn check_message_validity<
     T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
 >(
-    graphcast_message: GraphcastMessage<T>,
+    mut graphcast_message: GraphcastMessage<T>,
     nonces: &Arc<Mutex<NoncesMap>>,
     registry_subgraph: &str,
     network_subgraph: &str,
     graph_node_endpoint: &str,
     local_graphcast_id: String,
 ) -> Result<GraphcastMessage<T>, BuildMessageError> {
+    // These mocks are only used in tests and are temporary
+    // Will be removed once tests are ported to use cfg(test)
+    if env::var("CHECK").is_ok() {
+        if let Ok(mock_nonce) = env::var("MOCK_NONCE") {
+            debug!("Mock nonce: {}", mock_nonce);
+            graphcast_message.nonce = mock_nonce.parse().expect("Not a valid number");
+        }
+
+        if let Ok(mock_hash) = env::var("MOCK_BLOCK_HASH") {
+            debug!("Mock block hash: {}", mock_hash);
+            graphcast_message.block_hash = mock_hash;
+        }
+    }
+
     graphcast_message
         .valid_sender(registry_subgraph, network_subgraph, local_graphcast_id)
         .await?

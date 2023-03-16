@@ -151,6 +151,31 @@ pub struct Config {
         env = "SLACK_WEBHOOK"
     )]
     pub slack_webhook: Option<String>,
+    #[clap(
+        long,
+        value_name = "INSTANCE",
+        // Basic instance runs with default configs, invalid_payload sends a malformed message, divergent sends an unexpected nPOI value
+        possible_values = &["basic", "invalid_payload", "divergent"],
+        help = "Instance to run (integration tests)"
+    )]
+    pub instance: Option<String>,
+    #[clap(
+        long,
+        value_name = "CHECK",
+        possible_values = &[
+            "poi_ok", "num_messages", "correct_filtering_default_topics", "correct_filtering_different_topics",
+            "invalid_sender", "invalid_time", "invalid_hash", "invalid_payload", "skip_messages_from_self",
+            "store_attestations", "poi_divergence_remote", "poi_divergence_local", "clear_store", "comparison_interval"
+        ],
+        help = "Check to run (integration tests)"
+    )]
+    pub check: Option<String>,
+    #[clap(
+        long,
+        value_name = "COUNT",
+        help = "Count of test instances (integration tests)"
+    )]
+    pub count: Option<u32>,
 }
 
 impl Config {
@@ -161,6 +186,12 @@ impl Config {
         std::env::set_var("RUST_LOG", config.log_level.clone());
         // Enables tracing under RUST_LOG variable
         init_tracing().expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
+
+        // Saving this to know if running in test mode
+        if let Some(check_value) = config.clone().check {
+            std::env::set_var("CHECK", check_value);
+        }
+
         config
     }
 
