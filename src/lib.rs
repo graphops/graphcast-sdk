@@ -16,10 +16,12 @@
 //! For more explanation, see the crate documentation.
 //!
 
-use config::{NetworkName, NETWORKS};
-use ethers::signers::{Signer, Wallet};
+use ethers::signers::{
+    coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
+};
 use ethers_core::k256::ecdsa::SigningKey;
 use graphcast_agent::message_typing::GraphcastMessage;
+use networks::{NetworkName, NETWORKS};
 
 use once_cell::sync::OnceCell;
 use prost::Message;
@@ -42,6 +44,7 @@ pub mod bots;
 pub mod config;
 pub mod graphcast_agent;
 pub mod graphql;
+pub mod networks;
 
 type NoncesMap = HashMap<String, HashMap<String, i64>>;
 
@@ -76,6 +79,13 @@ pub fn cf_nameserver() -> Host {
 /// Attempt to read environmental variable
 pub fn config_env_var(name: &str) -> Result<String, String> {
     env::var(name).map_err(|e| format!("{name}: {e}"))
+}
+
+/// Build Wallet from Private key or Mnemonic
+pub fn build_wallet(value: &str) -> Result<Wallet<SigningKey>, WalletError> {
+    value
+        .parse::<LocalWallet>()
+        .or(MnemonicBuilder::<English>::default().phrase(value).build())
 }
 
 /// Get the graphcastID address from the wallet

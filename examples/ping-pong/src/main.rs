@@ -1,11 +1,12 @@
 use dotenv::dotenv;
 
 use graphcast_sdk::{
-    config::{Config, NetworkName},
+    config::Config,
     graphcast_agent::{
         message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
     },
     graphql::client_graph_node::{get_indexing_statuses, update_network_chainheads},
+    networks::NetworkName,
     BlockPointer,
 };
 use once_cell::sync::OnceCell;
@@ -45,7 +46,7 @@ async fn main() -> ! {
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
     // if not provided then they are usually generated based on indexer allocations
     let mut subtopics = vec!["ping-pong-content-topic".to_string()];
-    for topic in config.topics {
+    for topic in config.topics.clone() {
         if !subtopics.contains(&topic) {
             subtopics.push(topic);
         }
@@ -53,8 +54,9 @@ async fn main() -> ! {
 
     debug!("Initializing the Graphcast Agent");
     let graphcast_agent = GraphcastAgent::new(
-        // private_key resolves into ethereum wallet and indexer identity.
-        config.private_key,
+        // wallet key can be either private key or mnemonic, resolves into ethereum wallet and indexer identity.
+        // Unwrap is okay here thanks to configuration validate_set_up
+        config.wallet_input().unwrap().to_string(),
         // radio_name is used as part of the content topic for the radio application
         radio_name,
         &config.registry_subgraph,
