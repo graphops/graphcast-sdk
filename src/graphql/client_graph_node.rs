@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::graphql::QueryError;
 use crate::NetworkPointer;
-use crate::{config::NetworkName, BlockPointer};
+use crate::{networks::NetworkName, BlockPointer};
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};

@@ -1,8 +1,6 @@
 use clap::Parser;
-use ethers::signers::{LocalWallet, WalletError};
-use once_cell::sync::Lazy;
+use ethers::signers::WalletError;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::fs::read_to_string;
 use std::str::FromStr;
 use tracing::{debug, info};
@@ -11,7 +9,7 @@ use waku::Multiaddr;
 use crate::graphql::client_graph_node::get_indexing_statuses;
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
-use crate::{graphcast_id_address, init_tracing};
+use crate::{build_wallet, graphcast_id_address, init_tracing};
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 #[clap(
@@ -39,9 +37,18 @@ pub struct Config {
         value_parser = Config::parse_key,
         env = "PRIVATE_KEY",
         hide_env_values = true,
-        help = "Private key to the Graphcase ID wallet",
+        help = "Private key to the Graphcast ID wallet (Precendence over mnemonics)",
     )]
-    pub private_key: String,
+    pub private_key: Option<String>,
+    #[clap(
+        long,
+        value_name = "KEY",
+        value_parser = Config::parse_key,
+        env = "MNEMONIC",
+        hide_env_values = true,
+        help = "Mnemonic to the Graphcast ID wallet (first address of the wallet is used; Only one of private key or mnemonic is needed)",
+    )]
+    pub mnemonic: Option<String>,
     #[clap(
         long,
         value_name = "SUBGRAPH",
@@ -198,7 +205,7 @@ impl Config {
     /// Validate that private key as an Eth wallet
     fn parse_key(value: &str) -> Result<String, WalletError> {
         // The wallet can be stored instead of the original private key
-        let wallet = value.parse::<LocalWallet>()?;
+        let wallet = build_wallet(value)?;
         let addr = graphcast_id_address(&wallet);
         info!("Resolved Graphcast id: {}", addr);
         Ok(String::from(value))
@@ -224,12 +231,23 @@ impl Config {
         Multiaddr::from_str(address).map_err(|e| ConfigError::ValidateInput(e.to_string()))
     }
 
+    /// Private key takes precedence over mnemonic
+    pub fn wallet_input(&self) -> Result<&String, ConfigError> {
+        match (&self.private_key, &self.mnemonic) {
+            (Some(p), _) => Ok(p),
+            (_, Some(m)) => Ok(m),
+            _ => Err(ConfigError::ValidateInput(
+                "Must provide either private key or mnemonic".to_string(),
+            )),
+        }
+    }
     /// Asynchronous validation to the configuration set ups
     pub async fn validate_set_up(&self) -> Result<&Self, ConfigError> {
-        let wallet = self
-            .private_key
-            .parse::<LocalWallet>()
-            .map_err(|e| ConfigError::ValidateInput(format!("Private key links to wallet: {e}")))?;
+        let wallet = build_wallet(self.wallet_input()?).map_err(|e| {
+            ConfigError::ValidateInput(format!(
+                "Invalid key to wallet, use private key or mnemonic: {e}"
+            ))
+        })?;
         let graphcast_id = graphcast_id_address(&wallet);
         // TODO: Implies invalidity for both graphcast id and registry, maybe map_err more specifically
         let indexer = query_registry_indexer(self.registry_subgraph.to_string(), graphcast_id)
@@ -257,132 +275,6 @@ impl Config {
         Ok(self)
     }
 }
-
-/// Struct for Network and block interval for updates
-#[derive(Debug, Clone)]
-pub struct Network {
-    pub name: NetworkName,
-    pub interval: u64,
-}
-
-/// List of supported networks
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum NetworkName {
-    Goerli,
-    Mainnet,
-    Gnosis,
-    Hardhat,
-    ArbitrumOne,
-    ArbitrumGoerli,
-    Avalanche,
-    Polygon,
-    Celo,
-    Optimism,
-    Fantom,
-    Unknown,
-}
-
-impl NetworkName {
-    pub fn from_string(name: &str) -> Self {
-        match name {
-            "goerli" => NetworkName::Goerli,
-            "mainnet" => NetworkName::Mainnet,
-            "gnosis" => NetworkName::Gnosis,
-            "hardhat" => NetworkName::Hardhat,
-            "arbitrum-one" => NetworkName::ArbitrumOne,
-            "arbitrum-goerli" => NetworkName::ArbitrumGoerli,
-            "avalanche" => NetworkName::Avalanche,
-            "polygon" => NetworkName::Polygon,
-            "celo" => NetworkName::Celo,
-            "optimism" => NetworkName::Optimism,
-            "fantom" => NetworkName::Fantom,
-            _ => NetworkName::Unknown,
-        }
-    }
-}
-
-impl fmt::Display for NetworkName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            NetworkName::Goerli => "goerli",
-            NetworkName::Mainnet => "mainnet",
-            NetworkName::Gnosis => "gnosis",
-            NetworkName::Hardhat => "hardhat",
-            NetworkName::ArbitrumOne => "arbitrum-one",
-            NetworkName::ArbitrumGoerli => "arbitrum-goerli",
-            NetworkName::Avalanche => "avalanche",
-            NetworkName::Polygon => "polygon",
-            NetworkName::Celo => "celo",
-            NetworkName::Optimism => "optimism",
-            NetworkName::Fantom => "fantom",
-            NetworkName::Unknown => "unknown",
-        };
-
-        write!(f, "{name}")
-    }
-}
-
-/// Maintained static list of supported Networks, the intervals target ~5minutes
-/// depending on the blockchain average block processing time
-pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
-    vec![
-        // Goerli (Ethereum Testnet): ~15 seconds
-        Network {
-            name: NetworkName::from_string("goerli"),
-            interval: 20,
-        },
-        // Mainnet (Ethereum): ~10-12 seconds
-        Network {
-            name: NetworkName::from_string("mainnet"),
-            interval: 30,
-        },
-        // Gnosis: ~5 seconds
-        Network {
-            name: NetworkName::from_string("gnosis"),
-            interval: 60,
-        },
-        // Local test network
-        Network {
-            name: NetworkName::from_string("hardhat"),
-            interval: 10,
-        },
-        // ArbitrumOne: ~0.5-1 second
-        Network {
-            name: NetworkName::from_string("arbitrum-one"),
-            interval: 50,
-        },
-        // ArbitrumGoerli (Arbitrum Testnet): ~6 seconds
-        Network {
-            name: NetworkName::from_string("arbitrum-goerli"),
-            interval: 60,
-        },
-        // Avalanche: ~3-5 seconds
-        Network {
-            name: NetworkName::from_string("avalanche"),
-            interval: 60,
-        },
-        // Polygon: ~2 seconds
-        Network {
-            name: NetworkName::from_string("polygon"),
-            interval: 150,
-        },
-        // Celo: ~5-10 seconds
-        Network {
-            name: NetworkName::from_string("celo"),
-            interval: 30,
-        },
-        // Optimism: ~10-15 seconds
-        Network {
-            name: NetworkName::from_string("optimism"),
-            interval: 20,
-        },
-        // Fantom: ~2-3 seconds
-        Network {
-            name: NetworkName::from_string("optimism"),
-            interval: 100,
-        },
-    ]
-});
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {

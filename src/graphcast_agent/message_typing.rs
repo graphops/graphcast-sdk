@@ -13,12 +13,12 @@ use tracing::debug;
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
-    config::NetworkName,
     graphql::{
         client_graph_node::query_graph_node_network_block_hash,
         client_network::query_network_subgraph, client_registry::query_registry_indexer,
         QueryError,
     },
+    networks::NetworkName,
     NoncesMap,
 };
 

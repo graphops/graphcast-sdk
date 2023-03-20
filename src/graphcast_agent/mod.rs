@@ -30,12 +30,12 @@ use self::waku_handling::{
     setup_node_handle, WakuHandlingError,
 };
 
-use crate::config::NetworkName;
 use crate::graphcast_agent::waku_handling::unsubscribe_peer;
 use crate::graphql::client_graph_node::query_graph_node_network_block_hash;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::graphql::QueryError;
-use crate::{graphcast_id_address, NoncesMap};
+use crate::networks::NetworkName;
+use crate::{build_wallet, graphcast_id_address, NoncesMap};
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -105,7 +105,7 @@ impl GraphcastAgent {
     /// ```
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
-        private_key: String,
+        wallet_key: String,
         radio_name: &'static str,
         registry_subgraph: &str,
         network_subgraph: &str,
@@ -118,7 +118,7 @@ impl GraphcastAgent {
         waku_port: Option<String>,
         waku_addr: Option<String>,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
-        let wallet = private_key.parse::<LocalWallet>()?;
+        let wallet = build_wallet(&wallet_key)?;
         let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace);
 
         //Should we allow the setting of waku node host and port?
