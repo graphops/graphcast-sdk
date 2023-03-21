@@ -3,6 +3,7 @@ query IndexingStatuses {
     subgraph
     synced
     health
+    node
     fatalError {
       handler
       message
