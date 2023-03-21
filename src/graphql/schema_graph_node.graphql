@@ -18,6 +18,7 @@ type IndexerDeployment {
   subgraph: String!
   synced: Boolean!
   health: String!
+  node: String!
   fatalError: IndexingError
   chains: [ChainIndexingStatus!]!
 }

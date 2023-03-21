@@ -84,6 +84,19 @@ pub struct Config {
     pub topics: Vec<String>,
     #[clap(
         long,
+        value_name = "COVERAGE",
+        value_enum,
+        // possible_values = ["comprehensive", "on-chain", "minimal"],
+        default_value = "on-chain",
+        env = "COVERAGE",
+        help = "Toggle for topic coverage level",
+        long_help = "Topic coverage level\ncomprehensive: Subscribe to on-chain topics, user defined static topics, and additional topics\n
+            on-chain: Subscribe to on-chain topics and user defined static topics\nminimal: Only subscribe to user defined static topics.\n
+            Default is set to on-chain coverage"
+    )]
+    pub coverage: CoverageLevel,
+    #[clap(
+        long,
         min_values = 0,
         default_value = "120",
         value_name = "COLLECT_MESSAGE_DURATION",
@@ -165,6 +178,13 @@ pub struct Config {
         env = "DISCORD_WEBHOOK"
     )]
     pub discord_webhook: Option<String>,
+}
+
+#[derive(clap::ValueEnum, Clone, Debug, Serialize, Deserialize)]
+pub enum CoverageLevel {
+    Minimal,
+    OnChain,
+    Comprehensive,
 }
 
 impl Config {
