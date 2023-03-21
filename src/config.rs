@@ -178,6 +178,13 @@ pub struct Config {
         env = "DISCORD_WEBHOOK"
     )]
     pub discord_webhook: Option<String>,
+    #[clap(
+        long,
+        value_name = "PROMETHEUS_METRICS",
+        help = "Toggle to turn Prometheus metrics on/off (off by default)",
+        env = "PROMETHEUS_METRICS"
+    )]
+    pub prometheus_metrics: Option<bool>,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Serialize, Deserialize)]
