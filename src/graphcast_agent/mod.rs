@@ -160,7 +160,8 @@ impl GraphcastAgent {
 
     /// Get the number of peers excluding self
     pub fn number_of_peers(&self) -> u64 {
-        self.node_handle
+        let count = self
+            .node_handle
             .peer_count()
             .unwrap_or({
                 debug!("Could not count the number of peers");
@@ -170,8 +171,13 @@ impl GraphcastAgent {
             .unwrap_or({
                 debug!("Could not parse peer count usize to u64");
                 0
-            })
-            - 1
+            });
+
+        if count > 0 {
+            count - 1
+        } else {
+            0
+        }
     }
 
     /// Get identifiers of Radio content topics
