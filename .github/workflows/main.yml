@@ -27,7 +27,7 @@ jobs:
           submodules: true
       - name: Checkout submodules
         run: git submodule update --init --recursive
-      - uses: actions/setup-go@v3 # we need go to build go-waku
+      - uses: actions/setup-go@v4 # we need go to build go-waku
         with:
           go-version: '1.19'
       - uses: actions-rs/toolchain@v1
@@ -60,7 +60,7 @@ jobs:
           submodules: true
       - name: Checkout submodules
         run: git submodule update --init --recursive
-      - uses: actions/setup-go@v3 # we need go to build go-waku
+      - uses: actions/setup-go@v4 # we need go to build go-waku
         with:
           go-version: '1.19'
 
@@ -89,7 +89,7 @@ jobs:
           submodules: true
       - name: Checkout submodules
         run: git submodule update --init --recursive
-      - uses: actions/setup-go@v3 # we need go to build go-waku
+      - uses: actions/setup-go@v4 # we need go to build go-waku
         with:
           go-version: '1.19'
       - uses: actions-rs/toolchain@v1
