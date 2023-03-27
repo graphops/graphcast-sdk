@@ -106,7 +106,10 @@ pub fn filter_peer_subscriptions(
             }
         })
         .collect();
-    debug!("Filter subscription added: {:#?}", filter_subscribe_result);
+    info!(
+        "Subscription connections established: {:#?}",
+        filter_subscribe_result
+    );
     Ok(filter_subscribe_result)
 }
 
@@ -141,7 +144,6 @@ fn node_config(
     port: usize,
     ad_addr: Option<Multiaddr>,
     key: Option<SecretKey>,
-    pubsub_topics: Vec<WakuPubSubTopic>,
 ) -> Option<WakuNodeConfig> {
     let log_level = match env::var("WAKU_LOG_LEVEL") {
         Ok(level) => match level.to_uppercase().as_str() {
@@ -162,11 +164,11 @@ fn node_config(
         advertise_addr: ad_addr, // Fill this for boot nodes
         node_key: key,
         keep_alive_interval: None,
-        relay: Some(true), // Default true - required for filter protocol
+        relay: Some(false), // Default true - will receive all msg on relay
         min_peers_to_publish: Some(0), // Default 0
         filter: Some(true), // Default false
         log_level: Some(log_level),
-        relay_topics: pubsub_topics,
+        relay_topics: [].to_vec(),
         discv5: Some(false),
         discv5_bootstrap_nodes: [].to_vec(),
         discv5_udp_port: None,
@@ -233,7 +235,6 @@ fn connect_multiaddresses(
 }
 
 //TODO: Topic discovery DNS and Discv5
-//TODO: Filter full node config for boot nodes
 /// Set up a waku node given pubsub topics
 pub fn setup_node_handle(
     boot_node_addresses: Vec<Multiaddr>,
@@ -253,15 +254,7 @@ pub fn setup_node_handle(
             boot_node_handle(pubsub_topic, host, port, advertised_addr, node_key)
         }
         _ => {
-            info!("{} {:?}", "Subscribing the pubsub topic: ", &pubsub_topic);
-
-            let node_config = node_config(
-                host,
-                port,
-                advertised_addr,
-                node_key,
-                vec![pubsub_topic.clone()],
-            );
+            let node_config = node_config(host, port, advertised_addr, node_key);
 
             let node_handle = waku_new(node_config)
                 .map_err(|_e| {
@@ -296,13 +289,7 @@ pub fn boot_node_handle(
     advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
 ) -> Result<WakuNodeHandle<Running>, WakuHandlingError> {
-    let boot_node_config = node_config(
-        host,
-        port,
-        advertised_addr,
-        node_key,
-        vec![pubsub_topic.clone()],
-    );
+    let boot_node_config = node_config(host, port, advertised_addr, node_key);
     let boot_node_handle = waku_new(boot_node_config)
         .map_err(|_e| {
             WakuHandlingError::CreateNodeError("Could not create Waku light node".to_string())
@@ -353,35 +340,23 @@ pub async fn handle_signal<
                 Ok(graphcast_message) => {
                     debug!("{}{}", "Message received! Message id: ", event.message_id());
                     trace!("Old message ids: {:#?}", ids);
-                    // Check for content topic and repetitive message id
-                    match (
-                        filter_topic_check(
-                            &graphcast_agent.content_topics.lock().await.clone(),
-                            graphcast_message.identifier.clone(),
-                        ),
-                        ids.contains(event.message_id()),
-                    ) {
-                        (true, false) => {
-                            ids.insert(event.message_id().clone());
-                            check_message_validity(
-                                graphcast_message,
-                                &graphcast_agent.nonces,
-                                &graphcast_agent.registry_subgraph,
-                                &graphcast_agent.network_subgraph,
-                                &graphcast_agent.graph_node_endpoint,
-                                graphcast_id_address(&graphcast_agent.wallet),
-                            )
-                            .await
-                            .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
-                        }
-                        (_, true) => Err(WakuHandlingError::InvalidMessage(
+                    if ids.contains(event.message_id()) {
+                        return Err(WakuHandlingError::InvalidMessage(
                             "Skip repeated message".to_string(),
-                        )),
-                        (false, _) => Err(WakuHandlingError::ContentTopicsError(format!(
-                            "Skipping Waku message with unsubscribed content topic: {:#?}",
-                            graphcast_message.identifier
-                        ))),
-                    }
+                        ));
+                    };
+                    // Check for content topic and repetitive message id
+                    ids.insert(event.message_id().clone());
+                    check_message_validity(
+                        graphcast_message,
+                        &graphcast_agent.nonces,
+                        &graphcast_agent.registry_subgraph,
+                        &graphcast_agent.network_subgraph,
+                        &graphcast_agent.graph_node_endpoint,
+                        graphcast_id_address(&graphcast_agent.wallet),
+                    )
+                    .await
+                    .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
                 }
                 Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
                     "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
@@ -400,7 +375,7 @@ pub async fn handle_signal<
 }
 
 // Allow empty subscription when no content topic was created
-// Can be removed after waku filter protocol has been tested thoroughly
+// TODO: removed after waku filter protocol has been tested thoroughly
 pub fn filter_topic_check(content_topics: &[WakuContentTopic], topic: String) -> bool {
     content_topics.is_empty()
         | content_topics
