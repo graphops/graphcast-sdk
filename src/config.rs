@@ -180,11 +180,11 @@ pub struct Config {
     pub discord_webhook: Option<String>,
     #[clap(
         long,
-        value_name = "PROMETHEUS_METRICS",
-        help = "Toggle to turn Prometheus metrics on/off (off by default)",
-        env = "PROMETHEUS_METRICS"
+        value_name = "METRICS_PORT",
+        help = "If set, the Radio will expose Prometheus metrics on the given port (off by default). This requires having a local Prometheus server running and scraping metrics on the given port.",
+        env = "METRICS_PORT"
     )]
-    pub prometheus_metrics: Option<bool>,
+    pub metrics_port: Option<u16>,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Serialize, Deserialize)]
