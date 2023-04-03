@@ -25,7 +25,7 @@ reqwest = {version = "0.11.16", features = ["json"]}
 ethers = "2.0.1"
 ethers-contract = "2.0.0"
 ethers-core = "2.0.1"
-ethers-derive-eip712 = "2.0.0"
+ethers-derive-eip712 = "2.0.1"
 clap = { version = "3.2.23", features = ["derive", "env"] }
 toml = "0.7.3"
 partial_application = "0.2.1"

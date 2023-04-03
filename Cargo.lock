@@ -1402,9 +1402,9 @@ dependencies = [
 
 [[package]]
 name = "ethers-derive-eip712"
-version = "2.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94522735aca5b774af8c53b4a881027ae597dc0486a458eac52a3ddf1e7f3a9c"
+checksum = "3f15b773f10421d5f546baef879470dfeaab6c2eaea51086eb129f69281b7b93"
 dependencies = [
  "ethers-core",
  "hex",
