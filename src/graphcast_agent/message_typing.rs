@@ -19,7 +19,7 @@ use crate::{
         QueryError,
     },
     networks::NetworkName,
-    NoncesMap,
+    NetworkBlockError, NoncesMap,
 };
 
 use super::{waku_handling::WakuHandlingError, MSG_REPLAY_LIMIT};
@@ -370,8 +370,12 @@ pub enum BuildMessageError {
     Signing,
     #[error("Could not encode message")]
     Encoding,
+    #[error("Could not decode message")]
+    Decoding,
     #[error("Could not pass message validity checks: {0}")]
     InvalidFields(anyhow::Error),
+    #[error("Could not build message with Network and BlockPointer: {0}")]
+    Network(NetworkBlockError),
     #[error("Could not derive fields from the existing message: {0}")]
     FieldDerivations(QueryError),
     #[error("{0}")]
