@@ -2,24 +2,37 @@ type BlockPointer {
   number: String!
   hash: String!
 }
-                                                                                                                                                                                                                                                        
+
+enum Health {
+  "Subgraph syncing normally"
+  healthy
+  "Subgraph syncing but with errors"
+  unhealthy
+  "Subgraph halted due to errors"
+  failed
+}
+
 type IndexingError {
   handler: String
+  block: BlockPointer
   message: String!
+  deterministic: Boolean!
 }
 
 type ChainIndexingStatus {
   network: String!
   latestBlock: BlockPointer
   chainHeadBlock: BlockPointer
+  lastHealthyBlock: BlockPointer
 }
 
 type IndexerDeployment {
   subgraph: String!
   synced: Boolean!
-  health: String!
-  node: String!
+  health: Health!
+  node: String
   fatalError: IndexingError
+  nonFatalErrors: [IndexingError!]!
   chains: [ChainIndexingStatus!]!
 }
 
