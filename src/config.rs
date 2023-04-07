@@ -180,6 +180,13 @@ pub struct Config {
     pub discord_webhook: Option<String>,
     #[clap(
         long,
+        value_name = "METRICS_HOST",
+        help = "If set, the Radio will expose Prometheus metrics on the given host (off by default). This requires having a local Prometheus server running and scraping metrics on the given port.",
+        env = "METRICS_HOST"
+    )]
+    pub metrics_host: Option<String>,
+    #[clap(
+        long,
         value_name = "METRICS_PORT",
         help = "If set, the Radio will expose Prometheus metrics on the given port (off by default). This requires having a local Prometheus server running and scraping metrics on the given port.",
         env = "METRICS_PORT"
