@@ -159,25 +159,11 @@ impl GraphcastAgent {
     }
 
     /// Get the number of peers excluding self
-    pub fn number_of_peers(&self) -> u64 {
-        let count = self
-            .node_handle
-            .peer_count()
-            .unwrap_or({
-                debug!("Could not count the number of peers");
-                0
-            })
-            .try_into()
-            .unwrap_or({
-                debug!("Could not parse peer count usize to u64");
-                0
-            });
-
-        if count > 0 {
-            count - 1
-        } else {
+    pub fn number_of_peers(&self) -> usize {
+        self.node_handle.peer_count().unwrap_or({
+            debug!("Could not count the number of peers");
             0
-        }
+        })
     }
 
     /// Get identifiers of Radio content topics
@@ -202,11 +188,7 @@ impl GraphcastAgent {
         &self,
         identifier: String,
     ) -> Result<WakuContentTopic, GraphcastAgentError> {
-        debug!(
-            "Target content topics: {:#?}\nSubscribed content topics: {:#?}",
-            identifier,
-            self.content_topics.lock().await,
-        );
+        debug!("Target content topics: {:#?}\n", identifier,);
         match self
             .content_topics
             .lock()
