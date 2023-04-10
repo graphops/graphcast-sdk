@@ -2,14 +2,13 @@ use anyhow::anyhow;
 use chrono::Utc;
 use ethers::signers::{Signer, Wallet};
 use ethers_core::{k256::ecdsa::SigningKey, types::Signature};
-use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
-use tracing::debug;
+use tracing::{debug, trace};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
@@ -39,7 +38,7 @@ fn prepare_nonces(
 pub async fn get_indexer_stake(
     indexer_address: String,
     network_subgraph: &str,
-) -> Result<BigUint, QueryError> {
+) -> Result<f32, QueryError> {
     Ok(
         query_network_subgraph(network_subgraph.to_string(), indexer_address)
             .await?
@@ -144,7 +143,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 
         let waku_message =
             WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
-        debug!("Sending message: {:#?}", &self);
+        trace!("Sending message: {:#?}", &self);
 
         let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
             .peers()
@@ -179,7 +178,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
             .into_iter()
             .find_map(|res| res.ok())
             .ok_or(WakuHandlingError::PublishMessage(
-                "Message could not be sent do any peers".to_string(),
+                "Message could not be sent to any peers".to_string(),
             ))
     }
 
@@ -205,7 +204,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                 .map_err(BuildMessageError::FieldDerivations)?
                 .stake_satisfy_requirement()
             {
-                debug!("Valid Indexer:  {}", indexer_address);
+                trace!("Valid Indexer:  {}", indexer_address);
                 Ok(self)
             } else {
                 Err(BuildMessageError::InvalidFields(anyhow!(
@@ -241,7 +240,7 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
         .await
         .map_err(BuildMessageError::FieldDerivations)?;
 
-        debug!(
+        trace!(
             "{} {}: {} -> {:?}",
             "Queried block hash from graph node on",
             self.network.clone(),
@@ -291,9 +290,11 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
                 let nonce = nonces_per_subgraph.get(&address);
                 match nonce {
                     Some(nonce) => {
-                        debug!(
+                        trace!(
                             "Latest saved nonce for subgraph {} and address {}: {}",
-                            self.identifier, address, nonce
+                            self.identifier,
+                            address,
+                            nonce
                         );
 
                         if nonce > &self.nonce {
@@ -355,9 +356,11 @@ pub async fn check_message_validity<
         .valid_nonce(nonces)
         .await?;
 
-    debug!(
+    trace!(
         "{}\n{}{:?}",
-        "Valid message!", "Message: ", graphcast_message
+        "Valid message!",
+        "Message: ",
+        graphcast_message
     );
     Ok(graphcast_message.clone())
 }

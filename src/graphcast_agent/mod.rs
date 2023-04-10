@@ -17,7 +17,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 use url::ParseError;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
@@ -161,7 +161,7 @@ impl GraphcastAgent {
     /// Get the number of peers excluding self
     pub fn number_of_peers(&self) -> usize {
         self.node_handle.peer_count().unwrap_or({
-            debug!("Could not count the number of peers");
+            trace!("Could not count the number of peers");
             0
         })
     }
@@ -188,7 +188,7 @@ impl GraphcastAgent {
         &self,
         identifier: String,
     ) -> Result<WakuContentTopic, GraphcastAgentError> {
-        debug!("Target content topics: {:#?}\n", identifier,);
+        trace!("Target content topics: {:#?}\n", identifier,);
         match self
             .content_topics
             .lock()
@@ -247,7 +247,7 @@ impl GraphcastAgent {
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self.match_content_topic(identifier.clone()).await?;
         // Remove debug log after content topic filtering is stable
-        debug!("Selected content topic: {:#?}", content_topic);
+        trace!("Selected content topic: {:#?}", content_topic);
         let block_hash = self
             .get_block_hash(network.to_string().clone(), block_number)
             .await?;
@@ -270,7 +270,7 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::WakuNodeError)
         .map(|id| {
             ids.insert(id.clone());
-            debug!("Sent msg id: {:#?}", id);
+            trace!("Sent msg id: {:#?}", id);
             id
         })
     }

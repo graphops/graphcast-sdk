@@ -338,8 +338,12 @@ pub async fn handle_signal<
                 event.waku_message().payload(),
             ) {
                 Ok(graphcast_message) => {
-                    debug!("{}{}", "Message received! Message id: ", event.message_id());
-                    trace!("Old message ids: {:#?}", ids);
+                    trace!(
+                        "{}{}\nMessage: {:#?}",
+                        "Message received! Message id: ",
+                        event.message_id(),
+                        graphcast_message
+                    );
                     if ids.contains(event.message_id()) {
                         return Err(WakuHandlingError::InvalidMessage(
                             "Skip repeated message".to_string(),

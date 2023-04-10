@@ -169,10 +169,10 @@ pub fn subgraph_network_blocks(
         "Updated latest block pointers for {} number of subgraphs (currently takes all syncing statuses on graph node, change back to info logs after filtering for appropriate fields)",
         updated_subgraphs.len()
     );
-    debug!("Updated subgraphs: {:?}", updated_subgraphs);
     trace!(
-        "Updated subgraph latest blocks: {:#?}",
-        subgraph_network_blocks
+        "Updated subgraph latest blocks: {:#?}\nUpdated subgraphs: {:?}",
+        subgraph_network_blocks,
+        updated_subgraphs,
     );
     Ok(subgraph_network_blocks)
 }

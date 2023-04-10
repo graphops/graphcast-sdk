@@ -1,9 +1,11 @@
 use graphql_client::{GraphQLQuery, Response};
-use num_bigint::BigUint;
 use num_traits::Zero;
 use tracing::error;
 
 use crate::graphql::QueryError;
+
+use super::grt_gwei_string_to_f32;
+
 /// Derived GraphQL Query to Network Subgraph
 #[derive(GraphQLQuery)]
 #[graphql(
@@ -48,45 +50,43 @@ pub async fn query_network_subgraph(
         )));
     };
 
-    let indexer =
-        data.indexer.and_then(
-            |x| match Some(x.staked_tokens.parse::<BigUint>()).transpose() {
-                Ok(token) => {
-                    let allocations: Vec<Allocation> = x.allocations.map(|allocs| {
-                        allocs
-                            .iter()
-                            .map(|alloc| Allocation {
-                                subgraph_deployment: SubgraphDeployment {
-                                    ipfs_hash: alloc.subgraph_deployment.ipfs_hash.clone(),
-                                },
-                            })
-                            .collect::<Vec<Allocation>>()
-                    })?;
-                    Some(Indexer {
-                        staked_tokens: token?,
-                        allocations,
-                    })
-                }
-                Err(e) => {
-                    error!("Indexer not available from the network subgraph: {}", e);
-                    None
-                }
-            },
-        );
+    let indexer = data.indexer.and_then(|x| {
+        match Some(grt_gwei_string_to_f32(x.staked_tokens)).transpose() {
+            Ok(token) => {
+                let allocations: Vec<Allocation> = x.allocations.map(|allocs| {
+                    allocs
+                        .iter()
+                        .map(|alloc| Allocation {
+                            subgraph_deployment: SubgraphDeployment {
+                                ipfs_hash: alloc.subgraph_deployment.ipfs_hash.clone(),
+                            },
+                        })
+                        .collect::<Vec<Allocation>>()
+                })?;
+                Some(Indexer {
+                    staked_tokens: token?,
+                    allocations,
+                })
+            }
+            Err(e) => {
+                error!("Indexer not available from the network subgraph: {}", e);
+                None
+            }
+        }
+    });
 
     Ok(Network {
         indexer,
         graph_network: GraphNetwork {
-            minimum_indexer_stake: data
-                .graph_network
-                .minimum_indexer_stake
-                .parse::<BigUint>()?,
+            minimum_indexer_stake: grt_gwei_string_to_f32(
+                data.graph_network.minimum_indexer_stake,
+            )?,
         },
     })
 }
 
 /// Network tracks the GraphcastID's indexer and general Graph network data
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Network {
     pub indexer: Option<Indexer>,
     pub graph_network: GraphNetwork,
@@ -94,11 +94,11 @@ pub struct Network {
 
 impl Network {
     /// Fetch indexer staked tokens
-    pub fn indexer_stake(&self) -> BigUint {
+    pub fn indexer_stake(&self) -> f32 {
         // TODO: do division by 1e18 for grt unit
         self.indexer
             .as_ref()
-            .map(|i| i.staked_tokens.clone())
+            .map(|i| i.staked_tokens)
             .unwrap_or_else(Zero::zero)
     }
 
@@ -116,7 +116,7 @@ impl Network {
     }
 
     pub fn stake_satisfy_requirement(&self) -> bool {
-        self.indexer_stake() >= self.graph_network.minimum_indexer_stake.clone()
+        self.indexer_stake() >= self.graph_network.minimum_indexer_stake
     }
 }
 
@@ -130,15 +130,15 @@ pub struct Allocation {
     pub subgraph_deployment: SubgraphDeployment,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Indexer {
-    staked_tokens: BigUint,
+    staked_tokens: f32,
     allocations: Vec<Allocation>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GraphNetwork {
-    pub minimum_indexer_stake: BigUint,
+    pub minimum_indexer_stake: f32,
 }
 
 #[cfg(test)]
@@ -160,7 +160,7 @@ mod tests {
     async fn stake_minimum_requirement_pass() {
         let network = Network {
             indexer: Some(Indexer {
-                staked_tokens: One::one(),
+                staked_tokens: 1_f32,
                 allocations: dummy_allocations(),
             }),
             graph_network: GraphNetwork {
@@ -168,7 +168,7 @@ mod tests {
             },
         };
         assert_eq!(network.indexer_allocations().len(), 1);
-        assert_eq!(network.indexer_stake(), One::one());
+        assert_eq!(network.indexer_stake(), 1.0);
         assert!(network.stake_satisfy_requirement());
     }
 
