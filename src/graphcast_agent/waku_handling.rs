@@ -324,7 +324,12 @@ pub fn boot_node_handle(
 
 /// Parse and validate incoming message
 pub async fn handle_signal<
-    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+    T: Message
+        + ethers::types::transaction::eip712::Eip712
+        + Default
+        + Clone
+        + 'static
+        + async_graphql::OutputType,
 >(
     signal: Signal,
     graphcast_agent: &GraphcastAgent,

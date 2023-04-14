@@ -216,7 +216,12 @@ impl GraphcastAgent {
             + std::marker::Sync
             + std::marker::Send
             + 'static,
-        T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+        T: Message
+            + ethers::types::transaction::eip712::Eip712
+            + Default
+            + Clone
+            + 'static
+            + async_graphql::OutputType,
     >(
         &'static self,
         radio_handler_mutex: Arc<AsyncMutex<F>>,
@@ -236,7 +241,12 @@ impl GraphcastAgent {
     /// For each topic, construct with custom write function and send
     #[allow(unused_must_use)]
     pub async fn send_message<
-        T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+        T: Message
+            + ethers::types::transaction::eip712::Eip712
+            + Default
+            + Clone
+            + 'static
+            + async_graphql::OutputType,
     >(
         &self,
         identifier: String,

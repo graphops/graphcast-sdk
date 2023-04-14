@@ -79,14 +79,13 @@ pub struct Config {
         value_name = "[TOPIC]",
         value_delimiter = ',',
         env = "TOPICS",
-        help = "Comma separated static list of content topics to subscribe to"
+        help = "Comma separated static list of content topics to subscribe to (Static list to include)"
     )]
     pub topics: Vec<String>,
     #[clap(
         long,
         value_name = "COVERAGE",
         value_enum,
-        // possible_values = ["comprehensive", "on-chain", "minimal"],
         default_value = "on-chain",
         env = "COVERAGE",
         help = "Toggle for topic coverage level",
@@ -213,6 +212,20 @@ pub struct Config {
         env = "METRICS_PORT"
     )]
     pub metrics_port: Option<u16>,
+    #[clap(
+        long,
+        value_name = "SERVER_HOST",
+        help = "If set, the Radio will expose API service on the given host (off by default).",
+        env = "SERVER_HOST"
+    )]
+    pub server_host: Option<String>,
+    #[clap(
+        long,
+        value_name = "SERVER_PORT",
+        help = "If set, the Radio will expose API service on the given port (off by default).",
+        env = "SERVER_PORT"
+    )]
+    pub server_port: Option<u16>,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Serialize, Deserialize)]
