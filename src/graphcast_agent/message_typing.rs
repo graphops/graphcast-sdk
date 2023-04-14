@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use async_graphql::SimpleObject;
 use chrono::Utc;
 use ethers::signers::{Signer, Wallet};
 use ethers_core::{k256::ecdsa::SigningKey, types::Signature};
@@ -47,10 +48,16 @@ pub async fn get_indexer_stake(
 }
 
 /// GraphcastMessage type casts over radio payload
-#[derive(Clone, Message, Serialize, Deserialize)]
+#[derive(Clone, Message, Serialize, Deserialize, SimpleObject)]
 pub struct GraphcastMessage<T>
 where
-    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+    T: Message
+        + ethers::types::transaction::eip712::Eip712
+        + Default
+        + Clone
+        + 'static
+        + async_graphql::OutputType
+        + async_graphql::OutputType,
 {
     /// Graph identifier for the entity the radio is communicating about
     #[prost(string, tag = "1")]
@@ -75,8 +82,14 @@ where
     pub signature: String,
 }
 
-impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static>
-    GraphcastMessage<T>
+impl<
+        T: Message
+            + ethers::types::transaction::eip712::Eip712
+            + Default
+            + Clone
+            + 'static
+            + async_graphql::OutputType,
+    > GraphcastMessage<T>
 {
     /// Create a graphcast message
     pub fn new(
@@ -338,7 +351,12 @@ impl<T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone +
 /// Block hash check verifies sender's access to valid Ethereum node provider and blocks
 /// Nonce check ensures the ordering of the messages and avoids past messages
 pub async fn check_message_validity<
-    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+    T: Message
+        + ethers::types::transaction::eip712::Eip712
+        + Default
+        + Clone
+        + 'static
+        + async_graphql::OutputType,
 >(
     graphcast_message: GraphcastMessage<T>,
     nonces: &Arc<Mutex<NoncesMap>>,
@@ -396,7 +414,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     /// Make a test radio type
-    #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize)]
+    #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize, SimpleObject)]
     #[eip712(
         name = "Graphcast Test Radio",
         version = "0",

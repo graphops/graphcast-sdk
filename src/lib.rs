@@ -116,7 +116,12 @@ pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {
 /// get the timestamp it was received from and add the collection duration to
 /// return the time for which message comparisons should be triggered
 pub async fn comparison_trigger<
-    T: Message + ethers::types::transaction::eip712::Eip712 + Default + Clone + 'static,
+    T: Message
+        + ethers::types::transaction::eip712::Eip712
+        + Default
+        + Clone
+        + 'static
+        + async_graphql::OutputType,
 >(
     messages: Arc<AsyncMutex<Vec<GraphcastMessage<T>>>>,
     identifier: String,
