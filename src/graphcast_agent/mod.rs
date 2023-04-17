@@ -10,6 +10,11 @@
 //! Graphcast messages regardless of specific radio use cases
 //!
 
+use self::message_typing::{BuildMessageError, GraphcastMessage};
+use self::waku_handling::{
+    build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
+    setup_node_handle, WakuHandlingError,
+};
 use ethers::signers::{LocalWallet, WalletError};
 use prost::Message;
 use std::collections::{HashMap, HashSet};
@@ -22,12 +27,6 @@ use url::ParseError;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
     WakuPubSubTopic,
-};
-
-use self::message_typing::{BuildMessageError, GraphcastMessage};
-use self::waku_handling::{
-    build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
-    setup_node_handle, WakuHandlingError,
 };
 
 use crate::graphcast_agent::waku_handling::unsubscribe_peer;
@@ -52,7 +51,7 @@ pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network
 pub struct GraphcastAgent {
     /// GraphcastID's wallet, used to sign messages
     pub wallet: LocalWallet,
-    node_handle: WakuNodeHandle<Running>,
+    pub node_handle: WakuNodeHandle<Running>,
     /// Graphcast agent waku instance's radio application
     pub radio_name: &'static str,
     /// Graphcast agent waku instance's pubsub topic
