@@ -173,6 +173,27 @@ pub struct Config {
     pub slack_channel: Option<String>,
     #[clap(
         long,
+        value_name = "INSTANCE",
+        // Basic instance runs with default configs, invalid_payload sends a malformed message, divergent sends an unexpected nPOI value
+        possible_values = &["basic", "invalid_payload", "divergent", "invalid_hash", "invalid_nonce"],
+        help = "Instance to run (integration tests)"
+    )]
+    pub instance: Option<String>,
+    #[clap(
+        long,
+        value_name = "CHECK",
+        possible_values = &[
+            "simple_tests",
+            "invalid_sender",
+            "poi_divergence_remote",
+            "poi_divergence_local",
+            "invalid_messages"
+        ],
+        help = "Check to run (integration tests)"
+    )]
+    pub check: Option<String>,
+    #[clap(
+        long,
         value_name = "DISCORD_WEBHOOK",
         help = "Discord webhook URL to send messages to",
         env = "DISCORD_WEBHOOK"
