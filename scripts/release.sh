@@ -10,11 +10,11 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
-auto-changelog --latest-version VERSION --release-summary
+git-cliff -o changelog.md
 
 (
-  git add changelog.md Cargo.toml Cargo.lock \
-    && git commit -m "chore: Bump version"
+  git add changelog.md Cargo.lock Cargo.toml scripts/release.sh \
+    && git commit -m "chore: release $VERSION"
 ) || true
 
 # Publish to crates.io

@@ -1,7 +1,0 @@
-{
-    "output": "changelog.md",
-    "template": "keepachangelog",
-    "unreleased": true,
-    "commitLimit": false,
-    "commitMessageFormat": "{{type}}: {{message}}"
-  }
