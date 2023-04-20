@@ -3,14 +3,14 @@
 set -e
 set -x
 
-VERSION="$1"
+VERSION="v$(cargo metadata --quiet --format-version 1 | jq -r '.packages[] | select(.name == "graphcast-sdk") | .version')"
 
 if [[ -z "$VERSION" ]]; then
   echo "Usage: $0 <version>"
   exit 1
 fi
 
-chan release --allow-prerelease "$VERSION" || true
+auto-changelog --latest-version VERSION --release-summary
 
 (
   git add CHANGELOG.md \
