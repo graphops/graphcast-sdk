@@ -36,18 +36,35 @@ Please do not merge main into your branch as you develop your pull
 request; instead, rebase your branch on top of the latest main if your
 pull request branch is long-lived.
 
-We try to keep the hostory of the `main` branch linear, and avoid merge
+We try to keep the hostory of the `main` and `dev` branch linear, and avoid merge
 commits. Once your pull request is approved, merge it following these
 steps:
 ```
-git checkout main
-git pull main
-git rebase main my/branch
+git checkout dev
+git pull dev
+git rebase dev my/branch
 git push -f
-git checkout main
+git checkout dev
 git merge my/branch
 git push
 ```
 
 Allegedly, clicking on the `Rebase and merge` button in the Github UI has
 the same effect.
+
+## Release process
+
+We would like to keep `main` branch for official releases while using `dev` branch as the default upstream branch for features. Therefore ongoing development, feature work, and bug fixes will takes place on the dev branch, and only merge release tag commits to the `main` branch.
+
+To start working on a new feature or bug fix, contributors should create a new branch off of the dev branch. Once the feature or bug fix is complete, a pull request should be created to merge the changes into the dev branch. All changes to the dev branch should be reviewed by at least one other person before merging.
+
+When it's time to create a new release, we will merge the changes from the dev branch into the `main` branch using a pull request with new version tag (ex. `v0.1.0`). This pull request should be reviewed by at least one project owner before merging. Once the changes are merged into `main`, we will create a new tag for the release and use this tag to generate release notes and create a release in GitHub. To release a new version in crates.io, we update the version in Cargo.toml, utilize the package [keepachangelog](https://keepachangelog.com/en/1.1.0/) to maintain the changelog markdown by simply running the script under `scripts/release.sh` with the new version tag.
+
+```
+git tag -a vX.X.X -m "vX.X.X"
+git push --follow-tags
+```
+
+It's important to note that all changes to the `main` branch should go through pull requests and be reviewed by at least one project admin. This helps ensure that the `main` branch only contains clean releases and that any issues or bugs are caught before they are released to our users.
+
+By following this release process, we can keep our repository organized, ensure that our releases are clean and stable, and make it easier for contributors to work on new features and bug fixes.
