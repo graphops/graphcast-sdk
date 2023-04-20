@@ -42,7 +42,7 @@ dotenv = "0.15.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "ansi", "fmt", "std"]}
 async-graphql = "4.0.16"
-async-graphql-axum = "4.0.16"
+async-graphql-axum = "5.0.7"
 
 [dev-dependencies.cargo-husky]
 version = "1"
