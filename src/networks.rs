@@ -121,7 +121,7 @@ pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
         },
         // Fantom: ~2-3 seconds
         Network {
-            name: NetworkName::from_string("optimism"),
+            name: NetworkName::from_string("fantom"),
             interval: 100,
         },
     ]
