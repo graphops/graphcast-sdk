@@ -301,26 +301,24 @@ impl GraphcastAgent {
     // TODO: Could register the query function at intialization and call it within this fn
     pub async fn update_content_topics(&self, subtopics: Vec<String>) {
         // build content topics
-        let content_topics = build_content_topics(self.radio_name, 0, &subtopics);
-        let old_contents = self.content_topics.lock().await;
+        let new_topics = build_content_topics(self.radio_name, 0, &subtopics);
+        let mut cur_topics = self.content_topics.lock().await;
+
         // Check if an update to the content topic is necessary
-        if *old_contents != content_topics {
-            debug!(
-                "updating to new set of content topics: {:#?}",
-                content_topics
-            );
-            // Subscribe to the new content topics
-            let _ =
-                filter_peer_subscriptions(&self.node_handle, &self.pubsub_topic, &content_topics)
-                    .expect("Could not connect and subscribe to the subtopics");
+        if *cur_topics != new_topics {
+            debug!("updating to new set of content topics: {:#?}", new_topics);
 
             // Unsubscribe to the old content topics
-            unsubscribe_peer(&self.node_handle, &self.pubsub_topic, &old_contents)
+            unsubscribe_peer(&self.node_handle, &self.pubsub_topic, &cur_topics)
                 .expect("Could not connect and subscribe to the subtopics");
 
-            self.content_topics.lock().await.clear();
-            self.content_topics.lock().await.extend(content_topics);
+            // Subscribe to the new content topics
+            filter_peer_subscriptions(&self.node_handle, &self.pubsub_topic, &new_topics)
+                .expect("Could not connect and subscribe to the subtopics");
+
+            *cur_topics = new_topics;
         }
+        drop(cur_topics);
     }
 }
 
