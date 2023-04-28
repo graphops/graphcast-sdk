@@ -10,11 +10,11 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
-auto-changelog --latest-version VERSION --release-summary
+git-cliff -o CHANGELOG.md
 
 (
   git add CHANGELOG.md \
-    && git commit -m "chore: Update changelogs ahead of release"
+    && git commit -m "chore: release v$VERSION"
 ) || true
 
 # Publish to crates.io
