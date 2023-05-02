@@ -9,7 +9,6 @@
 //! Graphcast agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
-
 use self::message_typing::{BuildMessageError, GraphcastMessage};
 use self::waku_handling::{
     build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
@@ -30,7 +29,10 @@ use waku::{
 };
 
 use crate::graphcast_agent::waku_handling::unsubscribe_peer;
-use crate::graphql::client_graph_node::query_graph_node_network_block_hash;
+use crate::graphql::client_graph_node::{
+    get_indexing_statuses, query_graph_node_network_block_hash,
+};
+use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::graphql::QueryError;
 use crate::networks::NetworkName;
@@ -46,6 +48,125 @@ pub const REGISTRY_SUBGRAPH: &str =
     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
 /// A constant defining the goerli network subgraph endpoint.
 pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Validate the input: {0}")]
+    ValidateInput(String),
+    #[error("Unknown error: {0}")]
+    Other(anyhow::Error),
+}
+
+#[derive(Clone)]
+pub struct GraphcastAgentConfig {
+    pub wallet_key: String,
+    pub radio_name: &'static str,
+    pub registry_subgraph: String,
+    pub network_subgraph: String,
+    pub graph_node_endpoint: String,
+    pub boot_node_addresses: Vec<Multiaddr>,
+    pub graphcast_namespace: Option<String>,
+    pub subtopics: Vec<String>,
+    pub waku_node_key: Option<String>,
+    pub waku_host: Option<String>,
+    pub waku_port: Option<String>,
+    pub waku_addr: Option<String>,
+}
+
+impl GraphcastAgentConfig {
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new(
+        wallet_key: String,
+        radio_name: &'static str,
+        registry_subgraph: String,
+        network_subgraph: String,
+        graph_node_endpoint: String,
+        boot_node_addresses: Option<Vec<String>>,
+        graphcast_namespace: Option<String>,
+        subtopics: Option<Vec<String>>,
+        waku_node_key: Option<String>,
+        waku_host: Option<String>,
+        waku_port: Option<String>,
+        waku_addr: Option<String>,
+    ) -> Result<Self, GraphcastAgentError> {
+        let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or(vec![]))
+            .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
+
+        let config = GraphcastAgentConfig {
+            wallet_key,
+            radio_name,
+            registry_subgraph,
+            network_subgraph,
+            graph_node_endpoint,
+            boot_node_addresses,
+            graphcast_namespace,
+            subtopics: subtopics.unwrap_or(vec![]),
+            waku_node_key,
+            waku_host,
+            waku_port,
+            waku_addr,
+        };
+
+        if let Err(e) = config.validate_set_up().await {
+            panic!("Could not validate the supplied configurations: {e}")
+        }
+
+        Ok(config)
+    }
+
+    pub async fn validate_set_up(&self) -> Result<(), ConfigError> {
+        let wallet = build_wallet(&self.wallet_key).map_err(|e| {
+            ConfigError::ValidateInput(format!(
+                "Invalid key to wallet, use private key or mnemonic: {e}"
+            ))
+        })?;
+        let graphcast_id = graphcast_id_address(&wallet);
+        // TODO: Implies invalidity for both graphcast id and registry, maybe map_err more specifically
+        let indexer = query_registry_indexer(self.registry_subgraph.to_string(), graphcast_id)
+            .await
+            .map_err(|e| ConfigError::ValidateInput(format!("The registry subgraph did not contain an entry for the Graphcast ID to Indexer: {e}")))?;
+        debug!("Resolved indexer identity: {}", indexer);
+
+        let stake = query_network_subgraph(self.network_subgraph.to_string(), indexer)
+            .await
+            .map_err(|e| {
+                ConfigError::ValidateInput(format!(
+                    "The network subgraph must contain an entry for the Indexer stake: {e}"
+                ))
+            })?
+            .indexer_stake();
+        debug!("Resolved indexer stake: {}", stake);
+
+        let _ = get_indexing_statuses(self.graph_node_endpoint.to_string())
+            .await
+            .map_err(|e| {
+                ConfigError::ValidateInput(format!(
+                    "Graph node endpoint must be able to serve indexing statuses query: {e}"
+                ))
+            })?;
+        Ok(())
+    }
+}
+
+fn convert_to_multiaddrs(addresses: &[String]) -> Result<Vec<Multiaddr>, ConfigError> {
+    let multiaddrs = addresses
+        .iter()
+        .map(|address| {
+            let address = address.trim();
+            if address.is_empty() {
+                return Err(ConfigError::ValidateInput(String::from("Empty input")));
+            }
+            let address = if address.starts_with('"') && address.ends_with('"') {
+                &address[1..address.len() - 1]
+            } else {
+                address
+            };
+            Multiaddr::from_str(address).map_err(|e| ConfigError::ValidateInput(e.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(multiaddrs)
+}
 
 /// A Graphcast agent representation
 pub struct GraphcastAgent {
@@ -71,54 +192,67 @@ pub struct GraphcastAgent {
 }
 
 impl GraphcastAgent {
-    /// Construct a new Graphcast agent
+    /// Constructs a new Graphcast agent with the provided configuration.
     ///
-    /// Inputs are utilized to construct different components of the Graphcast agent:
-    /// private_key resolves into ethereum wallet and indexer identity.
-    /// radio_name is used as part of the content topic for the radio application
-    /// subtopic optionally provided and used as the content topic identifier of the message subject,
-    /// if not provided then they are generated based on indexer allocations
-    /// Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
-    /// Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
+    /// The `GraphcastAgentConfig` struct contains the following fields used to construct
+    /// different components of the Graphcast agent:
     ///
-    /// Content topics that the Radio subscribes to
-    /// If we pass in `None` Graphcast will default to using the ipfs hashes of the subgraphs that the Indexer is allocating to.
-    /// But in this case we will override it with something much more simple.
+    /// * `wallet_key`: Resolves into an Ethereum wallet and indexer identity.
+    /// * `radio_name`: Used as part of the content topic for the radio application.
+    /// * `registry_subgraph`: The subgraph that indexes the registry contracts.
+    /// * `network_subgraph`: The subgraph that indexes network metadata.
+    /// * `graph_node_endpoint`: The endpoint for the Graph Node.
+    /// * `boot_node_addresses`: The addresses of the Waku nodes to connect to.
+    /// * `graphcast_namespace`: The namespace to use for the pubsub topic.
+    /// * `subtopics`: The subtopics for content topics that the radio subscribes to.
+    /// * `waku_node_key`: The private key for the Waku node.
+    /// * `waku_host`: The host for the Waku node.
+    /// * `waku_port`: The port for the Waku node.
+    /// * `waku_addr`: The advertised address to be connected among the Waku peers.
+    ///
+    /// If the `waku_host`, `waku_port`, or `waku_addr` fields are not provided, the Waku node will
+    /// use default values. Similarly, if the `graphcast_namespace` field is not provided, the agent
+    /// will default to using the IPFS hashes of the subgraphs that the indexer is allocating to.
+    ///
     /// # Examples
     ///
     /// ```ignore
-    /// let agent = GraphcastAgent::new(
-    ///     String::from("1231231231231231231231231231231231231231231231231231231231231230"),
-    ///     String::from("https://goerli.infura.io/v3/api_key"),
-    ///     "test_radio",
-    ///     "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test",
-    ///     "https://gateway.testnet.thegraph.com/network",
-    ///     vec![String::from("/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMy9AbMEgjd5iz")],
-    ///     Some("test_namespace_in_pubsub_topic"),
-    ///     Some(["some_subgraph_hash"].to_vec()),
-    ///     String::from("waku_node_key_can_be_same_as_private1231231231231231231231231230"),
-    ///     Some(String::from("0.0.0.0")),
-    ///     Some(String::from("60000")),
-    ///     Some(String::from(/ip4/321.1.1.2/tcp/60001/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMysomeoneelse")),
-    /// )
+    /// let config = GraphcastAgentConfig {
+    ///     wallet_key: String::from("1231231231231231231231231231231231231231231231231231231231231230"),
+    ///     radio_name: "test_radio",
+    ///     registry_subgraph: String::from("https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test"),
+    ///     network_subgraph: String::from("https://gateway.testnet.thegraph.com/network"),
+    ///     graph_node_endpoint: String::from("https://api.thegraph.com/index-node/graphql"),
+    ///     boot_node_addresses: vec![String::from("/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMy9AbMEgjd5iz")],
+    ///     graphcast_namespace: Some("test_namespace_in_pubsub_topic"),
+    ///     subtopics: vec![String::from("some_subgraph_hash")],
+    ///     waku_node_key: Some(String::from("waku_node_key_can_be_same_as_private1231231231231231231231231230")),
+    ///     waku_host: Some(String::from("0.0.0.0")),
+    ///     waku_port: Some(String::from("60000")),
+    ///     waku_addr: Some(String::from("/ip4/321.1.1.2/tcp/60001/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMysomeoneelse")),
+    /// };
+    ///
+    /// let agent = GraphcastAgent::new(config).await?;
     /// ```
-    #[allow(clippy::too_many_arguments)]
+
     pub async fn new(
-        wallet_key: String,
-        radio_name: &'static str,
-        registry_subgraph: &str,
-        network_subgraph: &str,
-        graph_node_endpoint: &str,
-        boot_node_addresses: Vec<Multiaddr>,
-        graphcast_namespace: Option<&str>,
-        subtopics: Vec<String>,
-        waku_node_key: Option<String>,
-        waku_host: Option<String>,
-        waku_port: Option<String>,
-        waku_addr: Option<String>,
+        GraphcastAgentConfig {
+            wallet_key,
+            radio_name,
+            registry_subgraph,
+            network_subgraph,
+            graph_node_endpoint,
+            boot_node_addresses,
+            graphcast_namespace,
+            subtopics,
+            waku_node_key,
+            waku_host,
+            waku_port,
+            waku_addr,
+        }: GraphcastAgentConfig,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
         let wallet = build_wallet(&wallet_key)?;
-        let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace);
+        let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace.as_deref());
 
         //Should we allow the setting of waku node host and port?
         let host = waku_host.as_deref();
@@ -138,7 +272,6 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::WakuNodeError)?;
 
         // Filter subscriptions only if provided subtopic
-
         let content_topics = build_content_topics(radio_name, 0, &subtopics);
         let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
             .expect("Could not connect and subscribe to the subtopics");
@@ -150,9 +283,9 @@ impl GraphcastAgent {
             content_topics: Arc::new(AsyncMutex::new(content_topics)),
             node_handle,
             nonces: Arc::new(AsyncMutex::new(HashMap::new())),
-            registry_subgraph: registry_subgraph.to_string(),
-            network_subgraph: network_subgraph.to_string(),
-            graph_node_endpoint: graph_node_endpoint.to_string(),
+            registry_subgraph,
+            network_subgraph,
+            graph_node_endpoint,
             old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
         })
     }
@@ -336,6 +469,8 @@ pub enum GraphcastAgentError {
     MessageError(BuildMessageError),
     #[error("Could not parse Waku port")]
     WakuPortError,
+    #[error("Failed to convert Multiaddr from String")]
+    ConvertMultiaddrError,
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
 }
