@@ -1,9 +1,9 @@
 use dotenv::dotenv;
 
 use graphcast_sdk::{
-    config::Config,
     graphcast_agent::{
         message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
+        GraphcastAgentConfig,
     },
     graphql::client_graph_node::{get_indexing_statuses, update_network_chainheads},
     networks::NetworkName,
@@ -17,6 +17,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info};
 use types::RadioPayloadMessage;
 
+use crate::config::Config;
+
+mod config;
 mod types;
 
 #[tokio::main]
@@ -26,11 +29,6 @@ async fn main() -> ! {
     // Loads the environment variables from .env
     dotenv().ok();
 
-    // Parse basic configurations
-    let config = Config::args();
-    if let Err(e) = config.validate_set_up().await {
-        panic!("Could not validate the supplied configurations: {e}")
-    }
     /// A global static (singleton) instance of A GraphcastMessage vector.
     /// It is used to save incoming messages after they've been validated, in order
     /// defer their processing for later, because async code is required for the processing but
@@ -43,37 +41,33 @@ async fn main() -> ! {
     /// the handler itself is being passed into the Graphcast Agent, so it needs to be static as well.
     pub static GRAPHCAST_AGENT: OnceCell<GraphcastAgent> = OnceCell::new();
 
+    let config = Config::args();
+
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
     // if not provided then they are usually generated based on indexer allocations
-    let mut subtopics = vec!["ping-pong-content-topic".to_string()];
-    for topic in config.topics.clone() {
-        if !subtopics.contains(&topic) {
-            subtopics.push(topic);
-        }
-    }
+    let subtopics = vec!["ping-pong-content-topic".to_string()];
 
-    debug!("Initializing the Graphcast Agent");
-    let graphcast_agent = GraphcastAgent::new(
-        // wallet key can be either private key or mnemonic, resolves into ethereum wallet and indexer identity.
-        // Unwrap is okay here thanks to configuration validate_set_up
-        config.wallet_input().unwrap().to_string(),
-        // radio_name is used as part of the content topic for the radio application
+    let graphcast_agent_config = GraphcastAgentConfig::new(
+        config.private_key.expect("No private key provided"),
         radio_name,
-        &config.registry_subgraph,
-        &config.network_subgraph,
-        &config.graph_node_endpoint,
-        config.boot_node_addresses,
-        Some(&config.graphcast_network),
-        subtopics,
-        // Waku node address is set up by optionally providing a host and port, and an advertised address to be connected among the waku peers
-        // Advertised address can be any multiaddress that is self-describing and support addresses for any network protocol (tcp, udp, ip; tcp6, udp6, ip6 for IPv6)
-        config.waku_node_key,
-        config.waku_host,
-        config.waku_port,
+        config.registry_subgraph,
+        config.network_subgraph,
+        config.graph_node_endpoint.clone(),
+        None,
+        Some("testnet".to_string()),
+        Some(subtopics),
+        None,
+        None,
+        None,
         None,
     )
     .await
-    .expect("Could not create Graphcast agent");
+    .unwrap_or_else(|e| panic!("Could not create GraphcastAgentConfig: {e}"));
+
+    debug!("Initializing the Graphcast Agent");
+    let graphcast_agent = GraphcastAgent::new(graphcast_agent_config)
+        .await
+        .expect("Could not create Graphcast agent");
 
     // A one-off setter to load the Graphcast Agent into the global static variable
     _ = GRAPHCAST_AGENT.set(graphcast_agent);
@@ -129,7 +123,7 @@ async fn main() -> ! {
         .register_handler(Arc::new(AsyncMutex::new(radio_handler)))
         .expect("Could not register handler");
 
-    let network = NetworkName::from_string(&config.graphcast_network);
+    let network = NetworkName::from_string("goerli");
 
     loop {
         let indexing_statuses =
