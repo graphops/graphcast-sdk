@@ -8,8 +8,8 @@ use tracing::info;
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 #[clap(
-    name = "poi-radio",
-    about = "Cross-check POIs with other Indexer in real time",
+    name = "ping-pong-radio",
+    about = "A simple example for using the Graphcast SDK to build Radios",
     author = "GraphOps"
 )]
 pub struct Config {

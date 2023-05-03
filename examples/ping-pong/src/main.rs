@@ -1,5 +1,7 @@
+// Load environment variables from .env file
 use dotenv::dotenv;
 
+// Import Graphcast SDK types and functions for agent configuration, message handling, and more
 use graphcast_sdk::{
     graphcast_agent::{
         message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
@@ -9,25 +11,44 @@ use graphcast_sdk::{
     networks::NetworkName,
     BlockPointer,
 };
+
+// Import the OnceCell container for lazy initialization of global/static data
 use once_cell::sync::OnceCell;
+
+// Import HashMap for key-value storage
 use std::collections::HashMap;
+
+// Import Arc and Mutex for thread-safe sharing of data across threads
 use std::sync::{Arc, Mutex};
+
+// Import sleep and Duration for handling time intervals and thread delays
 use std::{thread::sleep, time::Duration};
+
+// Import AsyncMutex for asynchronous mutual exclusion of shared resources
 use tokio::sync::Mutex as AsyncMutex;
+
+// Import tracing macros for logging and diagnostic purposes
 use tracing::{debug, error, info};
+
+// Import RadioPayloadMessage from the crate's types module
 use types::RadioPayloadMessage;
 
-use crate::config::Config;
+// Import Config from the crate's config module
+use config::Config;
 
+// Include the local config and types modules
 mod config;
 mod types;
 
 #[tokio::main]
-async fn main() -> ! {
+async fn main() {
     // This can be any string
     let radio_name: &str = "ping-pong";
     // Loads the environment variables from .env
     dotenv().ok();
+
+    // Instantiates the configuration struct based on provided environment variables or CLI args
+    let config = Config::args();
 
     /// A global static (singleton) instance of A GraphcastMessage vector.
     /// It is used to save incoming messages after they've been validated, in order
@@ -41,12 +62,11 @@ async fn main() -> ! {
     /// the handler itself is being passed into the Graphcast Agent, so it needs to be static as well.
     pub static GRAPHCAST_AGENT: OnceCell<GraphcastAgent> = OnceCell::new();
 
-    let config = Config::args();
-
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
     // if not provided then they are usually generated based on indexer allocations
     let subtopics = vec!["ping-pong-content-topic".to_string()];
 
+    // GraphcastAgentConfig defines the configuration that the SDK expects from all Radios, regardless of their specific functionality
     let graphcast_agent_config = GraphcastAgentConfig::new(
         config.private_key.expect("No private key provided"),
         radio_name,
