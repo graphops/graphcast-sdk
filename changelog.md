@@ -10,12 +10,14 @@ All notable changes to this project will be documented in this file.
 - Waku node setup with filter protocol only
 - IndexingStatuses graphQL schema allow null node
 - Add fantom network name
+- Ensure content topic lock gets released
 
 ### Documentation
 
 - Fix a grammatical error on the readme
 - Updated pull request template (#153)
 - New release process and changelog script
+- Update release process and script
 
 ### Features
 
@@ -62,6 +64,8 @@ All notable changes to this project will be documented in this file.
 - Replace bool prometheus_metrics with u16 metrics_port config var
 - Add new error variant to BuildMessage
 - Parse grt units, update log levels
+- Move config parsing to Radio
+- Update ping-pong Radio
 
 ## [0.0.13] - 2023-03-07
 
