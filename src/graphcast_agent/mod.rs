@@ -28,7 +28,6 @@ use waku::{
     WakuPubSubTopic,
 };
 
-use crate::graphcast_agent::waku_handling::unsubscribe_peer;
 use crate::graphql::client_graph_node::{
     get_indexing_statuses, query_graph_node_network_block_hash,
 };
@@ -441,14 +440,17 @@ impl GraphcastAgent {
         if *cur_topics != new_topics {
             debug!("updating to new set of content topics: {:#?}", new_topics);
 
-            // Unsubscribe to the old content topics
-            unsubscribe_peer(&self.node_handle, &self.pubsub_topic, &cur_topics)
-                .expect("Could not connect and subscribe to the subtopics");
+            // TODO: Uncomment after a release that contains this issue
+            // https://github.com/waku-org/go-waku/pull/536/files
+            // // Unsubscribe to the old content topics
+            // if !cur_topics.is_empty() {
+            //     unsubscribe_peer(&self.node_handle, &self.pubsub_topic, &cur_topics)
+            //         .expect("Connect and unsubscribe to subtopics");
+            // }
 
             // Subscribe to the new content topics
             filter_peer_subscriptions(&self.node_handle, &self.pubsub_topic, &new_topics)
-                .expect("Could not connect and subscribe to the subtopics");
-
+                .expect("Connect and subscribe to subtopics");
             *cur_topics = new_topics;
         }
         drop(cur_topics);
