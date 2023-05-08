@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - IndexingStatuses graphQL schema allow null node
 - Add fantom network name
 - Ensure content topic lock gets released
+- Disable unsubscribe until waku dep update
 
 ### Documentation
 
@@ -58,6 +59,7 @@ All notable changes to this project will be documented in this file.
 - Bump prometheus-http-query from 0.6.5 to 0.6.6
 - Add e2e test helpers
 - Release v0.1.1
+- Release vv0.1.2
 
 ### Refactor
 
