@@ -154,8 +154,14 @@ impl<
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
-        let waku_message =
-            WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
+        let waku_message = WakuMessage::new(
+            buff,
+            content_topic,
+            2,
+            Utc::now().timestamp() as usize,
+            vec![],
+            true,
+        );
         trace!("Sending message: {:#?}", &self);
 
         let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
