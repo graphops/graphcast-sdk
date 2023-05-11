@@ -186,6 +186,7 @@ pub struct GraphcastAgent {
     pub network_subgraph: String,
     /// A constant defining the graph node endpoint
     pub graph_node_endpoint: String,
+    /// TODO: remove after confirming that gossippub seen_ttl works
     /// A set of message ids sent from the agent
     pub old_message_ids: Arc<AsyncMutex<HashSet<String>>>,
 }

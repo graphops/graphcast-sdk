@@ -12,9 +12,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace};
 use url::ParseError;
 use waku::{
-    waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, Multiaddr,
-    ProtocolId, Running, SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuNodeConfig,
-    WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, GossipSubParams,
+    Multiaddr, ProtocolId, Running, SecretKey, Signal, WakuContentTopic, WakuLogLevel,
+    WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 use super::GraphcastAgent;
@@ -158,6 +158,12 @@ fn node_config(
         Err(_) => WakuLogLevel::Error,
     };
 
+    let gossipsub_params = GossipSubParams {
+        seen_messages_ttl_seconds: Some(1800),
+        history_length: Some(100_000),
+        ..Default::default()
+    };
+
     Some(WakuNodeConfig {
         host: host.and_then(|h| IpAddr::from_str(h).ok()),
         port: Some(port),
@@ -176,6 +182,7 @@ fn node_config(
         database_url: None,
         store_retention_max_messages: None,
         store_retention_max_seconds: None,
+        gossipsub_params: Some(gossipsub_params),
     })
 }
 
