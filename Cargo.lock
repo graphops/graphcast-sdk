@@ -872,15 +872,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
-name = "convert_case"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1491,7 +1482,7 @@ checksum = "8d5486fdc149826f38c388f26a7df72534ee3f20d3a3f72539376fa7b3bbc43d"
 dependencies = [
  "ethers-addressbook",
  "ethers-contract",
- "ethers-core 2.0.4",
+ "ethers-core",
  "ethers-etherscan",
  "ethers-middleware",
  "ethers-providers",
@@ -1505,7 +1496,7 @@ version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c66a426b824a0f6d1361ad74b6b01adfd26c44ee1e14c3662dcf28406763ec5"
 dependencies = [
- "ethers-core 2.0.4",
+ "ethers-core",
  "once_cell",
  "serde",
  "serde_json",
@@ -1519,7 +1510,7 @@ checksum = "dfa43e2e69632492d7b38e59465d125a0066cf4c477390ece00d3acbd11b338b"
 dependencies = [
  "ethers-contract-abigen",
  "ethers-contract-derive",
- "ethers-core 2.0.4",
+ "ethers-core",
  "ethers-providers",
  "futures-util",
  "hex",
@@ -1538,7 +1529,7 @@ checksum = "2edb8fdbf77459819a443234b461171a024476bfc12f1853b889a62c6e1185ff"
 dependencies = [
  "Inflector",
  "dunce",
- "ethers-core 2.0.4",
+ "ethers-core",
  "ethers-etherscan",
  "eyre",
  "getrandom",
@@ -1565,43 +1556,12 @@ checksum = "939b0c37746929f869285ee37d270b7c998d80cc7404c2e20dda8efe93e3b295"
 dependencies = [
  "Inflector",
  "ethers-contract-abigen",
- "ethers-core 2.0.4",
+ "ethers-core",
  "hex",
  "proc-macro2",
  "quote",
  "serde_json",
  "syn 2.0.15",
-]
-
-[[package]]
-name = "ethers-core"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ade3e9c97727343984e1ceada4fdab11142d2ee3472d2c67027d56b1251d4f15"
-dependencies = [
- "arrayvec",
- "bytes",
- "cargo_metadata",
- "chrono",
- "convert_case",
- "elliptic-curve 0.12.3",
- "ethabi",
- "generic-array",
- "hex",
- "k256 0.11.6",
- "once_cell",
- "open-fastrlp",
- "proc-macro2",
- "rand",
- "rlp",
- "rlp-derive",
- "serde",
- "serde_json",
- "strum",
- "syn 1.0.109",
- "thiserror",
- "tiny-keccak",
- "unicode-xid",
 ]
 
 [[package]]
@@ -1637,11 +1597,11 @@ dependencies = [
 
 [[package]]
 name = "ethers-derive-eip712"
-version = "1.0.2"
+version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "083ad25436e147ab3be457a680b018a9fa981a3f8b7379f5dc19024223d0d6e5"
+checksum = "2a4a52f1476c06bab61b91d7736ab556ca6f6e45b1aae6d3b7db442c880cb14a"
 dependencies = [
- "ethers-core 1.0.2",
+ "ethers-core",
  "hex",
  "quote",
  "serde_json",
@@ -1654,7 +1614,7 @@ version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "196a21d6939ab78b7a1e4c45c2b33b0c2dd821a2e1af7c896f06721e1ba2a0c7"
 dependencies = [
- "ethers-core 2.0.4",
+ "ethers-core",
  "ethers-solc",
  "getrandom",
  "reqwest",
@@ -1674,7 +1634,7 @@ dependencies = [
  "async-trait",
  "auto_impl",
  "ethers-contract",
- "ethers-core 2.0.4",
+ "ethers-core",
  "ethers-etherscan",
  "ethers-providers",
  "ethers-signers",
@@ -1703,7 +1663,7 @@ dependencies = [
  "base64 0.21.0",
  "bytes",
  "enr 0.8.1",
- "ethers-core 2.0.4",
+ "ethers-core",
  "futures-core",
  "futures-timer",
  "futures-util",
@@ -1740,7 +1700,7 @@ dependencies = [
  "coins-bip39",
  "elliptic-curve 0.13.4",
  "eth-keystore",
- "ethers-core 2.0.4",
+ "ethers-core",
  "hex",
  "rand",
  "sha2 0.10.6",
@@ -1756,7 +1716,7 @@ checksum = "2284784306de73d8ad1bc792ecc1b87da0268185683698d60fd096d23d168c99"
 dependencies = [
  "cfg-if",
  "dunce",
- "ethers-core 2.0.4",
+ "ethers-core",
  "getrandom",
  "glob",
  "hex",
@@ -2087,7 +2047,7 @@ dependencies = [
  "dotenv",
  "ethers",
  "ethers-contract",
- "ethers-core 2.0.4",
+ "ethers-core",
  "ethers-derive-eip712",
  "graphql_client",
  "lazy_static",
@@ -2608,7 +2568,6 @@ dependencies = [
  "ecdsa 0.14.8",
  "elliptic-curve 0.12.3",
  "sha2 0.10.6",
- "sha3",
 ]
 
 [[package]]
@@ -5025,12 +4984,6 @@ checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
 ]
-
-[[package]]
-name = "unicode-segmentation"
-version = "1.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "unicode-width"
