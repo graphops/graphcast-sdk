@@ -9,7 +9,7 @@ use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{collections::HashSet, time::Duration};
 use std::{net::IpAddr, str::FromStr};
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info};
 use url::ParseError;
 use waku::{
     waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, GossipSubParams,
@@ -344,13 +344,16 @@ pub async fn handle_signal<
     // Do not accept messages that were already received or sent by self
     let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &graphcast_agent.old_message_ids;
     let mut ids = old_message_ids.lock().await;
+
+    error!("old ids {:?}", ids);
+
     match signal.event() {
         waku::Event::WakuMessage(event) => {
             match <message_typing::GraphcastMessage<T> as Message>::decode(
                 event.waku_message().payload(),
             ) {
                 Ok(graphcast_message) => {
-                    trace!(
+                    error!(
                         "{}{}\nMessage: {:#?}",
                         "Message received! Message id: ",
                         event.message_id(),
