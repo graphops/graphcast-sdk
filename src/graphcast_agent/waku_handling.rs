@@ -75,8 +75,8 @@ pub fn filter_peer_subscriptions(
     let subscription: FilterSubscription =
         content_filter_subscription(graphcast_topic, content_topics);
     debug!(
-        "Subscribe to content topic for filtering: {:#?}",
-        subscription
+        peers = tracing::field::debug(&subscription),
+        "Subscribe to topics"
     );
     let filter_subscribe_result: Vec<String> = node_handle
         .peers()
@@ -107,8 +107,8 @@ pub fn filter_peer_subscriptions(
         })
         .collect();
     info!(
-        "Subscription connections established: {:#?}",
-        filter_subscribe_result
+        peers = tracing::field::debug(&filter_subscribe_result),
+        "Subscription connections established",
     );
     Ok(filter_subscribe_result)
 }
@@ -123,8 +123,8 @@ pub fn unsubscribe_peer(
     let subscription: FilterSubscription =
         content_filter_subscription(graphcast_topic, content_topics);
     debug!(
-        "Unsubscribe content topics on filter protocol: {:#?}",
-        subscription
+        peers = tracing::field::debug(&subscription),
+        "Unsubscribe content topics on filter protocol",
     );
     node_handle
         .filter_unsubscribe(&subscription, Duration::new(6000, 0))
@@ -191,27 +191,33 @@ pub fn gather_nodes(
     static_nodes: Vec<Multiaddr>,
     pubsub_topic: &WakuPubSubTopic,
 ) -> Vec<Multiaddr> {
-    debug!("Static node list: {:#?}", static_nodes);
+    debug!(
+        nodes = tracing::field::debug(&static_nodes),
+        "Static node list"
+    );
 
     let disc_url = discovery_url(pubsub_topic);
     let dns_nodes = match disc_url {
         Ok(url) => match waku_dns_discovery(&url, Some(&cf_nameserver()), None) {
             Ok(a) => {
-                debug!("{} {:#?}", "Discovered multiaddresses:", a);
+                debug!(
+                    addresses = tracing::field::debug(&a),
+                    "Discovered multiaddresses"
+                );
                 a.iter().flat_map(|d| d.addresses.iter()).cloned().collect()
             }
             Err(e) => {
                 error!(
-                    "{}{:?}",
-                    "Could not discover nodes with provided Url, only add static node list: ", e
+                    error = tracing::field::debug(e),
+                    "Could not discover nodes with provided Url, only add static node list: "
                 );
                 vec![]
             }
         },
         Err(e) => {
             error!(
-                "{}{:?}",
-                "Could not discover nodes with provided Url, only add static node list: ", e
+                error = tracing::field::debug(&e),
+                "Could not discover nodes with provided Url, only add static node list"
             );
             vec![]
         }
@@ -235,9 +241,15 @@ fn connect_multiaddresses(
                 .unwrap_or_else(|_| String::from("Could not add peer"));
             node_handle.connect_peer_with_id(&peer_id, None).is_ok()
         });
-    debug!("Connected to peers: {:#?}", connected_peers,);
+    debug!(
+        peers = tracing::field::debug(connected_peers),
+        "Connected to peers"
+    );
     if !unconnected_peers.is_empty() {
-        debug!("Failed to connect to: {:#?}", unconnected_peers);
+        debug!(
+            peers = tracing::field::debug(unconnected_peers),
+            "Peers failed to connect"
+        );
     }
 }
 
@@ -280,8 +292,8 @@ pub fn setup_node_handle(
             connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
 
             info!(
-                "Initialized node handle with local peer_id: {:#?}",
-                node_handle.peer_id(),
+                id = tracing::field::debug(node_handle.peer_id()),
+                "Initialized node handle with local peer_id",
             );
 
             Ok(node_handle)
@@ -323,8 +335,9 @@ pub fn boot_node_handle(
         boot_node_id
     );
     debug!(
-        "Boot node - id: {}, address: {}",
-        boot_node_id, boot_node_multiaddress
+        boot_node_id = tracing::field::debug(&boot_node_id),
+        boot_node_address = tracing::field::debug(&boot_node_multiaddress),
+        "Boot node initialized"
     );
     Ok(boot_node_handle)
 }
@@ -351,10 +364,9 @@ pub async fn handle_signal<
             ) {
                 Ok(graphcast_message) => {
                     trace!(
-                        "{}{}\nMessage: {:#?}",
-                        "Message received! Message id: ",
-                        event.message_id(),
-                        graphcast_message
+                        id = event.message_id(),
+                        message = tracing::field::debug(&graphcast_message),
+                        "Received message"
                     );
                     if ids.contains(event.message_id()) {
                         return Err(WakuHandlingError::InvalidMessage(
@@ -413,12 +425,18 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHa
         // filter for nodes that are not self and disconnected
         .filter(|&peer| (peer.peer_id().as_str() != local_id) & (!peer.connected()))
         .map(|peer: &WakuPeerData| {
-            debug!("Disconnected peer data: {:#?}", &peer);
+            debug!(
+                peer = tracing::field::debug(&peer),
+                "Disconnected peer data"
+            );
             node_handle.connect_peer_with_id(peer.peer_id(), None)
         })
         .for_each(|res| {
-            if let Err(x) = res {
-                debug!("Could not connect to peer: {}", x)
+            if let Err(e) = res {
+                debug!(
+                    error = tracing::field::debug(&e),
+                    "Could not connect to peer"
+                );
             }
         });
     Ok(())

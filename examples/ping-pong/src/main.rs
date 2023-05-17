@@ -49,6 +49,7 @@ async fn main() {
 
     // Instantiates the configuration struct based on provided environment variables or CLI args
     let config = Config::args();
+    let _parent_span = tracing::info_span!("main").entered();
 
     /// A global static (singleton) instance of A GraphcastMessage vector.
     /// It is used to save incoming messages after they've been validated, in order
@@ -115,7 +116,7 @@ async fn main() {
             )
             .await
         {
-            error!("Failed to send message: {}", e)
+            error!(error = tracing::field::debug(&e), "Failed to send message");
         };
     }
 
@@ -133,7 +134,10 @@ async fn main() {
                     .push(msg);
             }
             Err(err) => {
-                error!("{err}");
+                error!(
+                    error = tracing::field::debug(&err),
+                    "Failed to handle Waku signal"
+                );
             }
         };
 
@@ -146,11 +150,15 @@ async fn main() {
     let network = NetworkName::from_string("goerli");
 
     loop {
+        let _parent_span = tracing::info_span!("gossip interval").entered();
         let indexing_statuses =
             match get_indexing_statuses(config.graph_node_endpoint.clone()).await {
                 Ok(res) => res,
                 Err(e) => {
-                    error!("Could not query indexing statuses, pull again later: {e}");
+                    error!(
+                        error = tracing::field::debug(&e),
+                        "Could not query indexing statuses, pull again later"
+                    );
                     sleep(Duration::from_secs(5));
                     continue;
                 }
@@ -163,8 +171,7 @@ async fn main() {
                 hash: "temp".to_string(),
             })
             .number;
-        info!("🔗 Block number: {}", block_number);
-
+        info!(block = block_number, "🔗 Block number");
         if block_number & 2 == 0 {
             // If block number is even, send ping message
             let msg = RadioPayloadMessage::new(
