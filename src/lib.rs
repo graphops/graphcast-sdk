@@ -66,7 +66,7 @@ pub fn discovery_url(pubsub_topic: &WakuPubSubTopic) -> Result<Url, url::ParseEr
                 .to_string()
         }
     });
-    debug!("ENRtree url used for DNS discovery: {}", enr_url);
+    debug!(ENR_Tree = enr_url, "DNS discovery");
 
     Url::parse(&enr_url)
 }
@@ -89,25 +89,31 @@ pub fn build_wallet(value: &str) -> Result<Wallet<SigningKey>, WalletError> {
 
 /// Get the graphcastID address from the wallet
 pub fn graphcast_id_address(wallet: &Wallet<SigningKey>) -> String {
-    debug!("{}", format!("Wallet address: {:?}", wallet.address()));
+    debug!(
+        wallet = format!("{:?}", wallet.address()),
+        "Resolved Graphcast ID"
+    );
     format!("{:?}", wallet.address())
 }
 
 /// Sets up tracing, allows log level to be set from the environment variables
-pub fn init_tracing() -> Result<(), SetGlobalDefaultError> {
+pub fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
     let filter = EnvFilter::from_default_env();
-    // let level_filter = filter.max_level_hint().unwrap_or(Level::ERROR.into());
 
-    let subscriber = FmtSubscriber::builder()
-        .with_env_filter(filter)
-        // .with_max_level(level_filter)
-        .with_ansi(true)
-        .with_target(true)
-        .with_level(true)
-        .with_line_number(true)
-        .pretty()
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
+    let subscriber_builder: tracing_subscriber::fmt::SubscriberBuilder<
+        tracing_subscriber::fmt::format::DefaultFields,
+        tracing_subscriber::fmt::format::Format,
+        EnvFilter,
+    > = FmtSubscriber::builder().with_env_filter(filter);
+
+    match format.as_str() {
+        "json" => tracing::subscriber::set_global_default(subscriber_builder.json().finish()),
+        "full" => tracing::subscriber::set_global_default(subscriber_builder.finish()),
+        "compact" => tracing::subscriber::set_global_default(subscriber_builder.compact().finish()),
+        _ => tracing::subscriber::set_global_default(
+            subscriber_builder.with_ansi(true).pretty().finish(),
+        ),
+    }
 }
 
 /* Blocks operation */
