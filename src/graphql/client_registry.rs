@@ -39,7 +39,10 @@ pub async fn query_registry_indexer(
     let queried_result =
         perform_graphcast_id_indexer_query(registry_subgraph_endpoint, variables).await?;
     if !&queried_result.status().is_success() {
-        warn!("Unsuccessful query detail: {:#?}", queried_result);
+        warn!(
+            result = tracing::field::debug(&queried_result),
+            "Unsuccessful query"
+        );
     }
     let response_body: Response<indexers::ResponseData> = queried_result.json().await?;
     if let Some(data) = response_body.data {

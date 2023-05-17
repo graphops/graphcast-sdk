@@ -124,7 +124,7 @@ impl GraphcastAgentConfig {
         let indexer = query_registry_indexer(self.registry_subgraph.to_string(), graphcast_id)
             .await
             .map_err(|e| ConfigError::ValidateInput(format!("The registry subgraph did not contain an entry for the Graphcast ID to Indexer: {e}")))?;
-        debug!("Resolved indexer identity: {}", indexer);
+        debug!(address = indexer, "Resolved indexer identity");
 
         let stake = query_network_subgraph(self.network_subgraph.to_string(), indexer)
             .await
@@ -134,7 +134,7 @@ impl GraphcastAgentConfig {
                 ))
             })?
             .indexer_stake();
-        debug!("Resolved indexer stake: {}", stake);
+        debug!(stake = stake, "Resolved indexer stake");
 
         let _ = get_indexing_statuses(self.graph_node_endpoint.to_string())
             .await
@@ -310,8 +310,11 @@ impl GraphcastAgent {
     }
 
     pub async fn print_subscriptions(&self) {
-        info!("pubsub topic: {:#?}", &self.pubsub_topic);
-        info!("content topics: {:#?}", &self.content_identifiers().await);
+        info!(
+            pubsub_topic = tracing::field::debug(&self.pubsub_topic),
+            content_topic = tracing::field::debug(&self.content_identifiers().await),
+            "Subscriptions"
+        );
     }
 
     /// Find the subscribed content topic with an identifier
@@ -320,7 +323,7 @@ impl GraphcastAgent {
         &self,
         identifier: String,
     ) -> Result<WakuContentTopic, GraphcastAgentError> {
-        trace!("Target content topics: {:#?}\n", identifier,);
+        trace!(topic = identifier, "Target content topic");
         match self
             .content_topics
             .lock()
@@ -388,8 +391,11 @@ impl GraphcastAgent {
         payload: Option<T>,
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self.match_content_topic(identifier.clone()).await?;
-        // Remove debug log after content topic filtering is stable
-        trace!("Selected content topic: {:#?}", content_topic);
+        trace!(
+            topic = tracing::field::debug(&content_topic),
+            "Selected content topic from subscriptions"
+        );
+
         let block_hash = self
             .get_block_hash(network.to_string().clone(), block_number)
             .await?;
@@ -412,7 +418,7 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::WakuNodeError)
         .map(|id| {
             ids.insert(id.clone());
-            trace!("Sent msg id: {:#?}", id);
+            trace!(id = id, "Sent message");
             id
         })
     }
@@ -439,7 +445,11 @@ impl GraphcastAgent {
 
         // Check if an update to the content topic is necessary
         if *cur_topics != new_topics {
-            debug!("updating to new set of content topics: {:#?}", new_topics);
+            debug!(
+                new_topics = tracing::field::debug(&new_topics),
+                current_topics = tracing::field::debug(&*cur_topics),
+                "Updating to new set of content topics"
+            );
 
             // TODO: Uncomment after a release that contains this issue
             // https://github.com/waku-org/go-waku/pull/536/files
