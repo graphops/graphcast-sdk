@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
@@ -209,6 +209,8 @@ impl<
         local_graphcast_id: String,
     ) -> Result<&Self, BuildMessageError> {
         let graphcast_id = self.recover_sender_address()?;
+        info!("Sender Graphcast ID: {}", graphcast_id);
+
         if graphcast_id == local_graphcast_id {
             Err(BuildMessageError::InvalidFields(anyhow!(
                 "Message is from self, drop message"
@@ -218,6 +220,8 @@ impl<
                 query_registry_indexer(registry_subgraph.to_string(), graphcast_id)
                     .await
                     .map_err(BuildMessageError::FieldDerivations)?;
+            info!("Sender Indexer address: {}", indexer_address.clone());
+
             if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
                 .await
                 .map_err(BuildMessageError::FieldDerivations)?

@@ -223,7 +223,7 @@ pub fn gather_nodes(
 }
 
 /// Connect to peers from a list of multiaddresses for a specific protocol
-fn connect_multiaddresses(
+pub fn connect_multiaddresses(
     nodes: Vec<Multiaddr>,
     node_handle: &WakuNodeHandle<Running>,
     protocol_id: ProtocolId,
@@ -356,6 +356,9 @@ pub async fn handle_signal<
                         event.message_id(),
                         graphcast_message
                     );
+
+                    trace!("Topic: {:?}", event.waku_message().content_topic());
+
                     if ids.contains(event.message_id()) {
                         return Err(WakuHandlingError::InvalidMessage(
                             "Skip repeated message".to_string(),
