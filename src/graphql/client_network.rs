@@ -69,7 +69,11 @@ pub async fn query_network_subgraph(
                 })
             }
             Err(e) => {
-                error!("Indexer not available from the network subgraph: {}", e);
+                error!(
+                    error = tracing::field::debug(&e),
+                    "Indexer not available from the network subgraph"
+                );
+
                 None
             }
         }

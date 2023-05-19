@@ -55,7 +55,10 @@ pub async fn query_graph_node_network_block_hash(
     let queried_result =
         perform_block_hash_from_number(graph_node_endpoint.clone(), variables).await?;
     if !queried_result.status().is_success() {
-        warn!("Unsuccessful query detail: {:#?}", queried_result);
+        warn!(
+            result = tracing::field::debug(&queried_result),
+            "Unsuccessful query"
+        );
     }
     let response_body: Response<block_hash_from_number::ResponseData> =
         queried_result.json().await?;
@@ -131,7 +134,10 @@ pub fn update_network_chainheads(
                 .collect::<String>()
         })
         .collect::<HashSet<String>>();
-    trace!("Updated chainhead for network: {:#?}", updated_networks);
+    trace!(
+        network = tracing::field::debug(&updated_networks),
+        "Updated chainhead"
+    );
 }
 
 /// This function gathers the subgraph's network name and latest blocks from the indexing statuses
@@ -166,13 +172,8 @@ pub fn subgraph_network_blocks(
         })
         .collect::<Vec<String>>();
     debug!(
-        "Updated latest block pointers for {} number of subgraphs (currently takes all syncing statuses on graph node, change back to info logs after filtering for appropriate fields)",
-        updated_subgraphs.len()
-    );
-    trace!(
-        "Updated subgraph latest blocks: {:#?}\nUpdated subgraphs: {:?}",
-        subgraph_network_blocks,
-        updated_subgraphs,
+        number_of_subgraphs = updated_subgraphs.len(),
+        "Updated latest block pointers for subgraphs",
     );
     Ok(subgraph_network_blocks)
 }

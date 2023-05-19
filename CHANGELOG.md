@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - Add prometheus toggle
 - Add metrics_host to config
 - Graphql for messages and add server host and port
+- Add options to toggle logger format
 
 ### Miscellaneous Tasks
 
@@ -60,6 +61,12 @@ All notable changes to this project will be documented in this file.
 - Add e2e test helpers
 - Release v0.1.1
 - Release vv0.1.2
+- Release v0.2.0
+- Update deps, use waku with seen cache
+- Switch to git dep for Waku
+- Release v0.3.0
+- Release v0.3.1
+- Release 0.3.1
 
 ### Refactor
 

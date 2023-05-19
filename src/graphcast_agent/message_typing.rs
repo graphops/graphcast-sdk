@@ -154,9 +154,15 @@ impl<
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
-        let waku_message =
-            WakuMessage::new(buff, content_topic, 2, Utc::now().timestamp() as usize);
-        trace!("Sending message: {:#?}", &self);
+        let waku_message = WakuMessage::new(
+            buff,
+            content_topic,
+            2,
+            Utc::now().timestamp() as usize,
+            vec![],
+            true,
+        );
+        trace!(message = tracing::field::debug(&self), "Sending message");
 
         let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
             .peers()
@@ -181,7 +187,10 @@ impl<
                         None,
                     )
                     .map_err(|e| {
-                        debug!("Failed to send message to peer: {e}");
+                        debug!(
+                            error = tracing::field::debug(&e),
+                            "Failed to send message to Waku peer"
+                        );
                         WakuHandlingError::PublishMessage(e)
                     })
             })
@@ -217,7 +226,7 @@ impl<
                 .map_err(BuildMessageError::FieldDerivations)?
                 .stake_satisfy_requirement()
             {
-                trace!("Valid Indexer:  {}", indexer_address);
+                trace!(address = indexer_address, "Valid Indexer");
                 Ok(self)
             } else {
                 Err(BuildMessageError::InvalidFields(anyhow!(
@@ -254,11 +263,10 @@ impl<
         .map_err(BuildMessageError::FieldDerivations)?;
 
         trace!(
-            "{} {}: {} -> {:?}",
-            "Queried block hash from graph node on",
-            self.network.clone(),
-            self.block_number,
-            block_hash
+            network = tracing::field::debug(self.network.clone()),
+            block_number = self.block_number,
+            block_hash = block_hash,
+            "Queried block hash from graph node",
         );
 
         if self.block_hash == block_hash {
@@ -304,10 +312,10 @@ impl<
                 match nonce {
                     Some(nonce) => {
                         trace!(
-                            "Latest saved nonce for subgraph {} and address {}: {}",
-                            self.identifier,
-                            address,
-                            nonce
+                            subgraph = self.identifier,
+                            sender = address,
+                            saved_nonce = nonce,
+                            "Nonce check",
                         );
 
                         if nonce > &self.nonce {
@@ -375,10 +383,8 @@ pub async fn check_message_validity<
         .await?;
 
     trace!(
-        "{}\n{}{:?}",
-        "Valid message!",
-        "Message: ",
-        graphcast_message
+        message = tracing::field::debug(&graphcast_message),
+        "Valid message!"
     );
     Ok(graphcast_message.clone())
 }

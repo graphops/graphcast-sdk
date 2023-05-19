@@ -54,6 +54,16 @@ pub struct Config {
         default_value = "https://gateway.testnet.thegraph.com/network"
     )]
     pub network_subgraph: String,
+    #[clap(
+        long,
+        value_name = "LOG_FORMAT",
+        env = "LOG_FORMAT",
+        help = "Support logging formats: pretty, json, full, compact",
+        long_help = "pretty: verbose and human readable; json: not verbose and parsable; compact:  not verbose and not parsable; full: verbose and not parsible",
+        possible_values = ["pretty", "json", "full", "compact"],
+        default_value = "full"
+    )]
+    pub log_format: String,
 }
 
 impl Config {
@@ -61,7 +71,7 @@ impl Config {
     pub fn args() -> Self {
         // TODO: load config file before parse (maybe add new level of subcommands)
         let config = Config::parse();
-        init_tracing().expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
+        init_tracing(config.log_format.clone()).expect("Could not set up global default subscriber for logger, check environmental variable `RUST_LOG` or the CLI input `log-level`");
         config
     }
 
@@ -70,7 +80,7 @@ impl Config {
         // The wallet can be stored instead of the original private key
         let wallet = build_wallet(value)?;
         let addr = graphcast_id_address(&wallet);
-        info!("Resolved Graphcast id: {}", addr);
+        info!(address = addr, "Resolved Graphcast id");
         Ok(String::from(value))
     }
 }
