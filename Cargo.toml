@@ -47,7 +47,7 @@ tracing-subscriber = { version = "0.3", features = [
     "std",
     "json",
 ] }
-async-graphql = "4.0.16"
+async-graphql = "5.0.8"
 async-graphql-axum = "4.0.16"
 
 [dev-dependencies.cargo-husky]
