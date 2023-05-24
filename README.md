@@ -30,6 +30,18 @@ The SDK is essentially a base layer that Radio developers can use to build their
 
 There is also a POI cross-checker Radio in the `examples/` folder that leverages the base layer and defines the specific logic around constructing and sending messages, as well as receiving and handling them.
 
+
+## Graphcast Network Configurations
+
+A Graphcast radio can interact with many parts of The Graph network modularly; below are the network configurations actively supported by our team. You are free to define and use your own Graphcast Network and Graphcast Registry. 
+
+| Graphcast Network | Supporting Network | Graph Network                   | Graphcast Registry             |
+| ---------------- | ---------------- | --------------------------- | ----------------- |
+| Mainnet | Mainnet | https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-mainnet                | https://api.thegraph.com/subgraphs/name/hopeyen/graphcast-registry-mainnet |
+| Testnet | Goerli | https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli                | https://api.thegraph.com/subgraphs/name/hopeyen/graphcast-registry-goerli |
+| Testnet | Arbitrum Goerli | https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-arbitrum-goerli                | https://api.thegraph.com/subgraphs/name/hopeyen/graphcast-registry-arbitrum-go |
+
+
 ## Contributing
 
 We welcome and appreciate your contributions! Please see the [Contributor Guide](/CONTRIBUTING.md), [Code Of Conduct](/CODE_OF_CONDUCT.md) and [Security Notes](/SECURITY.md) for this repository.
