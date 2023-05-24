@@ -1,6 +1,6 @@
-query Indexers($address: String!) {
-  indexers(where: {graphcastID: $address}) {
+query SetGraphcastIds($address: String!) {
+  graphcast_ids: setGraphcastIDs(where:{graphcastID: $address}){
+    indexer
     graphcastID
-    id
   }
 }
