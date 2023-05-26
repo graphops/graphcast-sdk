@@ -49,6 +49,7 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 async-graphql = "4.0.16"
 async-graphql-axum = "4.0.16"
+teloxide = "0.12.2"
 
 [dev-dependencies.cargo-husky]
 version = "1"
