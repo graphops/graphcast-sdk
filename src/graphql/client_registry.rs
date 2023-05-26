@@ -28,7 +28,6 @@ pub async fn perform_graphcast_id_indexer_query(
         .error_for_status()
 }
 
-/// Construct GraphQL variables and parse result for indexer address
 pub async fn query_registry_indexer(
     registry_subgraph_endpoint: String,
     graphcast_id_address: String,
@@ -40,15 +39,23 @@ pub async fn query_registry_indexer(
     let queried_result =
         perform_graphcast_id_indexer_query(registry_subgraph_endpoint.clone(), variables).await?;
 
-    trace!("queried result {:?}", queried_result);
-
-    if !&queried_result.status().is_success() {
+    if !queried_result.status().is_success() {
         warn!(
-            result = tracing::field::debug(&queried_result),
+            result = tracing::field::debug(&queried_result.status()),
             "Unsuccessful query"
         );
     }
-    let response_body: Response<set_graphcast_ids::ResponseData> = queried_result.json().await?;
+
+    let bytes = queried_result.bytes().await?;
+    let cloned_bytes = bytes.clone();
+
+    let raw_response_body = std::str::from_utf8(&cloned_bytes).unwrap_or("Invalid UTF-8");
+    trace!("Raw response body: {}", raw_response_body);
+
+    let response_body: Response<set_graphcast_ids::ResponseData> = serde_json::from_slice(&bytes)
+        .map_err(|err| {
+        QueryError::ParseResponseError(format!("Error parsing response body as JSON: {err}"))
+    })?;
 
     trace!("Response body {:?}", response_body);
 
