@@ -36,8 +36,12 @@ pub async fn query_registry_indexer(
     let variables: set_graphcast_ids::Variables = set_graphcast_ids::Variables {
         address: graphcast_id_address.clone(),
     };
+
     let queried_result =
         perform_graphcast_id_indexer_query(registry_subgraph_endpoint.clone(), variables).await?;
+
+    trace!("queried result {:?}", queried_result);
+
     if !&queried_result.status().is_success() {
         warn!(
             result = tracing::field::debug(&queried_result),
