@@ -1,6 +1,6 @@
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{trace, warn};
 
 use super::QueryError;
 
@@ -45,6 +45,9 @@ pub async fn query_registry_indexer(
         );
     }
     let response_body: Response<set_graphcast_ids::ResponseData> = queried_result.json().await?;
+
+    trace!("Response body {:?}", response_body);
+
     if let Some(data) = response_body.data {
         data.graphcast_ids
             .first()
