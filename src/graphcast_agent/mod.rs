@@ -59,7 +59,7 @@ pub enum ConfigError {
 #[derive(Clone)]
 pub struct GraphcastAgentConfig {
     pub wallet_key: String,
-    pub radio_name: &'static str,
+    pub radio_name: String,
     pub registry_subgraph: String,
     pub network_subgraph: String,
     pub graph_node_endpoint: String,
@@ -76,7 +76,7 @@ impl GraphcastAgentConfig {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         wallet_key: String,
-        radio_name: &'static str,
+        radio_name: String,
         registry_subgraph: String,
         network_subgraph: String,
         graph_node_endpoint: String,
@@ -173,7 +173,7 @@ pub struct GraphcastAgent {
     pub wallet: LocalWallet,
     pub node_handle: WakuNodeHandle<Running>,
     /// Graphcast agent waku instance's radio application
-    pub radio_name: &'static str,
+    pub radio_name: String,
     /// Graphcast agent waku instance's pubsub topic
     pub pubsub_topic: WakuPubSubTopic,
     /// Graphcast agent waku instance's content topics
@@ -272,7 +272,7 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::WakuNodeError)?;
 
         // Filter subscriptions only if provided subtopic
-        let content_topics = build_content_topics(radio_name, 0, &subtopics);
+        let content_topics = build_content_topics(&radio_name, 0, &subtopics);
         let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
             .expect("Could not connect and subscribe to the subtopics");
 
@@ -440,7 +440,7 @@ impl GraphcastAgent {
     // TODO: Could register the query function at intialization and call it within this fn
     pub async fn update_content_topics(&self, subtopics: Vec<String>) {
         // build content topics
-        let new_topics = build_content_topics(self.radio_name, 0, &subtopics);
+        let new_topics = build_content_topics(&self.radio_name, 0, &subtopics);
         let mut cur_topics = self.content_topics.lock().await;
 
         // Check if an update to the content topic is necessary
