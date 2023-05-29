@@ -9,7 +9,7 @@ use tracing::{debug, trace, warn};
 
 use self::indexing_statuses::IndexingStatusesIndexingStatuses;
 
-#[derive(GraphQLQuery, Serialize, Deserialize, Debug)]
+#[derive(GraphQLQuery, Serialize, Deserialize, Debug, Clone, Copy)]
 #[graphql(
     schema_path = "src/graphql/schema_graph_node.graphql",
     query_path = "src/graphql/query_indexing_statuses.graphql",
@@ -72,7 +72,7 @@ pub async fn query_graph_node_network_block_hash(
         }
     } else {
         Err(QueryError::ParseResponseError(format!(
-            "Network {network} blockhash at block {block_number}"
+            "No data for {network} blockHash at block {block_number}"
         )))
     }
 }
@@ -109,8 +109,8 @@ pub async fn get_indexing_statuses(
 /// This function update the chainhead block pointer for each Network according to the indexingStatuses of subgraphs
 pub fn update_network_chainheads(
     statuses: Vec<IndexingStatusesIndexingStatuses>,
-    network_map: &mut HashMap<NetworkName, BlockPointer>,
-) {
+) -> HashMap<NetworkName, BlockPointer> {
+    let mut network_map: HashMap<NetworkName, BlockPointer> = HashMap::new();
     let updated_networks = statuses
         .into_iter()
         .map(|status| {
@@ -138,12 +138,13 @@ pub fn update_network_chainheads(
         network = tracing::field::debug(&updated_networks),
         "Updated chainhead"
     );
+    network_map
 }
 
 /// This function gathers the subgraph's network name and latest blocks from the indexing statuses
 pub fn subgraph_network_blocks(
     statuses: Vec<IndexingStatusesIndexingStatuses>,
-) -> Result<HashMap<String, NetworkPointer>, QueryError> {
+) -> HashMap<String, NetworkPointer> {
     // subgraph (network, latest blocks)
     let mut subgraph_network_blocks: HashMap<String, NetworkPointer> = HashMap::new();
 
@@ -175,20 +176,5 @@ pub fn subgraph_network_blocks(
         number_of_subgraphs = updated_subgraphs.len(),
         "Updated latest block pointers for subgraphs",
     );
-    Ok(subgraph_network_blocks)
-}
-
-/// This function update chainhead blocks for the network map
-/// And then generate the latest block pointer on the network for each subgraphs
-pub async fn update_chainhead_blocks(
-    graph_node_endpoint: String,
-    network_map: &mut HashMap<NetworkName, BlockPointer>,
-) -> Result<HashMap<String, NetworkPointer>, QueryError> {
-    // There is a redundant call to get indexing statuses due to moving
-    // inner object ownership within the map, and should be refactored later
-    update_network_chainheads(
-        get_indexing_statuses(graph_node_endpoint.clone()).await?,
-        network_map,
-    );
-    subgraph_network_blocks(get_indexing_statuses(graph_node_endpoint).await?)
+    subgraph_network_blocks
 }

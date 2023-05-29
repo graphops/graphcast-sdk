@@ -1,7 +1,6 @@
 use crate::{
     app_name, cf_nameserver, discovery_url,
     graphcast_agent::message_typing::{self, check_message_validity, GraphcastMessage},
-    graphcast_id_address,
     graphql::QueryError,
 };
 use prost::Message;
@@ -229,7 +228,7 @@ pub fn gather_nodes(
 }
 
 /// Connect to peers from a list of multiaddresses for a specific protocol
-fn connect_multiaddresses(
+pub fn connect_multiaddresses(
     nodes: Vec<Multiaddr>,
     node_handle: &WakuNodeHandle<Running>,
     protocol_id: ProtocolId,
@@ -378,10 +377,8 @@ pub async fn handle_signal<
                     check_message_validity(
                         graphcast_message,
                         &graphcast_agent.nonces,
-                        &graphcast_agent.registry_subgraph,
-                        &graphcast_agent.network_subgraph,
-                        &graphcast_agent.graph_node_endpoint,
-                        graphcast_id_address(&graphcast_agent.wallet),
+                        graphcast_agent.callbook.clone(),
+                        graphcast_agent.graphcast_identity.graphcast_id.clone(),
                     )
                     .await
                     .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
