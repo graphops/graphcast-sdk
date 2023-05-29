@@ -1196,6 +1196,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-getters"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0122f262bf9c9a367829da84f808d9fb128c10ef283bbe7b0922a77cf07b2747"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2124,6 +2135,7 @@ dependencies = [
  "chrono",
  "clap",
  "data-encoding",
+ "derive-getters",
  "dotenv",
  "ethers",
  "ethers-contract",

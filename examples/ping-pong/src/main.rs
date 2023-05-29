@@ -16,7 +16,6 @@ use graphcast_sdk::{
 use once_cell::sync::OnceCell;
 
 // Import HashMap for key-value storage
-use std::collections::HashMap;
 
 // Import Arc and Mutex for thread-safe sharing of data across threads
 use std::sync::{Arc, Mutex};
@@ -95,8 +94,6 @@ async fn main() {
 
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
-
-    let mut network_chainhead_blocks: HashMap<NetworkName, BlockPointer> = HashMap::new();
     // Helper function to reuse message sending code
     async fn send_message(
         payload: Option<RadioPayloadMessage>,
@@ -150,20 +147,22 @@ async fn main() {
     let network = NetworkName::from_string("goerli");
 
     loop {
-        let _parent_span = tracing::info_span!("gossip interval").entered();
-        let indexing_statuses =
-            match get_indexing_statuses(config.graph_node_endpoint.clone()).await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!(
-                        error = tracing::field::debug(&e),
-                        "Could not query indexing statuses, pull again later"
-                    );
-                    sleep(Duration::from_secs(5));
-                    continue;
-                }
-            };
-        update_network_chainheads(indexing_statuses, &mut network_chainhead_blocks);
+        let mut network_chainhead_blocks = match GRAPHCAST_AGENT
+            .get()
+            .unwrap()
+            .callbook
+            .indexing_statuses()
+            .await
+        {
+            Ok(res) => update_network_chainheads(res),
+            Err(e) => {
+                error!(
+                    err = tracing::field::debug(&e),
+                    "Could not query indexing statuses, pull again later"
+                );
+                continue;
+            }
+        };
         let block_number = network_chainhead_blocks
             .entry(network)
             .or_insert(BlockPointer {

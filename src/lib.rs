@@ -25,6 +25,7 @@ use networks::{NetworkName, NETWORKS};
 
 use once_cell::sync::OnceCell;
 use prost::Message;
+use serde::{Deserialize, Serialize};
 
 use std::{
     borrow::Cow,
@@ -40,7 +41,10 @@ use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 use waku::WakuPubSubTopic;
 
+use crate::{graphcast_agent::ConfigError, graphql::client_registry::query_registry_indexer};
+
 pub mod bots;
+pub mod callbook;
 pub mod graphcast_agent;
 pub mod graphql;
 pub mod networks;
@@ -89,10 +93,6 @@ pub fn build_wallet(value: &str) -> Result<Wallet<SigningKey>, WalletError> {
 
 /// Get the graphcastID address from the wallet
 pub fn graphcast_id_address(wallet: &Wallet<SigningKey>) -> String {
-    debug!(
-        wallet = format!("{:?}", wallet.address()),
-        "Resolved Graphcast ID"
-    );
     format!("{:?}", wallet.address())
 }
 
@@ -179,7 +179,7 @@ pub fn determine_message_block(
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct NetworkPointer {
     pub network: String,
     pub block: BlockPointer,
@@ -191,7 +191,7 @@ pub struct BlockClock {
 }
 
 /// Struct for a block pointer
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct BlockPointer {
     pub number: u64,
     pub hash: String,
@@ -200,6 +200,39 @@ pub struct BlockPointer {
 impl BlockPointer {
     pub fn new(number: u64, hash: String) -> Self {
         BlockPointer { number, hash }
+    }
+}
+
+/// Struct for a block pointer
+#[derive(Clone, PartialEq, Debug)]
+pub struct GraphcastIdentity {
+    wallet: LocalWallet,
+    graphcast_id: String,
+    // indexer address but will include other graph accounts
+    graph_account: String,
+}
+
+impl GraphcastIdentity {
+    pub async fn new(
+        graphcast_key: String,
+        registry_subgraph: String,
+    ) -> Result<Self, ConfigError> {
+        let wallet = build_wallet(&graphcast_key).map_err(|e| {
+            ConfigError::ValidateInput(format!(
+                "Invalid key to wallet, use private key or mnemonic: {e}"
+            ))
+        })?;
+        let graphcast_id = graphcast_id_address(&wallet);
+        // TODO: Implies invalidity for both graphcast id and registry, maybe map_err more specifically
+        let indexer = query_registry_indexer(registry_subgraph.to_string(), graphcast_id.clone())
+            .await
+            .map_err(|e| ConfigError::ValidateInput(format!("The registry subgraph did not contain an entry for the Graphcast ID to Indexer: {e}")))?;
+
+        Ok(GraphcastIdentity {
+            wallet,
+            graphcast_id,
+            graph_account: indexer,
+        })
     }
 }
 

@@ -14,7 +14,7 @@ use self::waku_handling::{
     build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
     setup_node_handle, WakuHandlingError,
 };
-use ethers::signers::{LocalWallet, WalletError};
+use ethers::signers::WalletError;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -28,25 +28,19 @@ use waku::{
     WakuPubSubTopic,
 };
 
-use crate::graphql::client_graph_node::{
-    get_indexing_statuses, query_graph_node_network_block_hash,
-};
+use crate::callbook::CallBook;
+use crate::graphql::client_graph_node::get_indexing_statuses;
 use crate::graphql::client_network::query_network_subgraph;
 use crate::graphql::client_registry::query_registry_indexer;
 use crate::graphql::QueryError;
 use crate::networks::NetworkName;
-use crate::{build_wallet, graphcast_id_address, NoncesMap};
+use crate::{build_wallet, graphcast_id_address, GraphcastIdentity, NoncesMap};
 
 pub mod message_typing;
 pub mod waku_handling;
 
 /// A constant defining a message expiration limit.
 pub const MSG_REPLAY_LIMIT: i64 = 3_600_000;
-/// A constant defining the goerli registry subgraph endpoint.
-pub const REGISTRY_SUBGRAPH: &str =
-    "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
-/// A constant defining the goerli network subgraph endpoint.
-pub const NETWORK_SUBGRAPH: &str = "https://gateway.testnet.thegraph.com/network";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -170,7 +164,7 @@ fn convert_to_multiaddrs(addresses: &[String]) -> Result<Vec<Multiaddr>, ConfigE
 /// A Graphcast agent representation
 pub struct GraphcastAgent {
     /// GraphcastID's wallet, used to sign messages
-    pub wallet: LocalWallet,
+    pub graphcast_identity: GraphcastIdentity,
     pub node_handle: WakuNodeHandle<Running>,
     /// Graphcast agent waku instance's radio application
     pub radio_name: String,
@@ -180,12 +174,8 @@ pub struct GraphcastAgent {
     pub content_topics: Arc<AsyncMutex<Vec<WakuContentTopic>>>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<AsyncMutex<NoncesMap>>,
-    /// A constant defining Graphcast registry subgraph endpoint
-    pub registry_subgraph: String,
-    /// A constant defining The Graph network subgraph endpoint
-    pub network_subgraph: String,
-    /// A constant defining the graph node endpoint
-    pub graph_node_endpoint: String,
+    /// Callbook that make query requests
+    pub callbook: CallBook,
     /// TODO: remove after confirming that gossippub seen_ttl works
     /// A set of message ids sent from the agent
     pub old_message_ids: Arc<AsyncMutex<HashSet<String>>>,
@@ -197,7 +187,7 @@ impl GraphcastAgent {
     /// The `GraphcastAgentConfig` struct contains the following fields used to construct
     /// different components of the Graphcast agent:
     ///
-    /// * `wallet_key`: Resolves into an Ethereum wallet and indexer identity.
+    /// * `graphcast_identity`: Resolves into an Ethereum wallet, Graphcast id, and indexer identity.
     /// * `radio_name`: Used as part of the content topic for the radio application.
     /// * `registry_subgraph`: The subgraph that indexes the registry contracts.
     /// * `network_subgraph`: The subgraph that indexes network metadata.
@@ -251,7 +241,8 @@ impl GraphcastAgent {
             waku_addr,
         }: GraphcastAgentConfig,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
-        let wallet = build_wallet(&wallet_key)?;
+        let graphcast_identity =
+            GraphcastIdentity::new(wallet_key, registry_subgraph.clone()).await?;
         let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace.as_deref());
 
         //Should we allow the setting of waku node host and port?
@@ -275,17 +266,16 @@ impl GraphcastAgent {
         let content_topics = build_content_topics(&radio_name, 0, &subtopics);
         let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
             .expect("Could not connect and subscribe to the subtopics");
+        let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
 
         Ok(GraphcastAgent {
-            wallet,
+            graphcast_identity,
             radio_name,
             pubsub_topic,
             content_topics: Arc::new(AsyncMutex::new(content_topics)),
             node_handle,
             nonces: Arc::new(AsyncMutex::new(HashMap::new())),
-            registry_subgraph,
-            network_subgraph,
-            graph_node_endpoint,
+            callbook,
             old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
         })
     }
@@ -336,14 +326,6 @@ impl GraphcastAgent {
                 "Did not match a content topic with identifier: {identifier}"
             ))))?,
         }
-    }
-
-    pub async fn get_indexer_address(&self) -> Result<String, QueryError> {
-        query_registry_indexer(
-            self.registry_subgraph.to_string(),
-            graphcast_id_address(&self.wallet),
-        )
-        .await
     }
 
     /// Establish custom handler for incoming Waku messages
@@ -397,7 +379,8 @@ impl GraphcastAgent {
         );
 
         let block_hash = self
-            .get_block_hash(network.to_string().clone(), block_number)
+            .callbook
+            .block_hash(network.to_string().clone(), block_number)
             .await?;
 
         // Check network before sending a message
@@ -405,7 +388,7 @@ impl GraphcastAgent {
         let mut ids = self.old_message_ids.lock().await;
 
         GraphcastMessage::build(
-            &self.wallet,
+            &self.graphcast_identity.wallet,
             identifier,
             payload,
             network,
@@ -421,20 +404,6 @@ impl GraphcastAgent {
             trace!(id = id, "Sent message");
             id
         })
-    }
-
-    pub async fn get_block_hash(
-        &self,
-        network: String,
-        block_number: u64,
-    ) -> Result<String, GraphcastAgentError> {
-        let hash: String = query_graph_node_network_block_hash(
-            self.graph_node_endpoint.to_string(),
-            network,
-            block_number,
-        )
-        .await?;
-        Ok(hash)
     }
 
     // TODO: Could register the query function at intialization and call it within this fn
@@ -472,6 +441,8 @@ impl GraphcastAgent {
 pub enum GraphcastAgentError {
     #[error(transparent)]
     QueryResponseError(#[from] QueryError),
+    #[error(transparent)]
+    ConfigValidation(#[from] ConfigError),
     #[error("Cannot instantiate Ethereum wallet from given private key.")]
     EthereumWalletError(#[from] WalletError),
     #[error(transparent)]

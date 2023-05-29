@@ -13,6 +13,7 @@ use tracing::{debug, trace};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
+    callbook::CallBook,
     graphql::{
         client_graph_node::query_graph_node_network_block_hash,
         client_network::query_network_subgraph, client_registry::query_registry_indexer,
@@ -368,16 +369,18 @@ pub async fn check_message_validity<
 >(
     graphcast_message: GraphcastMessage<T>,
     nonces: &Arc<Mutex<NoncesMap>>,
-    registry_subgraph: &str,
-    network_subgraph: &str,
-    graph_node_endpoint: &str,
+    callbook: CallBook,
     local_graphcast_id: String,
 ) -> Result<GraphcastMessage<T>, BuildMessageError> {
     graphcast_message
-        .valid_sender(registry_subgraph, network_subgraph, local_graphcast_id)
+        .valid_sender(
+            callbook.graphcast_registry(),
+            callbook.graph_network(),
+            local_graphcast_id,
+        )
         .await?
         .valid_time()?
-        .valid_hash(graph_node_endpoint)
+        .valid_hash(callbook.graph_node_status())
         .await?
         .valid_nonce(nonces)
         .await?;
