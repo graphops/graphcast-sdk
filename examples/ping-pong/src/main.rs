@@ -43,7 +43,7 @@ mod types;
 #[tokio::main]
 async fn main() {
     // This can be any string
-    let radio_name: &str = "ping-pong";
+    let radio_name = "ping-pong".to_string();
     // Loads the environment variables from .env
     dotenv().ok();
 
