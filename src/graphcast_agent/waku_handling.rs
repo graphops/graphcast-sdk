@@ -1,8 +1,3 @@
-use crate::{
-    app_name, cf_nameserver, discovery_url,
-    graphcast_agent::message_typing::{self, check_message_validity, GraphcastMessage},
-    graphql::QueryError,
-};
 use prost::Message;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{collections::HashSet, time::Duration};
@@ -11,12 +6,17 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace};
 use url::ParseError;
 use waku::{
-    waku_dns_discovery, waku_new, ContentFilter, Encoding, FilterSubscription, GossipSubParams,
-    Multiaddr, ProtocolId, Running, SecretKey, Signal, WakuContentTopic, WakuLogLevel,
-    WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    waku_dns_discovery, waku_new, ContentFilter, DnsInfo, Encoding, FilterSubscription,
+    GossipSubParams, Multiaddr, ProtocolId, Running, SecretKey, Signal, WakuContentTopic,
+    WakuLogLevel, WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 use super::GraphcastAgent;
+use crate::{
+    app_name, cf_nameserver, discovery_url,
+    graphcast_agent::message_typing::{self, check_message_validity, GraphcastMessage},
+    graphql::QueryError,
+};
 
 pub const SDK_VERSION: &str = "0";
 
@@ -143,6 +143,8 @@ fn node_config(
     port: usize,
     ad_addr: Option<Multiaddr>,
     key: Option<SecretKey>,
+    discv5_nodes: Vec<String>,
+    discv5_port: Option<u16>,
 ) -> Option<WakuNodeConfig> {
     let log_level = match env::var("WAKU_LOG_LEVEL") {
         Ok(level) => match level.to_uppercase().as_str() {
@@ -174,9 +176,9 @@ fn node_config(
         filter: Some(true), // Default false
         log_level: Some(log_level),
         relay_topics: [].to_vec(),
-        discv5: Some(false),
-        discv5_bootstrap_nodes: [].to_vec(),
-        discv5_udp_port: None,
+        discv5: Some(true),
+        discv5_bootstrap_nodes: discv5_nodes,
+        discv5_udp_port: discv5_port, // Default 9000
         store: None,
         database_url: None,
         store_retention_max_messages: None,
@@ -195,15 +197,25 @@ pub fn gather_nodes(
         "Static node list"
     );
 
+    let dns_node_multiaddresses: Vec<Multiaddr> = get_dns_nodes(pubsub_topic)
+        .iter()
+        .flat_map(|d| d.addresses.iter())
+        .cloned()
+        .collect();
+    // Does not need to explicitely connect to nodes discovered by Discv5
+    let mut nodes = static_nodes;
+    nodes.extend(dns_node_multiaddresses);
+    nodes
+}
+
+/// Helper function to get resolve DNS info
+pub fn get_dns_nodes(pubsub_topic: &WakuPubSubTopic) -> Vec<DnsInfo> {
     let disc_url = discovery_url(pubsub_topic);
-    let dns_nodes = match disc_url {
+    match disc_url {
         Ok(url) => match waku_dns_discovery(&url, Some(&cf_nameserver()), None) {
             Ok(a) => {
-                debug!(
-                    addresses = tracing::field::debug(&a),
-                    "Discovered multiaddresses"
-                );
-                a.iter().flat_map(|d| d.addresses.iter()).cloned().collect()
+                debug!(dnsInfo = tracing::field::debug(&a), "Discovered DNS");
+                a
             }
             Err(e) => {
                 error!(
@@ -220,11 +232,7 @@ pub fn gather_nodes(
             );
             vec![]
         }
-    };
-    //TODO: update to smarter way of combining the nodes when adding Discv5
-    let mut nodes = static_nodes;
-    nodes.extend(dns_nodes);
-    nodes
+    }
 }
 
 /// Connect to peers from a list of multiaddresses for a specific protocol
@@ -254,6 +262,7 @@ pub fn connect_multiaddresses(
 
 //TODO: Topic discovery DNS and Discv5
 /// Set up a waku node given pubsub topics
+#[allow(clippy::too_many_arguments)]
 pub fn setup_node_handle(
     boot_node_addresses: Vec<Multiaddr>,
     pubsub_topic: &WakuPubSubTopic,
@@ -261,31 +270,44 @@ pub fn setup_node_handle(
     port: Option<&str>,
     advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
+    discv5_enrs: Vec<String>,
+    discv5_port: Option<u16>,
 ) -> Result<WakuNodeHandle<Running>, WakuHandlingError> {
     let port = port
         .unwrap_or("60000")
         .parse::<usize>()
         .map_err(WakuHandlingError::ParsePortError)?;
-
-    match std::env::args().nth(1) {
-        Some(x) if x == *"boot" => {
-            boot_node_handle(pubsub_topic, host, port, advertised_addr, node_key)
-        }
+    match env::var("WAKU_NODE_BOOT").ok() {
+        Some(x) if x == *"boot" => boot_node_handle(
+            pubsub_topic,
+            host,
+            port,
+            advertised_addr,
+            node_key,
+            discv5_enrs,
+            discv5_port,
+        ),
         _ => {
-            let node_config = node_config(host, port, advertised_addr, node_key);
+            // Use DNS nodes as Discv5 Discovery
+            let mut discv5_nodes: Vec<String> = get_dns_nodes(pubsub_topic)
+                .into_iter()
+                .filter(|d| d.enr.is_some())
+                .map(|d| d.enr.unwrap().to_string())
+                .collect::<Vec<String>>();
+            discv5_nodes.extend(discv5_enrs);
+            let node_config = node_config(
+                host,
+                port,
+                advertised_addr,
+                node_key,
+                discv5_nodes,
+                discv5_port,
+            );
 
             let node_handle = waku_new(node_config)
-                .map_err(|_e| {
-                    WakuHandlingError::CreateNodeError(
-                        "Could not create Waku light node".to_string(),
-                    )
-                })?
+                .map_err(WakuHandlingError::CreateNodeError)?
                 .start()
-                .map_err(|_e| {
-                    WakuHandlingError::CreateNodeError(
-                        "Could not start Waku light node".to_string(),
-                    )
-                })?;
+                .map_err(WakuHandlingError::CreateNodeError)?;
             let nodes = gather_nodes(boot_node_addresses, pubsub_topic);
             // Connect to peers on the filter protocol
             connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
@@ -306,16 +328,21 @@ pub fn boot_node_handle(
     port: usize,
     advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
+    discv5_enrs: Vec<String>,
+    discv5_port: Option<u16>,
 ) -> Result<WakuNodeHandle<Running>, WakuHandlingError> {
-    let boot_node_config = node_config(host, port, advertised_addr, node_key);
+    let boot_node_config = node_config(
+        host,
+        port,
+        advertised_addr,
+        node_key,
+        discv5_enrs,
+        discv5_port,
+    );
     let boot_node_handle = waku_new(boot_node_config)
-        .map_err(|_e| {
-            WakuHandlingError::CreateNodeError("Could not create Waku light node".to_string())
-        })?
+        .map_err(WakuHandlingError::CreateNodeError)?
         .start()
-        .map_err(|_e| {
-            WakuHandlingError::CreateNodeError("Could not start Waku light node".to_string())
-        })?;
+        .map_err(WakuHandlingError::CreateNodeError)?;
 
     // Relay node subscribe pubsub_topic of graphcast
     boot_node_handle

@@ -64,7 +64,7 @@ async fn main() {
 
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
     // if not provided then they are usually generated based on indexer allocations
-    let subtopics = vec!["ping-pong-content-topic".to_string()];
+    let subtopics: Vec<String> = vec!["ping-pong-content-topic".to_string()];
 
     // GraphcastAgentConfig defines the configuration that the SDK expects from all Radios, regardless of their specific functionality
     let graphcast_agent_config = GraphcastAgentConfig::new(
@@ -79,6 +79,9 @@ async fn main() {
         None,
         None,
         None,
+        None,
+        // Example ENR address
+        Some(vec![String::from("enr:-JK4QBcfVXu2YDeSKdjF2xE5EDM5f5E_1Akpkv_yw_byn1adESxDXVLVjapjDvS_ujx6MgWDu9hqO_Az_CbKLJ8azbMBgmlkgnY0gmlwhAVOUWOJc2VjcDI1NmsxoQOUZIqKLk5xkiH0RAFaMGrziGeGxypJ03kOod1-7Pum3oN0Y3CCfJyDdWRwgiMohXdha3UyDQ")]),
         None,
     )
     .await
