@@ -64,6 +64,8 @@ pub struct GraphcastAgentConfig {
     pub waku_host: Option<String>,
     pub waku_port: Option<String>,
     pub waku_addr: Option<String>,
+    pub discv5_enrs: Vec<String>,
+    pub discv5_port: Option<u16>,
 }
 
 impl GraphcastAgentConfig {
@@ -81,6 +83,8 @@ impl GraphcastAgentConfig {
         waku_host: Option<String>,
         waku_port: Option<String>,
         waku_addr: Option<String>,
+        discv5_enrs: Option<Vec<String>>,
+        discv5_port: Option<u16>,
     ) -> Result<Self, GraphcastAgentError> {
         let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or(vec![]))
             .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
@@ -98,6 +102,8 @@ impl GraphcastAgentConfig {
             waku_host,
             waku_port,
             waku_addr,
+            discv5_enrs: discv5_enrs.unwrap_or_default(),
+            discv5_port,
         };
 
         if let Err(e) = config.validate_set_up().await {
@@ -220,6 +226,8 @@ impl GraphcastAgent {
     ///     waku_host: Some(String::from("0.0.0.0")),
     ///     waku_port: Some(String::from("60000")),
     ///     waku_addr: Some(String::from("/ip4/321.1.1.2/tcp/60001/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMysomeoneelse")),
+    ///     discv5_enrs: vec![String::from("enr:-JK4QBcfVXu2YDeSKdjF2xE5EDM5f5E_1Akpkv_yw_byn1adESxDXVLVjapjDvS_ujx6MgWDu9hqO_Az_CbKLJ8azbMBgmlkgnY0gmlwhAVOUWOJc2VjcDI1NmsxoQOUZIqKLk5xkiH0RAFaMGrziGeGxypJ03kOod1-7Pum3oN0Y3CCfJyDdWRwgiMohXdha3UyDQ")],
+    ///     discv5_port: Some(String::from("60000")),
     /// };
     ///
     /// let agent = GraphcastAgent::new(config).await?;
@@ -239,13 +247,14 @@ impl GraphcastAgent {
             waku_host,
             waku_port,
             waku_addr,
+            discv5_enrs,
+            discv5_port,
         }: GraphcastAgentConfig,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
         let graphcast_identity =
             GraphcastIdentity::new(wallet_key, registry_subgraph.clone()).await?;
         let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace.as_deref());
 
-        //Should we allow the setting of waku node host and port?
         let host = waku_host.as_deref();
         let port = waku_port.as_deref();
 
@@ -259,6 +268,8 @@ impl GraphcastAgent {
             port,
             advertised_addr,
             node_key,
+            discv5_enrs,
+            discv5_port,
         )
         .map_err(GraphcastAgentError::WakuNodeError)?;
 
