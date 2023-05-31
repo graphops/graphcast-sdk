@@ -1,6 +1,6 @@
 use graphql_client::{GraphQLQuery, Response};
 use serde_derive::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{trace, warn};
 
 use super::QueryError;
 
@@ -38,6 +38,10 @@ pub async fn query_registry_indexer(
     };
     let queried_result =
         perform_graphcast_id_indexer_query(registry_subgraph_endpoint.clone(), variables).await?;
+    trace!(
+        result = tracing::field::debug(&queried_result),
+        "Query result for registry indexer"
+    );
     if !&queried_result.status().is_success() {
         warn!(
             result = tracing::field::debug(&queried_result),

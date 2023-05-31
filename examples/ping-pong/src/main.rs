@@ -7,7 +7,7 @@ use graphcast_sdk::{
         message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
         GraphcastAgentConfig,
     },
-    graphql::client_graph_node::{get_indexing_statuses, update_network_chainheads},
+    graphql::client_graph_node::update_network_chainheads,
     networks::NetworkName,
     BlockPointer,
 };
