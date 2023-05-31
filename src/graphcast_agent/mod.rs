@@ -266,7 +266,7 @@ impl GraphcastAgent {
         let content_topics = build_content_topics(&radio_name, 0, &subtopics);
         let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
             .expect("Could not connect and subscribe to the subtopics");
-        let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
+        let callbook = CallBook::new(graph_node_endpoint, registry_subgraph, network_subgraph);
 
         Ok(GraphcastAgent {
             graphcast_identity,

@@ -54,6 +54,10 @@ pub async fn query_graph_node_network_block_hash(
     };
     let queried_result =
         perform_block_hash_from_number(graph_node_endpoint.clone(), variables).await?;
+    trace!(
+        result = tracing::field::debug(&queried_result),
+        "Query result for graph node network block hash"
+    );
     if !queried_result.status().is_success() {
         warn!(
             result = tracing::field::debug(&queried_result),
@@ -98,6 +102,10 @@ pub async fn get_indexing_statuses(
 ) -> Result<Vec<IndexingStatusesIndexingStatuses>, QueryError> {
     let variables: indexing_statuses::Variables = indexing_statuses::Variables {};
     let queried_result = perform_indexing_statuses(graph_node_endpoint.clone(), variables).await?;
+    trace!(
+        result = tracing::field::debug(&queried_result),
+        "Query result for indexing statuses"
+    );
     let response_body: Response<indexing_statuses::ResponseData> = queried_result.json().await?;
 
     response_body
