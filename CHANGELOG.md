@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Add fantom network name
 - Ensure content topic lock gets released
 - Disable unsubscribe until waku dep update
+- Callbook input order
 
 ### Documentation
 
@@ -33,6 +34,8 @@ All notable changes to this project will be documented in this file.
 - Add metrics_host to config
 - Graphql for messages and add server host and port
 - Add options to toggle logger format
+- Add telegram notifications
+- Enable discv5 configs
 
 ### Miscellaneous Tasks
 
@@ -64,8 +67,6 @@ All notable changes to this project will be documented in this file.
 - Release v0.2.0
 - Update deps, use waku with seen cache
 - Switch to git dep for Waku
-- Release v0.3.0
-- Release v0.3.1
 - Release 0.3.1
 
 ### Refactor
@@ -75,6 +76,9 @@ All notable changes to this project will be documented in this file.
 - Parse grt units, update log levels
 - Move config parsing to Radio
 - Update ping-pong Radio
+- Update query and add configurations
+- Change radio_name to be String
+- Callbook and graphcast_id struct, clean query fns
 
 ## [0.0.13] - 2023-03-07
 
