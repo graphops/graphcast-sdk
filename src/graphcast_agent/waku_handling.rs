@@ -64,6 +64,16 @@ pub fn content_filter_subscription(
     FilterSubscription::new(filters, Some(pubsub_topic.clone()))
 }
 
+/// Subscribe to pubsub topic on the relay protocol
+pub fn relay_subscribe(
+    node_handle: &WakuNodeHandle<Running>,
+    graphcast_topic: &WakuPubSubTopic,
+) -> Result<(), WakuHandlingError> {
+    node_handle
+        .relay_subscribe(Some(graphcast_topic.clone()))
+        .map_err(WakuHandlingError::CreateNodeError)
+}
+
 /// Make filter subscription requests to all peers except for ourselves
 /// Return subscription results for each peer
 pub fn filter_peer_subscriptions(
@@ -143,6 +153,7 @@ fn node_config(
     port: usize,
     ad_addr: Option<Multiaddr>,
     key: Option<SecretKey>,
+    filter_protocol: Option<bool>,
     discv5_nodes: Vec<String>,
     discv5_port: Option<u16>,
 ) -> Option<WakuNodeConfig> {
@@ -165,15 +176,21 @@ fn node_config(
         ..Default::default()
     };
 
+    let relay = filter_protocol.map(|b| !b);
+    info!(
+        "protocols: relay {:#?}, filter {:#?}",
+        relay, filter_protocol
+    );
+
     Some(WakuNodeConfig {
         host: host.and_then(|h| IpAddr::from_str(h).ok()),
         port: Some(port),
         advertise_addr: ad_addr, // Fill this for boot nodes
         node_key: key,
         keep_alive_interval: None,
-        relay: Some(false), // Default true - will receive all msg on relay
+        relay,                         // Default true - will receive all msg on relay
         min_peers_to_publish: Some(0), // Default 0
-        filter: Some(true), // Default false
+        filter: filter_protocol,       // Default false
         log_level: Some(log_level),
         relay_topics: [].to_vec(),
         discv5: Some(true),
@@ -270,6 +287,7 @@ pub fn setup_node_handle(
     port: Option<&str>,
     advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
+    filter_protocol: Option<bool>,
     discv5_enrs: Vec<String>,
     discv5_port: Option<u16>,
 ) -> Result<WakuNodeHandle<Running>, WakuHandlingError> {
@@ -284,6 +302,7 @@ pub fn setup_node_handle(
             port,
             advertised_addr,
             node_key,
+            filter_protocol,
             discv5_enrs,
             discv5_port,
         ),
@@ -300,6 +319,7 @@ pub fn setup_node_handle(
                 port,
                 advertised_addr,
                 node_key,
+                filter_protocol,
                 discv5_nodes,
                 discv5_port,
             );
@@ -309,8 +329,12 @@ pub fn setup_node_handle(
                 .start()
                 .map_err(WakuHandlingError::CreateNodeError)?;
             let nodes = gather_nodes(boot_node_addresses, pubsub_topic);
-            // Connect to peers on the filter protocol
-            connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
+            // Connect to peers on the filter protocol or relay protocol
+            if let Some(true) = filter_protocol {
+                connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
+            } else {
+                connect_multiaddresses(nodes, &node_handle, ProtocolId::Relay);
+            }
 
             info!(
                 id = tracing::field::debug(node_handle.peer_id()),
@@ -322,12 +346,14 @@ pub fn setup_node_handle(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn boot_node_handle(
     pubsub_topic: &WakuPubSubTopic,
     host: Option<&str>,
     port: usize,
     advertised_addr: Option<Multiaddr>,
     node_key: Option<SecretKey>,
+    filter: Option<bool>,
     discv5_enrs: Vec<String>,
     discv5_port: Option<u16>,
 ) -> Result<WakuNodeHandle<Running>, WakuHandlingError> {
@@ -336,6 +362,7 @@ pub fn boot_node_handle(
         port,
         advertised_addr,
         node_key,
+        filter,
         discv5_enrs,
         discv5_port,
     );
@@ -426,15 +453,6 @@ pub async fn handle_signal<
     }
 }
 
-// Allow empty subscription when no content topic was created
-// TODO: removed after waku filter protocol has been tested thoroughly
-pub fn filter_topic_check(content_topics: &[WakuContentTopic], topic: String) -> bool {
-    content_topics.is_empty()
-        | content_topics
-            .iter()
-            .any(|content_topic| content_topic.content_topic_name == topic)
-}
-
 /// Check for peer connectivity, try to reconnect if there are disconnected peers
 pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHandlingError> {
     let binding = node_handle
@@ -442,8 +460,10 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHa
         .expect("Failed to get local node's peer id");
     let local_id = binding.as_str();
 
-    node_handle
-        .peers()
+    let peers = node_handle.peers();
+    debug!(peers = tracing::field::debug(&peers), "Network peers");
+
+    peers
         .map_err(WakuHandlingError::RetrievePeersError)?
         .iter()
         // filter for nodes that are not self and disconnected

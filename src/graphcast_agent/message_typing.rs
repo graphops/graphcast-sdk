@@ -57,7 +57,6 @@ where
         + Default
         + Clone
         + 'static
-        + async_graphql::OutputType
         + async_graphql::OutputType,
 {
     /// Graph identifier for the entity the radio is communicating about
