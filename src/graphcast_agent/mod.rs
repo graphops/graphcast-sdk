@@ -28,13 +28,18 @@ use waku::{
     WakuPubSubTopic,
 };
 
-use crate::callbook::CallBook;
-use crate::graphql::client_graph_node::get_indexing_statuses;
-use crate::graphql::client_network::query_network_subgraph;
-use crate::graphql::client_registry::query_registry_indexer;
-use crate::graphql::QueryError;
-use crate::networks::NetworkName;
-use crate::{build_wallet, graphcast_id_address, GraphcastIdentity, NoncesMap};
+use crate::{
+    build_wallet,
+    callbook::CallBook,
+    graphcast_agent::waku_handling::relay_subscribe,
+    graphcast_id_address,
+    graphql::{
+        client_graph_node::get_indexing_statuses, client_network::query_network_subgraph,
+        client_registry::query_registry_indexer, QueryError,
+    },
+    networks::NetworkName,
+    GraphcastIdentity, NoncesMap,
+};
 
 pub mod message_typing;
 pub mod waku_handling;
@@ -64,6 +69,7 @@ pub struct GraphcastAgentConfig {
     pub waku_host: Option<String>,
     pub waku_port: Option<String>,
     pub waku_addr: Option<String>,
+    pub filter_protocol: Option<bool>,
     pub discv5_enrs: Vec<String>,
     pub discv5_port: Option<u16>,
 }
@@ -83,6 +89,7 @@ impl GraphcastAgentConfig {
         waku_host: Option<String>,
         waku_port: Option<String>,
         waku_addr: Option<String>,
+        filter_protocol: Option<bool>,
         discv5_enrs: Option<Vec<String>>,
         discv5_port: Option<u16>,
     ) -> Result<Self, GraphcastAgentError> {
@@ -102,6 +109,8 @@ impl GraphcastAgentConfig {
             waku_host,
             waku_port,
             waku_addr,
+            // Extra handling here to make sure the default behavior is to filter topics
+            filter_protocol: Some(filter_protocol.unwrap_or(true)),
             discv5_enrs: discv5_enrs.unwrap_or_default(),
             discv5_port,
         };
@@ -247,6 +256,7 @@ impl GraphcastAgent {
             waku_host,
             waku_port,
             waku_addr,
+            filter_protocol,
             discv5_enrs,
             discv5_port,
         }: GraphcastAgentConfig,
@@ -268,6 +278,7 @@ impl GraphcastAgent {
             port,
             advertised_addr,
             node_key,
+            filter_protocol,
             discv5_enrs,
             discv5_port,
         )
@@ -275,8 +286,16 @@ impl GraphcastAgent {
 
         // Filter subscriptions only if provided subtopic
         let content_topics = build_content_topics(&radio_name, 0, &subtopics);
-        let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
-            .expect("Could not connect and subscribe to the subtopics");
+        if filter_protocol.is_some() && !filter_protocol.unwrap() {
+            debug!("Filter protocol disabled, subscribe to pubsub topic on the relay protocol");
+            relay_subscribe(&node_handle, &pubsub_topic)
+                .expect("Could not subscribe to the pubsub topic");
+        } else {
+            debug!("Filter protocol enabled, filter subscriptions with peers");
+            let _ = filter_peer_subscriptions(&node_handle, &pubsub_topic, &content_topics)
+                .expect("Could not connect and subscribe to the subtopics");
+        }
+
         let callbook = CallBook::new(graph_node_endpoint, registry_subgraph, network_subgraph);
 
         Ok(GraphcastAgent {
