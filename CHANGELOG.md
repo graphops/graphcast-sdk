@@ -36,6 +36,7 @@ All notable changes to this project will be documented in this file.
 - Add options to toggle logger format
 - Add telegram notifications
 - Enable discv5 configs
+- Graphcast agent relay/filter protocol toggle
 
 ### Miscellaneous Tasks
 
@@ -68,6 +69,7 @@ All notable changes to this project will be documented in this file.
 - Update deps, use waku with seen cache
 - Switch to git dep for Waku
 - Release 0.3.1
+- Release 0.3.2
 
 ### Refactor
 
