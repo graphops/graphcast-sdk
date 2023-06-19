@@ -109,7 +109,7 @@ impl GraphcastAgentConfig {
             waku_host,
             waku_port,
             waku_addr,
-            // Extra handling here to make sure the default behavior is to filter topics
+            // Extra handling here to make sure the default behavior is filter protocol enabled
             filter_protocol: Some(filter_protocol.unwrap_or(true)),
             discv5_enrs: discv5_enrs.unwrap_or_default(),
             discv5_port,

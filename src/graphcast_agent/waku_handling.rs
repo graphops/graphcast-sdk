@@ -177,10 +177,11 @@ fn node_config(
     };
 
     let relay = filter_protocol.map(|b| !b);
-    info!(
-        "protocols: relay {:#?}, filter {:#?}",
-        relay, filter_protocol
+    debug!(
+        "protocols: relay {:#?}, filter {:#?}\ndiscv5_nodes: {:#?}",
+        relay, filter_protocol, discv5_nodes
     );
+    let discv5 = Some(discv5_nodes.is_empty());
 
     Some(WakuNodeConfig {
         host: host.and_then(|h| IpAddr::from_str(h).ok()),
@@ -193,7 +194,7 @@ fn node_config(
         filter: filter_protocol,       // Default false
         log_level: Some(log_level),
         relay_topics: [].to_vec(),
-        discv5: Some(true),
+        discv5,
         discv5_bootstrap_nodes: discv5_nodes,
         discv5_udp_port: discv5_port, // Default 9000
         store: None,
@@ -216,13 +217,20 @@ pub fn gather_nodes(
 
     let dns_node_multiaddresses: Vec<Multiaddr> = get_dns_nodes(pubsub_topic)
         .iter()
-        .flat_map(|d| d.addresses.iter())
-        .cloned()
+        .filter_map(get_multiaddress)
         .collect();
     // Does not need to explicitely connect to nodes discovered by Discv5
     let mut nodes = static_nodes;
     nodes.extend(dns_node_multiaddresses);
     nodes
+}
+
+pub fn get_multiaddress(dns_info: &DnsInfo) -> Option<Multiaddr> {
+    if let (Some(address), peer_id) = (dns_info.addresses.first(), &dns_info.peer_id) {
+        format!("{}/p2p/{}", address, peer_id).parse().ok()
+    } else {
+        None
+    }
 }
 
 /// Helper function to get resolve DNS info
@@ -258,15 +266,24 @@ pub fn connect_multiaddresses(
     node_handle: &WakuNodeHandle<Running>,
     protocol_id: ProtocolId,
 ) {
-    let (connected_peers, unconnected_peers): (Vec<_>, Vec<_>) =
-        nodes.into_iter().partition(|address| {
-            let peer_id = node_handle
-                .add_peer(address, protocol_id)
-                .unwrap_or_else(|_| String::from("Could not add peer"));
-            node_handle.connect_peer_with_id(&peer_id, None).is_ok()
+    let (connected_peers, unconnected_peers): (Vec<_>, Vec<_>) = nodes
+        .clone()
+        .into_iter()
+        .partition(|address| match node_handle.add_peer(address, protocol_id) {
+            Ok(peer_id) => node_handle
+                .connect_peer_with_id(&peer_id, None)
+                .map_err(|e| {
+                    debug!("Could not connect to peer: {:#?}", e);
+                })
+                .is_ok(),
+            Err(e) => {
+                debug!("Could not add peer: {:#?}", e);
+                false
+            }
         });
     debug!(
         peers = tracing::field::debug(connected_peers),
+        all_peers = tracing::field::debug(nodes),
         "Connected to peers"
     );
     if !unconnected_peers.is_empty() {
@@ -295,6 +312,13 @@ pub fn setup_node_handle(
         .unwrap_or("60000")
         .parse::<usize>()
         .map_err(WakuHandlingError::ParsePortError)?;
+
+    let mut discv5_nodes: Vec<String> = get_dns_nodes(pubsub_topic)
+        .into_iter()
+        .filter(|d| d.enr.is_some())
+        .map(|d| d.enr.unwrap().to_string())
+        .collect::<Vec<String>>();
+    discv5_nodes.extend(discv5_enrs.clone());
     match env::var("WAKU_NODE_BOOT").ok() {
         Some(x) if x == *"boot" => boot_node_handle(
             pubsub_topic,
@@ -307,13 +331,7 @@ pub fn setup_node_handle(
             discv5_port,
         ),
         _ => {
-            // Use DNS nodes as Discv5 Discovery
-            let mut discv5_nodes: Vec<String> = get_dns_nodes(pubsub_topic)
-                .into_iter()
-                .filter(|d| d.enr.is_some())
-                .map(|d| d.enr.unwrap().to_string())
-                .collect::<Vec<String>>();
-            discv5_nodes.extend(discv5_enrs);
+            //TODO: Use DNS nodes as Discv5 Discovery, when get_dns_nodes return enr information as well
             let node_config = node_config(
                 host,
                 port,
@@ -330,10 +348,10 @@ pub fn setup_node_handle(
                 .map_err(WakuHandlingError::CreateNodeError)?;
             let nodes = gather_nodes(boot_node_addresses, pubsub_topic);
             // Connect to peers on the filter protocol or relay protocol
-            if let Some(true) = filter_protocol {
-                connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
-            } else {
+            if let Some(false) = filter_protocol {
                 connect_multiaddresses(nodes, &node_handle, ProtocolId::Relay);
+            } else {
+                connect_multiaddresses(nodes, &node_handle, ProtocolId::Filter);
             }
 
             info!(
@@ -532,5 +550,18 @@ mod tests {
             assert_eq!(res[i].content_topic_name, basics[i]);
             assert_eq!(res[i].application_name, "some-radio");
         }
+    }
+
+    #[test]
+    fn test_dns_nodefleet() {
+        let pubsub_topic: WakuPubSubTopic = pubsub_topic(Some("testnet"));
+        let nodes = get_dns_nodes(&pubsub_topic);
+        assert!(!nodes.is_empty());
+
+        // Valid DNS
+        let _ = nodes.iter().map(|dns_info| {
+            assert!(get_multiaddress(dns_info).is_some());
+            assert!(&dns_info.enr.is_some());
+        });
     }
 }
