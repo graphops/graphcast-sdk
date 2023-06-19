@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
-use tracing::{debug, trace};
+use tracing::{debug, error, info, trace};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
@@ -164,44 +164,69 @@ impl<
         );
         trace!(message = tracing::field::debug(&self), "Sending message");
 
-        let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
-            .peers()
-            .map_err(WakuHandlingError::RetrievePeersError)
-            .unwrap_or_default()
-            .iter()
-            .filter(|&peer| {
-                // Filter out local peer_id to prevent self dial
-                peer.peer_id().as_str()
-                    != node_handle
-                        .peer_id()
-                        .expect("Failed to find local node's peer id")
-                        .as_str()
-            })
-            .map(|peer: &WakuPeerData| {
-                // Filter subscribe to all other peers
-                node_handle
-                    .lightpush_publish(
-                        &waku_message,
-                        Some(pubsub_topic.clone()),
-                        peer.peer_id().to_string(),
-                        None,
-                    )
-                    .map_err(|e| {
-                        debug!(
-                            error = tracing::field::debug(&e),
-                            "Failed to send message to Waku peer"
+        let peers_result = node_handle.peers();
+
+        match peers_result {
+            Ok(peers) => {
+                // Check if peers are empty
+                if peers.is_empty() {
+                    error!("No peers connected. Can't send message without connected peers.");
+                    return Err(WakuHandlingError::RetrievePeersError(
+                        "No peers connected".to_string(),
+                    ));
+                }
+
+                info!("Connected peers: {:?}", peers);
+
+                let sent_result: Vec<Result<String, WakuHandlingError>> = peers
+                    .iter()
+                    .filter(|&peer| {
+                        let local_peer_id =
+                            node_handle.peer_id().expect("Failed to get local peer id");
+                        let should_filter = peer.peer_id().as_str() != local_peer_id.as_str();
+                        info!(
+                            "Peer id: {}, local id: {}, should filter: {}",
+                            peer.peer_id().as_str(),
+                            local_peer_id,
+                            should_filter
                         );
-                        WakuHandlingError::PublishMessage(e)
+                        should_filter
                     })
-            })
-            .collect();
-        // The message id is the same for all successful publish
-        sent_result
-            .into_iter()
-            .find_map(|res| res.ok())
-            .ok_or(WakuHandlingError::PublishMessage(
-                "Message could not be sent to any peers".to_string(),
-            ))
+                    .map(|peer: &WakuPeerData| {
+                        node_handle
+                            .lightpush_publish(
+                                &waku_message,
+                                Some(pubsub_topic.clone()),
+                                peer.peer_id().to_string(),
+                                None,
+                            )
+                            .map_err(|e| {
+                                let error_message = format!(
+                                    "Failed to send message to Waku peer with ID {}: {:?}",
+                                    peer.peer_id(),
+                                    e
+                                );
+                                error!("{}", error_message); // log error message
+                                WakuHandlingError::PublishMessage(e)
+                            })
+                    })
+                    .collect();
+
+                info!("Send results: {:?}", sent_result);
+
+                // The message id is the same for all successful publish
+                sent_result.into_iter().find_map(|res| res.ok()).ok_or(
+                    WakuHandlingError::PublishMessage(
+                        "Message could not be sent to any peers".to_string(),
+                    ),
+                )
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to retrieve peers: {}", e.to_string());
+                error!("{}", error_msg); // log error message
+                Err(WakuHandlingError::RetrievePeersError(e.to_string()))
+            }
+        }
     }
 
     /// Check message from valid sender: resolve indexer address and self stake
