@@ -9,7 +9,7 @@
 //! Graphcast agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
-use self::message_typing::{BuildMessageError, GraphcastMessage};
+use self::message_typing::{BuildMessageError, GraphcastMessage, IdentityValidation};
 use self::waku_handling::{
     build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
     setup_node_handle, WakuHandlingError,
@@ -21,24 +21,21 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 use url::ParseError;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
     WakuPubSubTopic,
 };
 
+use crate::Account;
 use crate::{
     build_wallet,
     callbook::CallBook,
     graphcast_agent::waku_handling::relay_subscribe,
-    graphcast_id_address,
-    graphql::{
-        client_graph_node::get_indexing_statuses, client_network::query_network_subgraph,
-        client_registry::query_registry_indexer, QueryError,
-    },
+    graphql::{client_graph_node::get_indexing_statuses, QueryError},
     networks::NetworkName,
-    GraphcastIdentity, NoncesMap,
+    wallet_address, GraphcastIdentity, NoncesMap,
 };
 
 pub mod message_typing;
@@ -58,6 +55,7 @@ pub enum ConfigError {
 #[derive(Clone)]
 pub struct GraphcastAgentConfig {
     pub wallet_key: String,
+    pub graph_account: String,
     pub radio_name: String,
     pub registry_subgraph: String,
     pub network_subgraph: String,
@@ -72,12 +70,14 @@ pub struct GraphcastAgentConfig {
     pub filter_protocol: Option<bool>,
     pub discv5_enrs: Vec<String>,
     pub discv5_port: Option<u16>,
+    pub id_validation: Option<IdentityValidation>,
 }
 
 impl GraphcastAgentConfig {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         wallet_key: String,
+        graph_account: String,
         radio_name: String,
         registry_subgraph: String,
         network_subgraph: String,
@@ -92,12 +92,14 @@ impl GraphcastAgentConfig {
         filter_protocol: Option<bool>,
         discv5_enrs: Option<Vec<String>>,
         discv5_port: Option<u16>,
+        id_validation: Option<IdentityValidation>,
     ) -> Result<Self, GraphcastAgentError> {
         let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or(vec![]))
             .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
 
         let config = GraphcastAgentConfig {
             wallet_key,
+            graph_account,
             radio_name,
             registry_subgraph,
             network_subgraph,
@@ -113,6 +115,7 @@ impl GraphcastAgentConfig {
             filter_protocol: Some(filter_protocol.unwrap_or(true)),
             discv5_enrs: discv5_enrs.unwrap_or_default(),
             discv5_port,
+            id_validation,
         };
 
         if let Err(e) = config.validate_set_up().await {
@@ -128,23 +131,22 @@ impl GraphcastAgentConfig {
                 "Invalid key to wallet, use private key or mnemonic: {e}"
             ))
         })?;
-        let graphcast_id = graphcast_id_address(&wallet);
-        // TODO: Implies invalidity for both graphcast id and registry, maybe map_err more specifically
-        let indexer = query_registry_indexer(self.registry_subgraph.to_string(), graphcast_id)
-            .await
-            .map_err(|e| ConfigError::ValidateInput(format!("The registry subgraph did not contain an entry for the Graphcast ID to Indexer: {e}")))?;
-        debug!(address = indexer, "Resolved indexer identity");
-
-        let stake = query_network_subgraph(self.network_subgraph.to_string(), indexer)
-            .await
-            .map_err(|e| {
-                ConfigError::ValidateInput(format!(
-                    "The network subgraph must contain an entry for the Indexer stake: {e}"
-                ))
-            })?
-            .indexer_stake();
-        debug!(stake = stake, "Resolved indexer stake");
-
+        let graphcast_id = wallet_address(&wallet);
+        let account = Account::new(graphcast_id, self.graph_account.clone());
+        let verified_account = match account.account_from_registry(&self.registry_subgraph).await {
+            Ok(a) => a,
+            Err(e) => {
+                debug!(
+                    e = tracing::field::debug(&e),
+                    "Signer is not registered at Graphcast Registry. Check Graph Network"
+                );
+                account
+                    .account_from_network(&self.network_subgraph)
+                    .await
+                    .map_err(|e| ConfigError::ValidateInput(e.to_string()))?
+            }
+        };
+        let _ = verified_account.valid_indexer(&self.network_subgraph).await;
         let _ = get_indexing_statuses(self.graph_node_endpoint.to_string())
             .await
             .map_err(|e| {
@@ -194,6 +196,8 @@ pub struct GraphcastAgent {
     /// TODO: remove after confirming that gossippub seen_ttl works
     /// A set of message ids sent from the agent
     pub old_message_ids: Arc<AsyncMutex<HashSet<String>>>,
+    /// Sender identity validation mechanism used by the Graphcast agent
+    pub id_validation: IdentityValidation,
 }
 
 impl GraphcastAgent {
@@ -214,6 +218,11 @@ impl GraphcastAgent {
     /// * `waku_host`: The host for the Waku node.
     /// * `waku_port`: The port for the Waku node.
     /// * `waku_addr`: The advertised address to be connected among the Waku peers.
+    /// * `waku_port`: The port for the Waku node.
+    /// * `waku_addr`: The advertised address to be connected among the Waku peers.
+    /// * `discv5_enrs:`: ENR records to bootstrap peer discovery through Discv5 mechanism
+    /// * `discv5_port:`: The port for the Waku node to be discoverable by peers through Discv5.
+    /// * `id_validation:`: Sender identity validation mechanism utilized for incoming messages.
     ///
     /// If the `waku_host`, `waku_port`, or `waku_addr` fields are not provided, the Waku node will
     /// use default values. Similarly, if the `graphcast_namespace` field is not provided, the agent
@@ -237,6 +246,7 @@ impl GraphcastAgent {
     ///     waku_addr: Some(String::from("/ip4/321.1.1.2/tcp/60001/p2p/16Uiu2YAmDEieEqD5dHSG85G8H51FUKByWoZx7byMysomeoneelse")),
     ///     discv5_enrs: vec![String::from("enr:-JK4QBcfVXu2YDeSKdjF2xE5EDM5f5E_1Akpkv_yw_byn1adESxDXVLVjapjDvS_ujx6MgWDu9hqO_Az_CbKLJ8azbMBgmlkgnY0gmlwhAVOUWOJc2VjcDI1NmsxoQOUZIqKLk5xkiH0RAFaMGrziGeGxypJ03kOod1-7Pum3oN0Y3CCfJyDdWRwgiMohXdha3UyDQ")],
     ///     discv5_port: Some(String::from("60000")),
+    ///     id_validation: Some(IdentityValidation::NoCheck),
     /// };
     ///
     /// let agent = GraphcastAgent::new(config).await?;
@@ -245,6 +255,7 @@ impl GraphcastAgent {
     pub async fn new(
         GraphcastAgentConfig {
             wallet_key,
+            graph_account,
             radio_name,
             registry_subgraph,
             network_subgraph,
@@ -259,16 +270,17 @@ impl GraphcastAgent {
             filter_protocol,
             discv5_enrs,
             discv5_port,
+            id_validation,
         }: GraphcastAgentConfig,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
-        let graphcast_identity =
-            GraphcastIdentity::new(wallet_key, registry_subgraph.clone()).await?;
+        let graphcast_identity = GraphcastIdentity::new(wallet_key, graph_account.clone()).await?;
         let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace.as_deref());
 
         let host = waku_host.as_deref();
         let port = waku_port.as_deref();
 
-        let advertised_addr = waku_addr.and_then(|a| Multiaddr::from_str(&a).ok());
+        let advertised_addr: Option<Multiaddr> =
+            waku_addr.and_then(|a| Multiaddr::from_str(&a).ok());
         let node_key = waku_node_key.and_then(|key| waku::SecretKey::from_str(&key).ok());
 
         let node_handle = setup_node_handle(
@@ -307,6 +319,7 @@ impl GraphcastAgent {
             nonces: Arc::new(AsyncMutex::new(HashMap::new())),
             callbook,
             old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
+            id_validation: id_validation.unwrap_or_default(),
         })
     }
 
@@ -424,6 +437,7 @@ impl GraphcastAgent {
             network,
             block_number,
             block_hash,
+            self.graphcast_identity.graph_account.clone(),
         )
         .await
         .map_err(GraphcastAgentError::MessageError)?

@@ -1,3 +1,4 @@
+pub mod client_graph_account;
 pub mod client_graph_node;
 pub mod client_network;
 pub mod client_registry;
@@ -42,7 +43,6 @@ mod tests {
             "100000.000000000000000000",
         );
         assert_eq!(add_decimal("0"), "0.0");
-        println!("result: {:#?}", add_decimal("30921273477321769415119223"));
         assert_eq!(
             add_decimal("30921273477321769415119223"),
             "30921273.477321769415119223",

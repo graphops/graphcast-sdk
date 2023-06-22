@@ -9,18 +9,17 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
 use crate::{
     callbook::CallBook,
     graphql::{
         client_graph_node::query_graph_node_network_block_hash,
-        client_network::query_network_subgraph, client_registry::query_registry_indexer,
-        QueryError,
+        client_network::query_network_subgraph, QueryError,
     },
     networks::NetworkName,
-    NetworkBlockError, NoncesMap,
+    Account, NetworkBlockError, NoncesMap,
 };
 
 use super::{waku_handling::WakuHandlingError, MSG_REPLAY_LIMIT};
@@ -77,8 +76,11 @@ where
     /// block hash generated from the block number
     #[prost(string, tag = "6")]
     pub block_hash: String,
-    /// signature over radio payload
+    /// Graph account sender
     #[prost(string, tag = "7")]
+    pub graph_account: String,
+    /// signature over radio payload
+    #[prost(string, tag = "8")]
     pub signature: String,
 }
 
@@ -92,6 +94,7 @@ impl<
     > GraphcastMessage<T>
 {
     /// Create a graphcast message
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         identifier: String,
         payload: Option<T>,
@@ -99,6 +102,7 @@ impl<
         network: NetworkName,
         block_number: u64,
         block_hash: String,
+        graph_account: String,
         signature: String,
     ) -> Result<Self, BuildMessageError> {
         if let Some(block_number) = block_number.to_u64() {
@@ -109,6 +113,7 @@ impl<
                 network: network.to_string(),
                 block_number,
                 block_hash,
+                graph_account,
                 signature,
             })
         } else {
@@ -126,6 +131,7 @@ impl<
         network: NetworkName,
         block_number: u64,
         block_hash: String,
+        graph_account: String,
     ) -> Result<Self, BuildMessageError> {
         let payload = payload.as_ref().ok_or(BuildMessageError::Payload)?;
         let sig = wallet
@@ -140,6 +146,7 @@ impl<
             network,
             block_number,
             block_hash.to_string(),
+            graph_account,
             sig.to_string(),
         )
     }
@@ -209,31 +216,76 @@ impl<
         &self,
         registry_subgraph: &str,
         network_subgraph: &str,
-        local_graphcast_id: String,
+        local_sender_id: String,
+        id_validation: IdentityValidation,
     ) -> Result<&Self, BuildMessageError> {
-        let graphcast_id = self.recover_sender_address()?;
-        if graphcast_id == local_graphcast_id {
-            Err(BuildMessageError::InvalidFields(anyhow!(
-                "Message is from self, drop message"
-            )))
-        } else {
-            let indexer_address =
-                query_registry_indexer(registry_subgraph.to_string(), graphcast_id)
+        match id_validation {
+            IdentityValidation::NoCheck => (),
+            IdentityValidation::ValidAddress => {
+                let _ = self.remote_account(local_sender_id)?;
+            }
+            IdentityValidation::GraphcastRegistered => {
+                let claimed_account = self.remote_account(local_sender_id)?;
+                // Simply check if the message signer is registered at Graphcast Registry, make no validation on Graph Account field
+                let _ = claimed_account
+                    .account_from_registry(registry_subgraph)
+                    .await
+                    .map(|verified_account| {
+                        if verified_account.account == claimed_account.account {Ok(verified_account)} else {
+                            Err(BuildMessageError::InvalidFields(anyhow!("Failed to match signature with a Graph account by `GraphcastRegistered` validation mechanism, drop message")))
+                        }
+                    })
+                    .map_err(BuildMessageError::FieldDerivations)?;
+            }
+            IdentityValidation::GraphNetworkAccount => {
+                let claimed_account = self.remote_account(local_sender_id)?;
+                // allow any Graph account matched with message signer and the self-claimed graph account
+                let _ = claimed_account
+                    .account_from_network(network_subgraph)
+                    .await
+                    .map(|verified_account| {
+                        if verified_account.account == claimed_account.account {Ok(verified_account)} else {
+                            Err(BuildMessageError::InvalidFields(anyhow!("Failed to match signature with a Graph account by `GraphcastRegistered` validation mechanism, drop message")))
+                        }
+                    })
+                    .map_err(BuildMessageError::FieldDerivations)?;
+            }
+            IdentityValidation::RegisteredIndexer => {
+                let claimed_account = self.remote_account(local_sender_id)?;
+                let verified_account = claimed_account
+                    .account_from_registry(registry_subgraph)
                     .await
                     .map_err(BuildMessageError::FieldDerivations)?;
-            if query_network_subgraph(network_subgraph.to_string(), indexer_address.clone())
-                .await
-                .map_err(BuildMessageError::FieldDerivations)?
-                .stake_satisfy_requirement()
-            {
-                trace!(address = indexer_address, "Valid Indexer");
-                Ok(self)
-            } else {
-                Err(BuildMessageError::InvalidFields(anyhow!(
-                    "Sender stake is less than the minimum requirement, drop message"
-                )))
+                if verified_account.account() != claimed_account.account() {
+                    return Err(BuildMessageError::InvalidFields(anyhow!("Failed to match signature with a Graph account by `RegisteredIndexer` validation mechanism, drop message")));
+                };
+                verified_account.valid_indexer(network_subgraph).await?;
             }
-        }
+            IdentityValidation::Indexer => {
+                let claimed_account = self.remote_account(local_sender_id)?;
+                let verified_account = match claimed_account
+                    .account_from_registry(registry_subgraph)
+                    .await
+                {
+                    Ok(a) => a,
+                    Err(e) => {
+                        debug!(
+                            e = tracing::field::debug(&e),
+                            "Signer is not a graphcast_id registered on Graphcast. Check Graph Network: {:#?}", e
+                        );
+                        claimed_account
+                            .account_from_network(network_subgraph)
+                            .await
+                            .map_err(BuildMessageError::FieldDerivations)?
+                    }
+                };
+                if verified_account.account() != claimed_account.account() {
+                    return Err(BuildMessageError::InvalidFields(anyhow!(format!("Failed to match signature with a Graph account by `Indexer` validation mechanism, drop message. Verified account: {:#?}\n account claimed by message: {:#?}", verified_account, claimed_account))));
+                };
+                let _ = verified_account.valid_indexer(network_subgraph).await;
+            }
+        };
+        Ok(self)
     }
 
     /// Check timestamp: prevent past message replay
@@ -250,6 +302,29 @@ impl<
                 MSG_REPLAY_LIMIT
             )))
         }
+    }
+
+    pub fn remote_account(&self, local_sender_id: String) -> Result<Account, BuildMessageError> {
+        debug!(
+            "recovered sender address: {:#?}\nlocal sender id: {:#?}",
+            self.recover_sender_address(),
+            local_sender_id
+        );
+        let sender_address = self.recover_sender_address().and_then(|a| {
+            debug!(
+                "recovered sender address: {:#?}\nlocal sender id: {:#?}",
+                a,
+                local_sender_id.clone()
+            );
+            if a != local_sender_id {
+                Ok(a)
+            } else {
+                Err(BuildMessageError::InvalidFields(anyhow!(
+                    "Message is from self, drop message"
+                )))
+            }
+        })?;
+        Ok(Account::new(sender_address, self.graph_account.clone()))
     }
 
     /// Check timestamp: prevent messages with incorrect graph node's block provider
@@ -282,16 +357,17 @@ impl<
 
     /// Recover sender address from Graphcast message radio payload
     pub fn recover_sender_address(&self) -> Result<String, BuildMessageError> {
-        match Signature::from_str(&self.signature).and_then(|sig| {
-            sig.recover(
-                self.payload
-                    .as_ref()
-                    .expect("No payload in the radio message, just a ping")
-                    .encode_eip712()
-                    .expect("Could not encode payload using EIP712"),
-            )
-        }) {
-            Ok(addr) => Ok(format!("{addr:#x}")),
+        let signed_data = self
+            .payload
+            .as_ref()
+            .expect("No payload in the radio message, just a ping")
+            .encode_eip712()
+            .expect("Could not encode payload using EIP712");
+        match Signature::from_str(&self.signature).and_then(|sig| sig.recover(signed_data)) {
+            Ok(addr) => {
+                debug!("{}", format!("{addr:#x}"));
+                Ok(format!("{addr:#x}"))
+            }
             Err(x) => Err(BuildMessageError::InvalidFields(x.into())),
         }
     }
@@ -369,13 +445,15 @@ pub async fn check_message_validity<
     graphcast_message: GraphcastMessage<T>,
     nonces: &Arc<Mutex<NoncesMap>>,
     callbook: CallBook,
-    local_graphcast_id: String,
+    local_sender_id: String,
+    id_validation: IdentityValidation,
 ) -> Result<GraphcastMessage<T>, BuildMessageError> {
     graphcast_message
         .valid_sender(
             callbook.graphcast_registry(),
             callbook.graph_network(),
-            local_graphcast_id,
+            local_sender_id,
+            id_validation,
         )
         .await?
         .valid_time()?
@@ -411,6 +489,24 @@ pub enum BuildMessageError {
     TypeCast(String),
 }
 
+/// Identity validation for a Graphcast Message
+#[derive(Clone, Debug, Eq, PartialEq, Default, clap::ValueEnum, Serialize, Deserialize)]
+pub enum IdentityValidation {
+    // no checks
+    NoCheck,
+    // valid address
+    ValidAddress,
+    // valid Graphcast id
+    GraphcastRegistered,
+    // valid Graph Account
+    GraphNetworkAccount,
+    // valid Graphcast registered indexer
+    #[default]
+    RegisteredIndexer,
+    // valid Graph indexer or Graphcast Registered Indexer
+    Indexer,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,7 +520,7 @@ mod tests {
     /// Make a test radio type
     #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize, SimpleObject)]
     #[eip712(
-        name = "Graphcast Test Radio",
+        name = "Graphcast Ping-Pong Radio",
         version = "0",
         chain_id = 1,
         verifying_contract = "0xc944e90c64b2c07662a292be6244bdf05cda44a7"
@@ -454,11 +550,44 @@ mod tests {
         Wallet::new(&mut thread_rng())
     }
 
+    fn graph_account_message() -> GraphcastMessage<RadioPayloadMessage> {
+        GraphcastMessage {
+            identifier: String::from("ping-pong-content-topic"), 
+            payload:
+                Some(RadioPayloadMessage {
+                    identifier: String::from("table"), 
+                    content: String::from("Ping") }), 
+            nonce: 1687448729,
+            network: String::from("goerli"),
+            block_number: 9221945,
+            block_hash: String::from("a8ad1057882ae2bce4e49f811e651ccacd317f3c11918d3724d7e7a551c5fc39"),
+            graph_account: String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
+            signature: String::from("2cd3fa305efd9c362bc71adee6e5a85c357a951af84c80667b8ddae23ac81c3821dac7d9c167e2776a9a56d8726b472312f40d9cc7461d1a6950d00e52d6e8521b")
+        }
+    }
+
+    fn graphcast_id_message() -> GraphcastMessage<RadioPayloadMessage> {
+        GraphcastMessage {
+            identifier: String::from("ping-pong-content-topic"),
+            payload:
+                Some(RadioPayloadMessage {
+                    identifier: String::from("table"),
+                    content: String::from("Ping") }),
+            nonce: 1687451299,
+            network: String::from("goerli"),
+            block_number: 9222109,
+            block_hash: String::from("f1523bcac92c7e7d38142b089ec122d1607bc9a3b1b5d55df7cc11cbe10a3c48"),
+            graph_account: String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
+            signature: String::from("52dcdd23418fa9c660be6c50f2c828c5b702ac46a452c21747260adc822a79663a3b7eddaa5139a0f5cd1206c8663faf272757d46f87bbb2bb6feedd1389601d1b")
+        }
+    }
+
     #[tokio::test]
     async fn test_standard_message() {
         let registry_subgraph =
             "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
-        let network_subgraph = "https://gateway.testnet.thegraph.com/network";
+        let network_subgraph =
+            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
         let network = NetworkName::from_string("goerli");
 
         let hash: String = "Qmtest".to_string();
@@ -475,13 +604,19 @@ mod tests {
             network,
             block_number,
             block_hash,
+            String::from("0xE9a1CABd57700B17945Fd81feeFba82340D9568F"),
         )
         .await
         .expect("Could not build message");
 
         assert_eq!(msg.block_number, 0);
         assert!(msg
-            .valid_sender(registry_subgraph, network_subgraph, "".to_string())
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::RegisteredIndexer
+            )
             .await
             .is_err());
         assert!(msg.valid_time().is_ok());
@@ -499,5 +634,144 @@ mod tests {
                 .expect("Could not recover sender address"),
             format!("{:#x}", wallet.address())
         );
+    }
+
+    #[tokio::test]
+    async fn test_validate_graph_network() {
+        let registry_subgraph =
+            "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+        let network_subgraph =
+            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
+        // graph_account_message is by a valid eth address that is not registered as a graphcast_id but is a graph account and valid indexer
+        let msg = graph_account_message();
+        assert_eq!(
+            msg.recover_sender_address().unwrap(),
+            String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f")
+        );
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::NoCheck
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::ValidAddress
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::GraphNetworkAccount
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::Indexer
+            )
+            .await
+            .is_ok());
+
+        // Message should fail to validate if registry is required
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::GraphcastRegistered
+            )
+            .await
+            .is_err());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::RegisteredIndexer
+            )
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_registry() {
+        let registry_subgraph =
+            "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
+        let network_subgraph =
+            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
+        // graph_account_message is by a valid eth address that is not registered as a graphcast_id but is a graph account and valid indexer
+        let msg = graphcast_id_message();
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::NoCheck
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::ValidAddress
+            )
+            .await
+            .is_ok());
+
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::Indexer
+            )
+            .await
+            .is_ok());
+
+        // Message should fail to validate if only Graph network account is checked
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::GraphNetworkAccount
+            )
+            .await
+            .is_err());
+
+        // Should success for checks at Graphcast registry
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::GraphcastRegistered
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::RegisteredIndexer
+            )
+            .await
+            .is_ok());
     }
 }

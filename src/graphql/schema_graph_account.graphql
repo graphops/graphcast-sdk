@@ -1,0 +1,23 @@
+type Subgraph {
+  id: String!
+}
+
+type Indexer {
+  id: String!
+  stakedTokens: String!
+}
+
+type Operator {
+  id: String!
+}
+
+type GraphAccount {
+  id: String!
+  operators: [Operator!]!
+  subgraphs: [Subgraph!]!
+  indexer: Indexer
+}
+
+type Query {
+  graphAccounts(account_addr: String!, operator_addr: String!): [GraphAccount!]!
+}

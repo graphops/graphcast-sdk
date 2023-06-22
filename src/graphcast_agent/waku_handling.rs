@@ -316,7 +316,7 @@ pub fn setup_node_handle(
     let mut discv5_nodes: Vec<String> = get_dns_nodes(pubsub_topic)
         .into_iter()
         .filter(|d| d.enr.is_some())
-        .map(|d| d.enr.unwrap().to_string())
+        .map(|d| d.enr.unwrap().to_base64())
         .collect::<Vec<String>>();
     discv5_nodes.extend(discv5_enrs.clone());
     match env::var("WAKU_NODE_BOOT").ok() {
@@ -451,6 +451,7 @@ pub async fn handle_signal<
                         &graphcast_agent.nonces,
                         graphcast_agent.callbook.clone(),
                         graphcast_agent.graphcast_identity.graphcast_id.clone(),
+                        graphcast_agent.id_validation.clone(),
                     )
                     .await
                     .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))

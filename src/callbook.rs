@@ -6,7 +6,7 @@ use crate::graphql::client_graph_node::{
     get_indexing_statuses, query_graph_node_network_block_hash,
 };
 use crate::graphql::client_network::{query_network_subgraph, Network};
-use crate::graphql::client_registry::query_registry_indexer;
+use crate::graphql::client_registry::query_registry;
 use crate::graphql::QueryError;
 
 #[derive(Clone, Debug, Getters, Serialize, Deserialize, PartialEq)]
@@ -40,11 +40,8 @@ impl CallBook {
             .await
     }
 
-    pub async fn registered_indexer(
-        &self,
-        graphcast_id_address: String,
-    ) -> Result<String, QueryError> {
-        query_registry_indexer(self.graphcast_registry.clone(), graphcast_id_address).await
+    pub async fn registered_indexer(&self, wallet_address: String) -> Result<String, QueryError> {
+        query_registry(self.graphcast_registry.clone(), wallet_address).await
     }
 
     pub async fn indexing_statuses(

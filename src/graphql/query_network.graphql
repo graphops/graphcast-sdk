@@ -1,4 +1,4 @@
-query NetworkSubgraph($address: String!) {
+query IndexerStatus($address: String!) {
   indexer(id: $address) {
     stakedTokens
     allocations{
