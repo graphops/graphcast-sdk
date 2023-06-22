@@ -1,8 +1,9 @@
 use clap::Parser;
 use ethers::signers::WalletError;
 use graphcast_sdk::build_wallet;
-use graphcast_sdk::graphcast_id_address;
+use graphcast_sdk::graphcast_agent::message_typing::IdentityValidation;
 use graphcast_sdk::init_tracing;
+use graphcast_sdk::wallet_address;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -48,6 +49,13 @@ pub struct Config {
     pub registry_subgraph: String,
     #[clap(
         long,
+        value_name = "INDEXER_ADDRESS",
+        env = "INDEXER_ADDRESS",
+        help = "Graph account corresponding to Graphcast operator"
+    )]
+    pub indexer_address: String,
+    #[clap(
+        long,
         value_name = "SUBGRAPH",
         env = "NETWORK_SUBGRAPH",
         help = "Subgraph endpoint to The Graph network subgraph",
@@ -64,6 +72,21 @@ pub struct Config {
         default_value = "full"
     )]
     pub log_format: String,
+    #[clap(
+        long,
+        value_name = "ID_VALIDATION",
+        value_enum,
+        env = "ID_VALIDATION",
+        help = "Identity validation mechanism for senders (message signers)",
+        long_help = "Identity validation mechanism for senders (message signers)\n
+        no-check: all messages signer is valid, \n
+        valid-address: signer needs to be an valid Eth address, \n
+        graphcast-registered: must be registered at Graphcast Registry, \n
+        graph-network-account: must be a Graph account, \n
+        registered-indexer: must be registered at Graphcast Registry, correspond to and Indexer statisfying indexer minimum stake requirement, \n
+        indexer: must be registered at Graphcast Registry or is a Graph Account, correspond to and Indexer statisfying indexer minimum stake requirement"
+    )]
+    pub id_validation: Option<IdentityValidation>,
 }
 
 impl Config {
@@ -79,7 +102,7 @@ impl Config {
     fn parse_key(value: &str) -> Result<String, WalletError> {
         // The wallet can be stored instead of the original private key
         let wallet = build_wallet(value)?;
-        let addr = graphcast_id_address(&wallet);
+        let addr = wallet_address(&wallet);
         info!(address = addr, "Resolved Graphcast id");
         Ok(String::from(value))
     }

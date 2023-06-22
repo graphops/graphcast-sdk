@@ -1,6 +1,6 @@
 use graphql_client::{GraphQLQuery, Response};
 use num_traits::Zero;
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::graphql::QueryError;
 
@@ -13,9 +13,9 @@ use super::grt_gwei_string_to_f32;
     query_path = "src/graphql/query_network.graphql",
     response_derives = "Debug, Serialize, Deserialize"
 )]
-pub struct NetworkSubgraph;
+pub struct IndexerStatus;
 
-/// Query network subgraph for Network data
+/// Query network subgraph for indexer status
 /// Contains indexer address, stake, allocations
 /// and graph network minimum indexer stake requirement
 pub async fn query_network_subgraph(
@@ -23,16 +23,20 @@ pub async fn query_network_subgraph(
     indexer_address: String,
 ) -> Result<Network, QueryError> {
     // Can refactor for all types of queries
-    let variables: network_subgraph::Variables = network_subgraph::Variables {
+    let variables: indexer_status::Variables = indexer_status::Variables {
         address: indexer_address.clone(),
     };
-    let request_body = NetworkSubgraph::build_query(variables);
+    let request_body = IndexerStatus::build_query(variables);
     let client = reqwest::Client::builder()
         .user_agent("network-subgraph")
         .build()?;
     let request = client.post(url.clone()).json(&request_body);
     let response = request.send().await?.error_for_status()?;
-    let response_body: Response<network_subgraph::ResponseData> = response.json().await?;
+    trace!(
+        result = tracing::field::debug(&response),
+        "Queried result for Indexer and Network"
+    );
+    let response_body: Response<indexer_status::ResponseData> = response.json().await?;
 
     if let Some(errors) = response_body.errors.as_deref() {
         let e = &errors[0];

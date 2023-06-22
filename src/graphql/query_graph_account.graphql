@@ -1,0 +1,18 @@
+query GraphAccount($account_addr: String!, $operator_addr: [String!]!) {
+  graphAccounts(where:{
+    operators_contains: $operator_addr,
+    id: $account_addr 
+  }) {
+    id
+    operators{
+      id
+    }
+    subgraphs{
+      id
+    }
+    indexer {
+      id
+      stakedTokens
+    }
+  }
+}

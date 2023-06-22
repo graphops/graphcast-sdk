@@ -29,12 +29,12 @@ pub async fn perform_graphcast_id_indexer_query(
 }
 
 /// Construct GraphQL variables and parse result for indexer address
-pub async fn query_registry_indexer(
+pub async fn query_registry(
     registry_subgraph_endpoint: String,
-    graphcast_id_address: String,
+    wallet_address: String,
 ) -> Result<String, QueryError> {
     let variables: set_graphcast_ids::Variables = set_graphcast_ids::Variables {
-        address: graphcast_id_address.clone(),
+        address: wallet_address.clone(),
     };
     let queried_result =
         perform_graphcast_id_indexer_query(registry_subgraph_endpoint.clone(), variables).await?;
@@ -54,11 +54,11 @@ pub async fn query_registry_indexer(
             .first()
             .map(|event| event.indexer.clone())
             .ok_or(QueryError::ParseResponseError(format!(
-                "No indexer data queried from registry for GraphcastID: {graphcast_id_address}"
+                "No indexer data queried from registry for GraphcastID: {wallet_address}"
             )))
     } else {
         Err(QueryError::ParseResponseError(format!(
-            "No response data from registry for graphcastID {graphcast_id_address}"
+            "No response data from registry for GraphcastID: {wallet_address}"
         )))
     }
 }

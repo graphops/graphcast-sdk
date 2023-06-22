@@ -20,7 +20,10 @@ use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
-use graphcast_agent::message_typing::GraphcastMessage;
+use graphcast_agent::message_typing::{BuildMessageError, GraphcastMessage};
+use graphql::{
+    client_graph_account::query_graph_account, client_network::query_network_subgraph, QueryError,
+};
 use networks::{NetworkName, NETWORKS};
 
 use once_cell::sync::OnceCell;
@@ -41,7 +44,7 @@ use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
 use waku::WakuPubSubTopic;
 
-use crate::{graphcast_agent::ConfigError, graphql::client_registry::query_registry_indexer};
+use crate::{graphcast_agent::ConfigError, graphql::client_registry::query_registry};
 
 pub mod bots;
 pub mod callbook;
@@ -91,8 +94,8 @@ pub fn build_wallet(value: &str) -> Result<Wallet<SigningKey>, WalletError> {
         .or(MnemonicBuilder::<English>::default().phrase(value).build())
 }
 
-/// Get the graphcastID address from the wallet
-pub fn graphcast_id_address(wallet: &Wallet<SigningKey>) -> String {
+/// Get wallet public address to String
+pub fn wallet_address(wallet: &Wallet<SigningKey>) -> String {
     format!("{:?}", wallet.address())
 }
 
@@ -203,6 +206,75 @@ impl BlockPointer {
     }
 }
 
+/// Account information to keep graphcast agent signer address,
+/// and its correseponding Graph Account. `agent` address can be validated as either
+/// a graphcast_id, an indexer operator, or an indexer. `account` address takes the field `graph_account` from a generic `GraphcastMessage` and gets verified through Graphcast registry and/or Graph network subgraph, through a locally configured `IdentityValidation` mechanism.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    pub agent: String,
+    pub account: String,
+}
+
+impl Account {
+    /// Create an account with agent: a graphcast_id, an indexer operator, or an indexer
+    /// account: graphcast registered account (currently limited to indexer address), Graph account, Indexer
+    pub fn new(agent_addr: String, graph_account: String) -> Self {
+        Account {
+            agent: agent_addr,
+            account: graph_account,
+        }
+    }
+
+    /// Get Graphcast agent address
+    pub fn agent_address(&self) -> String {
+        self.agent.clone()
+    }
+
+    /// Get agent's representing graph account
+    pub fn account(&self) -> String {
+        self.account.clone()
+    }
+
+    /// Check for sender's registration at Graphcast (registered at graphcast Registry)
+    pub async fn account_from_registry(
+        &self,
+        registry_subgraph: &str,
+    ) -> Result<Account, QueryError> {
+        let registered_address =
+            query_registry(registry_subgraph.to_string(), self.agent_address()).await?;
+
+        Ok(Account::new(self.agent_address(), registered_address))
+    }
+
+    /// Check for sender's registration at Graph Network
+    pub async fn account_from_network(
+        &self,
+        network_subgraph: &str,
+    ) -> Result<Account, QueryError> {
+        let matched_account = query_graph_account(
+            network_subgraph.to_string(),
+            self.agent_address(),
+            self.account(),
+        )
+        .await?;
+        Ok(matched_account)
+    }
+
+    pub async fn valid_indexer(&self, network_subgraph: &str) -> Result<(), BuildMessageError> {
+        if query_network_subgraph(network_subgraph.to_string(), self.account())
+            .await
+            .map_err(BuildMessageError::FieldDerivations)?
+            .stake_satisfy_requirement()
+        {
+            Ok(())
+        } else {
+            Err(BuildMessageError::InvalidFields(anyhow::anyhow!(
+                "Sender stake is less than the minimum requirement, drop message"
+            )))
+        }
+    }
+}
+
 /// Struct for a block pointer
 #[derive(Clone, PartialEq, Debug)]
 pub struct GraphcastIdentity {
@@ -213,25 +285,20 @@ pub struct GraphcastIdentity {
 }
 
 impl GraphcastIdentity {
-    pub async fn new(
-        graphcast_key: String,
-        registry_subgraph: String,
-    ) -> Result<Self, ConfigError> {
-        let wallet = build_wallet(&graphcast_key).map_err(|e| {
+    /// Function to create a Graphcast Identity
+    /// Which should include an Graphcast Agent key (graphcast_id, indexer_operator, indexer)
+    /// mapped to Graph Network Graph Account Identity
+    pub async fn new(agent_key: String, graph_account: String) -> Result<Self, ConfigError> {
+        let wallet = build_wallet(&agent_key).map_err(|e| {
             ConfigError::ValidateInput(format!(
                 "Invalid key to wallet, use private key or mnemonic: {e}"
             ))
         })?;
-        let graphcast_id = graphcast_id_address(&wallet);
-        // TODO: Implies invalidity for both graphcast id and registry, maybe map_err more specifically
-        let indexer = query_registry_indexer(registry_subgraph.to_string(), graphcast_id.clone())
-            .await
-            .map_err(|e| ConfigError::ValidateInput(format!("The registry subgraph did not contain an entry for the Graphcast ID to Indexer: {e}")))?;
-
+        let graphcast_id = wallet_address(&wallet);
         Ok(GraphcastIdentity {
             wallet,
             graphcast_id,
-            graph_account: indexer,
+            graph_account: graph_account.to_lowercase(),
         })
     }
 }
