@@ -14,6 +14,7 @@ use self::waku_handling::{
     build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
     setup_node_handle, WakuHandlingError,
 };
+use chrono::Utc;
 use ethers::signers::WalletError;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
@@ -427,7 +428,12 @@ impl GraphcastAgent {
         )
         .await
         .map_err(GraphcastAgentError::MessageError)?
-        .send_to_waku(&self.node_handle, self.pubsub_topic.clone(), content_topic)
+        .send_to_waku(
+            &self.node_handle,
+            self.pubsub_topic.clone(),
+            content_topic,
+            Utc::now().timestamp() as usize,
+        )
         .map_err(GraphcastAgentError::WakuNodeError)
         .map(|id| {
             ids.insert(id.clone());

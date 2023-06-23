@@ -146,22 +146,17 @@ impl<
 
     /// Send Graphcast message to the Waku relay network
     pub fn send_to_waku(
-        &self,
+        &mut self,
         node_handle: &WakuNodeHandle<Running>,
         pubsub_topic: WakuPubSubTopic,
         content_topic: WakuContentTopic,
+        timestamp: usize,
     ) -> Result<String, WakuHandlingError> {
         let mut buff = Vec::new();
         Message::encode(self, &mut buff).expect("Could not encode :(");
 
-        let waku_message = WakuMessage::new(
-            buff,
-            content_topic,
-            2,
-            Utc::now().timestamp() as usize,
-            vec![],
-            true,
-        );
+        let waku_message = WakuMessage::new(buff, content_topic, 2, timestamp, vec![], true);
+        self.nonce = timestamp as i64;
         trace!(message = tracing::field::debug(&self), "Sending message");
 
         let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
