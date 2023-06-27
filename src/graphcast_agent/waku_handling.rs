@@ -496,6 +496,23 @@ pub enum WakuHandlingError {
     Other(anyhow::Error),
 }
 
+impl WakuHandlingError {
+    pub fn type_string(&self) -> &str {
+        match self {
+            WakuHandlingError::ParseUrlError(_) => "ParseUrlError",
+            WakuHandlingError::ContentTopicsError(_) => "ContentTopicsError",
+            WakuHandlingError::RetrievePeersError(_) => "RetrievePeersError",
+            WakuHandlingError::PublishMessage(_) => "PublishMessage",
+            WakuHandlingError::InvalidMessage(_) => "InvalidMessage",
+            WakuHandlingError::ParsePortError(_) => "ParsePortError",
+            WakuHandlingError::CreateNodeError(_) => "CreateNodeError",
+            WakuHandlingError::PeerInfoError(_) => "PeerInfoError",
+            WakuHandlingError::QueryResponseError(_) => "QueryResponseError",
+            WakuHandlingError::Other(_) => "Other",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

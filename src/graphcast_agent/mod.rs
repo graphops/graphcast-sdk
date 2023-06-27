@@ -522,3 +522,62 @@ pub enum GraphcastAgentError {
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
 }
+
+impl GraphcastAgentError {
+    pub fn type_string(&self) -> &'static str {
+        match self {
+            GraphcastAgentError::QueryResponseError(_) => "QueryResponseError",
+            GraphcastAgentError::ConfigValidation(_) => "ConfigValidation",
+            GraphcastAgentError::EthereumWalletError(_) => "EthereumWalletError",
+            GraphcastAgentError::UrlParseError(_) => "UrlParseError",
+            GraphcastAgentError::WakuNodeError(_) => "WakuNodeError",
+            GraphcastAgentError::MessageError(_) => "MessageError",
+            GraphcastAgentError::WakuPortError => "WakuPortError",
+            GraphcastAgentError::ConvertMultiaddrError => "ConvertMultiaddrError",
+            GraphcastAgentError::Other(_) => "Other",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+
+    #[test]
+    fn test_build_message_error_type_string() {
+        let error = BuildMessageError::Payload;
+        assert_eq!(error.type_string(), "Payload");
+
+        let error = BuildMessageError::Signing;
+        assert_eq!(error.type_string(), "Signing");
+
+        // Add more test cases for other variants...
+    }
+
+    #[test]
+    fn test_graphcast_agent_error_type_string() {
+        let error =
+            GraphcastAgentError::QueryResponseError(QueryError::Other(anyhow!("test error")));
+        assert_eq!(error.type_string(), "QueryResponseError");
+
+        let error =
+            GraphcastAgentError::ConfigValidation(ConfigError::Other(anyhow!("test error")));
+        assert_eq!(error.type_string(), "ConfigValidation");
+
+        // Add more test cases for other variants...
+    }
+
+    #[test]
+    fn test_waku_handling_error_type_string() {
+        let error = WakuHandlingError::ContentTopicsError(String::from(
+            "Waku node cannot unsubscribe to the topics",
+        ));
+        assert_eq!(error.type_string(), "ContentTopicsError");
+
+        let error = WakuHandlingError::InvalidMessage(String::from("Invalid message"));
+        assert_eq!(error.type_string(), "InvalidMessage");
+
+        // Add more test cases for other variants...
+    }
+}
