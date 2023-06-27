@@ -207,11 +207,7 @@ impl<
 
     pub fn remote_account(&self, local_sender_id: String) -> Result<Account, BuildMessageError> {
         let sender_address = self.recover_sender_address().and_then(|a| {
-            trace!(
-                "recovered sender address: {:#?}\nlocal sender id: {:#?}",
-                a,
-                local_sender_id.clone()
-            );
+            trace!("recovered sender address: {:#?}\n", a,);
             if a != local_sender_id {
                 Ok(a)
             } else {
@@ -348,6 +344,21 @@ pub enum BuildMessageError {
     FieldDerivations(QueryError),
     #[error("{0}")]
     TypeCast(String),
+}
+
+impl BuildMessageError {
+    pub fn type_string(&self) -> &'static str {
+        match self {
+            BuildMessageError::Payload => "Payload",
+            BuildMessageError::Signing => "Signing",
+            BuildMessageError::Encoding => "Encoding",
+            BuildMessageError::Decoding => "Decoding",
+            BuildMessageError::InvalidFields(_) => "InvalidFields",
+            BuildMessageError::Network(_) => "Network",
+            BuildMessageError::FieldDerivations(_) => "FieldDerivations",
+            BuildMessageError::TypeCast(_) => "TypeCast",
+        }
+    }
 }
 
 /// Identity validation for a Graphcast Message
