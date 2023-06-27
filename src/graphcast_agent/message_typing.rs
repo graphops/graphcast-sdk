@@ -271,7 +271,8 @@ impl<
                     Err(e) => {
                         debug!(
                             e = tracing::field::debug(&e),
-                            "Signer is not a graphcast_id registered on Graphcast. Check Graph Network: {:#?}", e
+                            account = tracing::field::debug(&claimed_account),
+                            "Signer is not registered at Graphcast Registry. Check Graph Network"
                         );
                         claimed_account
                             .account_from_network(network_subgraph)
@@ -566,6 +567,22 @@ mod tests {
         }
     }
 
+    fn indexer_message() -> GraphcastMessage<RadioPayloadMessage> {
+        GraphcastMessage {
+            identifier: String::from("ping-pong-content-topic"), 
+            payload:
+                Some(RadioPayloadMessage {
+                    identifier: String::from("table"), 
+                    content: String::from("Ping") }), 
+            nonce: 1687874581,
+            network: String::from("goerli"),
+            block_number: 9249797,
+            block_hash: String::from("af04663a968f48a0bd554e5f4842b4f3546868f5d87221ae194e01d36f640cd0"),
+            graph_account: String::from("0x6121d1036d7016b125f019268b0406a4c15bb99d"),
+            signature: String::from("8006bd09f7ca6582ff1bbb9fd5bf657611625cd5a99f9d92088d9098c3391cd373454554bac8b76e13eb39b63be6d985761e76761c607bd2a87078259ab8928d1c")
+        }
+    }
+
     fn graphcast_id_message() -> GraphcastMessage<RadioPayloadMessage> {
         GraphcastMessage {
             identifier: String::from("ping-pong-content-topic"),
@@ -647,6 +664,76 @@ mod tests {
         assert_eq!(
             msg.recover_sender_address().unwrap(),
             String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f")
+        );
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::NoCheck
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::ValidAddress
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::GraphNetworkAccount
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::Indexer
+            )
+            .await
+            .is_ok());
+
+        // Message should fail to validate if registry is required
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::GraphcastRegistered
+            )
+            .await
+            .is_err());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "".to_string(),
+                IdentityValidation::RegisteredIndexer
+            )
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_indexer() {
+        let registry_subgraph =
+            "https://thegraph.com/hosted-service/subgraph/hopeyen/graphcast-registry-goerli";
+        let network_subgraph =
+            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
+        // graph_account_message is by a valid eth address that is not registered as a graphcast_id but is a graph account and valid indexer
+        let msg = indexer_message();
+        assert_eq!(
+            msg.recover_sender_address().unwrap(),
+            String::from("0x6121d1036d7016b125f019268b0406a4c15bb99d")
         );
         assert!(msg
             .valid_sender(
