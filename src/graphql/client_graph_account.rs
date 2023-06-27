@@ -1,5 +1,6 @@
 use crate::{graphql::QueryError, Account};
 use graphql_client::{GraphQLQuery, Response};
+use tracing::trace;
 
 /// Derived GraphQL Query to Network Subgraph
 #[derive(GraphQLQuery)]
@@ -35,7 +36,10 @@ pub async fn query_graph_account(
     let request = client.post(url.clone()).json(&request_body);
     let response = request.send().await?.error_for_status()?;
     let response_body: Response<graph_account::ResponseData> = response.json().await?;
-
+    trace!(
+        result = tracing::field::debug(&response_body),
+        "Query result for graph network account"
+    );
     if let Some(errors) = response_body.errors.as_deref() {
         let e = &errors[0];
         if e.message == "indexing_error" {
@@ -51,15 +55,18 @@ pub async fn query_graph_account(
         ))
     })?;
 
-    let agent: String = data
-        .graph_accounts
-        .first()
-        .and_then(|x| x.operators.first().map(|x| x.id.clone()))
-        .ok_or_else(|| {
-            QueryError::ParseResponseError(String::from(
-                "Network subgraph does not have a match for agent account and graph account",
-            ))
-        })?;
+    let agent: String = if operator == account {
+        account.clone()
+    } else {
+        data.graph_accounts
+            .first()
+            .and_then(|x| x.operators.first().map(|x| x.id.clone()))
+            .ok_or_else(|| {
+                QueryError::ParseResponseError(String::from(
+                    "Network subgraph does not have a match for agent account and graph account",
+                ))
+            })?
+    };
 
     let account: String = data
         .graph_accounts
