@@ -133,15 +133,15 @@ impl<
         block_hash: String,
         graph_account: String,
     ) -> Result<Self, BuildMessageError> {
-        let payload = payload.as_ref().ok_or(BuildMessageError::Payload)?;
+        let payload = payload.ok_or(BuildMessageError::Payload)?;
         let sig = wallet
-            .sign_typed_data(payload)
+            .sign_typed_data(&payload)
             .await
             .map_err(|_| BuildMessageError::Signing)?;
 
         GraphcastMessage::new(
-            identifier.clone(),
-            Some(payload.clone()),
+            identifier,
+            Some(payload),
             Utc::now().timestamp(),
             network,
             block_number,
@@ -381,7 +381,7 @@ impl<
         let address = self.recover_sender_address()?;
 
         let mut nonces = nonces.lock().await;
-        let nonces_per_subgraph = nonces.get(self.identifier.clone().as_str());
+        let nonces_per_subgraph = nonces.get(&self.identifier);
 
         match nonces_per_subgraph {
             Some(nonces_per_subgraph) => {
@@ -467,7 +467,7 @@ pub async fn check_message_validity<
         message = tracing::field::debug(&graphcast_message),
         "Valid message!"
     );
-    Ok(graphcast_message.clone())
+    Ok(graphcast_message)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -541,8 +541,8 @@ mod tests {
             }
         }
 
-        pub fn content_string(&self) -> String {
-            self.content.clone()
+        pub fn content_string(&self) -> &str {
+            &self.content
         }
     }
 

@@ -362,7 +362,7 @@ impl GraphcastAgent {
             .lock()
             .await
             .iter()
-            .find(|&x| x.content_topic_name == identifier.clone())
+            .find(|&x| x.content_topic_name == identifier)
         {
             Some(topic) => Ok(topic.clone()),
             _ => Err(GraphcastAgentError::Other(anyhow::anyhow!(format!(
@@ -423,7 +423,7 @@ impl GraphcastAgent {
 
         let block_hash = self
             .callbook
-            .block_hash(network.to_string().clone(), block_number)
+            .block_hash(network.to_string(), block_number)
             .await?;
 
         // Check network before sending a message

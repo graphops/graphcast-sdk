@@ -30,7 +30,7 @@ pub async fn query_network_subgraph(
     let client = reqwest::Client::builder()
         .user_agent("network-subgraph")
         .build()?;
-    let request = client.post(url.clone()).json(&request_body);
+    let request = client.post(url).json(&request_body);
     let response = request.send().await?.error_for_status()?;
     trace!(
         result = tracing::field::debug(&response),
