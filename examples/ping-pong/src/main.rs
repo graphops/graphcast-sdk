@@ -72,7 +72,7 @@ async fn main() {
         radio_name,
         config.registry_subgraph,
         config.network_subgraph,
-        config.graph_node_endpoint.clone(),
+        config.graph_node_endpoint,
         None,
         Some("testnet".to_string()),
         Some(subtopics),

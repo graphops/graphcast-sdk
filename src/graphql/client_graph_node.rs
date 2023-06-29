@@ -135,7 +135,7 @@ pub fn update_network_chainheads(
                         network_map
                             .entry(NetworkName::from_string(&network_name))
                             .and_modify(|block| *block = blk_ptr.clone())
-                            .or_insert(blk_ptr.clone());
+                            .or_insert(blk_ptr);
                     };
                     network_name
                 })
