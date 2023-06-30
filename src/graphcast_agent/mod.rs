@@ -147,7 +147,7 @@ impl GraphcastAgentConfig {
             }
         };
         let _ = verified_account.valid_indexer(&self.network_subgraph).await;
-        let _ = get_indexing_statuses(self.graph_node_endpoint.to_string())
+        let _ = get_indexing_statuses(&self.graph_node_endpoint)
             .await
             .map_err(|e| {
                 ConfigError::ValidateInput(format!(
@@ -354,7 +354,7 @@ impl GraphcastAgent {
     /// Error if topic doesn't exist
     pub async fn match_content_topic(
         &self,
-        identifier: String,
+        identifier: &str,
     ) -> Result<WakuContentTopic, GraphcastAgentError> {
         trace!(topic = identifier, "Target content topic");
         match self
@@ -410,12 +410,12 @@ impl GraphcastAgent {
             + async_graphql::OutputType,
     >(
         &self,
-        identifier: String,
+        identifier: &str,
         network: NetworkName,
         block_number: u64,
         payload: Option<T>,
     ) -> Result<String, GraphcastAgentError> {
-        let content_topic = self.match_content_topic(identifier.clone()).await?;
+        let content_topic = self.match_content_topic(identifier).await?;
         trace!(
             topic = tracing::field::debug(&content_topic),
             "Selected content topic from subscriptions"
@@ -423,7 +423,7 @@ impl GraphcastAgent {
 
         let block_hash = self
             .callbook
-            .block_hash(network.to_string(), block_number)
+            .block_hash(&network.to_string(), block_number)
             .await?;
 
         // Check network before sending a message
@@ -432,7 +432,7 @@ impl GraphcastAgent {
 
         GraphcastMessage::build(
             &self.graphcast_identity.wallet,
-            identifier,
+            identifier.to_string(),
             payload,
             network,
             block_number,

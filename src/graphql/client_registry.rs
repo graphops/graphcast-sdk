@@ -15,7 +15,7 @@ pub struct SetGraphcastIds;
 
 /// Query registry subgraph endpoint for resolving Graphcast ID and indexer address
 pub async fn perform_graphcast_id_indexer_query(
-    registry_subgraph_endpoint: String,
+    registry_subgraph_endpoint: &str,
     variables: set_graphcast_ids::Variables,
 ) -> Result<reqwest::Response, reqwest::Error> {
     let request_body = SetGraphcastIds::build_query(variables);
@@ -30,14 +30,14 @@ pub async fn perform_graphcast_id_indexer_query(
 
 /// Construct GraphQL variables and parse result for indexer address
 pub async fn query_registry(
-    registry_subgraph_endpoint: String,
-    wallet_address: String,
+    registry_subgraph_endpoint: &str,
+    wallet_address: &str,
 ) -> Result<String, QueryError> {
     let variables: set_graphcast_ids::Variables = set_graphcast_ids::Variables {
-        address: wallet_address.clone(),
+        address: wallet_address.to_string(),
     };
     let queried_result =
-        perform_graphcast_id_indexer_query(registry_subgraph_endpoint.clone(), variables).await?;
+        perform_graphcast_id_indexer_query(registry_subgraph_endpoint, variables).await?;
     trace!(
         result = tracing::field::debug(&queried_result),
         "Query result for registry indexer"

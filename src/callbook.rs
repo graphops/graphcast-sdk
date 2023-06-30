@@ -31,26 +31,21 @@ impl CallBook {
             graph_network,
         }
     }
-    pub async fn block_hash(
-        &self,
-        network: String,
-        block_number: u64,
-    ) -> Result<String, QueryError> {
-        query_graph_node_network_block_hash(self.graph_node_status.clone(), network, block_number)
-            .await
+    pub async fn block_hash(&self, network: &str, block_number: u64) -> Result<String, QueryError> {
+        query_graph_node_network_block_hash(&self.graph_node_status, network, block_number).await
     }
 
-    pub async fn registered_indexer(&self, wallet_address: String) -> Result<String, QueryError> {
-        query_registry(self.graphcast_registry.clone(), wallet_address).await
+    pub async fn registered_indexer(&self, wallet_address: &str) -> Result<String, QueryError> {
+        query_registry(&self.graphcast_registry, wallet_address).await
     }
 
     pub async fn indexing_statuses(
         &self,
     ) -> Result<Vec<IndexingStatusesIndexingStatuses>, QueryError> {
-        get_indexing_statuses(self.graph_node_status.clone()).await
+        get_indexing_statuses(&self.graph_node_status).await
     }
 
-    pub async fn network_subgraph(&self, indexer_address: String) -> Result<Network, QueryError> {
-        query_network_subgraph(self.graph_network.clone(), indexer_address).await
+    pub async fn network_subgraph(&self, indexer_address: &str) -> Result<Network, QueryError> {
+        query_network_subgraph(&self.graph_network, indexer_address).await
     }
 }

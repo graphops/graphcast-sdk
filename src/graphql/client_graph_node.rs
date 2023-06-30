@@ -28,7 +28,7 @@ pub struct BlockHashFromNumber;
 
 /// Query graph node for Block hash
 pub async fn perform_block_hash_from_number(
-    graph_node_endpoint: String,
+    graph_node_endpoint: &str,
     variables: block_hash_from_number::Variables,
 ) -> Result<reqwest::Response, reqwest::Error> {
     let request_body = BlockHashFromNumber::build_query(variables);
@@ -44,16 +44,15 @@ pub async fn perform_block_hash_from_number(
 /// Construct GraphQL variables and parse result for Proof of Indexing.
 /// For other radio use cases, provide a function that returns a string
 pub async fn query_graph_node_network_block_hash(
-    graph_node_endpoint: String,
-    network: String,
+    graph_node_endpoint: &str,
+    network: &str,
     block_number: u64,
 ) -> Result<String, QueryError> {
     let variables: block_hash_from_number::Variables = block_hash_from_number::Variables {
-        network: network.clone(),
+        network: network.to_string(),
         block_number: block_number.try_into().unwrap(),
     };
-    let queried_result =
-        perform_block_hash_from_number(graph_node_endpoint.clone(), variables).await?;
+    let queried_result = perform_block_hash_from_number(graph_node_endpoint, variables).await?;
     trace!(
         result = tracing::field::debug(&queried_result),
         "Query result for graph node network block hash"
@@ -83,7 +82,7 @@ pub async fn query_graph_node_network_block_hash(
 
 /// Query graph node for Indexing Statuses
 pub async fn perform_indexing_statuses(
-    graph_node_endpoint: String,
+    graph_node_endpoint: &str,
     variables: indexing_statuses::Variables,
 ) -> Result<reqwest::Response, reqwest::Error> {
     let request_body = IndexingStatuses::build_query(variables);
@@ -98,10 +97,10 @@ pub async fn perform_indexing_statuses(
 
 /// This function get all indexing statuses from Graph node status endpoint
 pub async fn get_indexing_statuses(
-    graph_node_endpoint: String,
+    graph_node_endpoint: &str,
 ) -> Result<Vec<IndexingStatusesIndexingStatuses>, QueryError> {
     let variables: indexing_statuses::Variables = indexing_statuses::Variables {};
-    let queried_result = perform_indexing_statuses(graph_node_endpoint.clone(), variables).await?;
+    let queried_result = perform_indexing_statuses(graph_node_endpoint, variables).await?;
     trace!(
         result = tracing::field::debug(&queried_result),
         "Query result for indexing statuses"

@@ -132,7 +132,7 @@ pub async fn comparison_trigger<
         + async_graphql::OutputType,
 >(
     messages: Arc<AsyncMutex<Vec<GraphcastMessage<T>>>>,
-    identifier: String,
+    identifier: &str,
     collect_duration: i64,
 ) -> (u64, i64) {
     let messages = AsyncMutex::new(messages.lock().await);
@@ -157,10 +157,7 @@ pub fn determine_message_block(
     network_name: NetworkName,
 ) -> Result<u64, NetworkBlockError> {
     // Get the pre-configured examination frequency of the network
-    let examination_frequency = match NETWORKS
-        .iter()
-        .find(|n| n.name.to_string() == network_name.to_string())
-    {
+    let examination_frequency = match NETWORKS.iter().find(|n| n.name == network_name) {
         Some(n) => n.interval,
         None => {
             let err_msg = format!("Subgraph is indexing an unsupported network {network_name}, please report an issue on https://github.com/graphops/graphcast-rs");
@@ -226,13 +223,13 @@ impl Account {
     }
 
     /// Get Graphcast agent address
-    pub fn agent_address(&self) -> String {
-        self.agent.clone()
+    pub fn agent_address(&self) -> &str {
+        &self.agent
     }
 
     /// Get agent's representing graph account
-    pub fn account(&self) -> String {
-        self.account.clone()
+    pub fn account(&self) -> &str {
+        &self.account
     }
 
     /// Check for sender's registration at Graphcast (registered at graphcast Registry)
@@ -240,10 +237,12 @@ impl Account {
         &self,
         registry_subgraph: &str,
     ) -> Result<Account, QueryError> {
-        let registered_address =
-            query_registry(registry_subgraph.to_string(), self.agent_address()).await?;
+        let registered_address = query_registry(registry_subgraph, self.agent_address()).await?;
 
-        Ok(Account::new(self.agent_address(), registered_address))
+        Ok(Account::new(
+            self.agent_address().to_string(),
+            registered_address,
+        ))
     }
 
     /// Check for sender's registration at Graph Network
@@ -251,17 +250,13 @@ impl Account {
         &self,
         network_subgraph: &str,
     ) -> Result<Account, QueryError> {
-        let matched_account = query_graph_account(
-            network_subgraph.to_string(),
-            self.agent_address(),
-            self.account(),
-        )
-        .await?;
+        let matched_account =
+            query_graph_account(network_subgraph, self.agent_address(), self.account()).await?;
         Ok(matched_account)
     }
 
     pub async fn valid_indexer(&self, network_subgraph: &str) -> Result<(), BuildMessageError> {
-        if query_network_subgraph(network_subgraph.to_string(), self.account())
+        if query_network_subgraph(network_subgraph, self.account())
             .await
             .map_err(BuildMessageError::FieldDerivations)?
             .stake_satisfy_requirement()

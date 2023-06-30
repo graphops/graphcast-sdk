@@ -17,8 +17,8 @@ pub enum QueryError {
     Other(anyhow::Error),
 }
 
-pub fn grt_gwei_string_to_f32(input: String) -> Result<f32, QueryError> {
-    add_decimal(&input)
+pub fn grt_gwei_string_to_f32(input: &str) -> Result<f32, QueryError> {
+    add_decimal(input)
         .parse::<f32>()
         .map_err(|e| QueryError::ParseResponseError(e.to_string()))
 }
@@ -52,19 +52,19 @@ mod tests {
     #[test]
     fn test_grt_gwei_string_to_f32() {
         // valid inputs
-        assert!(grt_gwei_string_to_f32("100000000000000000000000".to_string()).is_ok());
+        assert!(grt_gwei_string_to_f32("100000000000000000000000").is_ok());
         assert_eq!(
-            grt_gwei_string_to_f32("100000000000000000000000".to_string()).unwrap(),
+            grt_gwei_string_to_f32("100000000000000000000000").unwrap(),
             100000.0,
         );
-        assert!(grt_gwei_string_to_f32("0".to_string()).is_ok());
-        assert!(grt_gwei_string_to_f32("30921273477321769415119223".to_string()).is_ok());
+        assert!(grt_gwei_string_to_f32("0").is_ok());
+        assert!(grt_gwei_string_to_f32("30921273477321769415119223").is_ok());
         assert_eq!(
-            grt_gwei_string_to_f32("30921273477321769415119223".to_string()).unwrap(),
+            grt_gwei_string_to_f32("30921273477321769415119223").unwrap(),
             30921273.477321769415119223,
         );
 
         // invalid inputs
-        assert!(grt_gwei_string_to_f32("abc".to_string()).is_err(),);
+        assert!(grt_gwei_string_to_f32("abc").is_err(),);
     }
 }
