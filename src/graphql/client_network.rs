@@ -19,12 +19,12 @@ pub struct IndexerStatus;
 /// Contains indexer address, stake, allocations
 /// and graph network minimum indexer stake requirement
 pub async fn query_network_subgraph(
-    url: String,
-    indexer_address: String,
+    url: &str,
+    indexer_address: &str,
 ) -> Result<Network, QueryError> {
     // Can refactor for all types of queries
     let variables: indexer_status::Variables = indexer_status::Variables {
-        address: indexer_address.clone(),
+        address: indexer_address.to_string(),
     };
     let request_body = IndexerStatus::build_query(variables);
     let client = reqwest::Client::builder()
@@ -55,7 +55,7 @@ pub async fn query_network_subgraph(
     };
 
     let indexer = data.indexer.and_then(|x| {
-        match Some(grt_gwei_string_to_f32(x.staked_tokens)).transpose() {
+        match Some(grt_gwei_string_to_f32(&x.staked_tokens)).transpose() {
             Ok(token) => {
                 let allocations: Vec<Allocation> = x.allocations.map(|allocs| {
                     allocs
@@ -87,7 +87,7 @@ pub async fn query_network_subgraph(
         indexer,
         graph_network: GraphNetwork {
             minimum_indexer_stake: grt_gwei_string_to_f32(
-                data.graph_network.minimum_indexer_stake,
+                &data.graph_network.minimum_indexer_stake,
             )?,
         },
     })

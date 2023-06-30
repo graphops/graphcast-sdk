@@ -112,7 +112,7 @@ async fn main() {
             .send_message(
                 // The identifier can be any string that suits your Radio logic
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
-                "ping-pong-content-topic".to_string(),
+                "ping-pong-content-topic",
                 network,
                 block_number,
                 payload,

@@ -37,14 +37,12 @@ fn prepare_nonces(
 }
 
 pub async fn get_indexer_stake(
-    indexer_address: String,
+    indexer_address: &str,
     network_subgraph: &str,
 ) -> Result<f32, QueryError> {
-    Ok(
-        query_network_subgraph(network_subgraph.to_string(), indexer_address)
-            .await?
-            .indexer_stake(),
-    )
+    Ok(query_network_subgraph(network_subgraph, indexer_address)
+        .await?
+        .indexer_stake())
 }
 
 /// GraphcastMessage type casts over radio payload
@@ -331,8 +329,8 @@ impl<
     /// Check timestamp: prevent messages with incorrect graph node's block provider
     pub async fn valid_hash(&self, graph_node_endpoint: &str) -> Result<&Self, BuildMessageError> {
         let block_hash: String = query_graph_node_network_block_hash(
-            graph_node_endpoint.to_string(),
-            self.network.clone(),
+            graph_node_endpoint,
+            &self.network,
             self.block_number,
         )
         .await

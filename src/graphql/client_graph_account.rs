@@ -15,9 +15,9 @@ pub struct GraphAccount;
 /// Contains indexer address, stake, allocations
 /// and graph network minimum indexer stake requirement
 pub async fn query_graph_account(
-    url: String,
-    operator: String,
-    account: String,
+    url: &str,
+    operator: &str,
+    account: &str,
 ) -> Result<Account, QueryError> {
     // Can refactor for all types of queries
     let variables: graph_account::Variables = graph_account::Variables {
@@ -25,15 +25,15 @@ pub async fn query_graph_account(
         operator_addr: if operator == account {
             vec![]
         } else {
-            vec![operator.clone()]
+            vec![operator.to_string()]
         },
-        account_addr: account.clone(),
+        account_addr: account.to_string(),
     };
     let request_body = GraphAccount::build_query(variables);
     let client = reqwest::Client::builder()
         .user_agent("network-subgraph")
         .build()?;
-    let request = client.post(url.clone()).json(&request_body);
+    let request = client.post(url).json(&request_body);
     let response = request.send().await?.error_for_status()?;
     let response_body: Response<graph_account::ResponseData> = response.json().await?;
     trace!(
@@ -56,7 +56,7 @@ pub async fn query_graph_account(
     })?;
 
     let agent: String = if operator == account {
-        account.clone()
+        account.to_string()
     } else {
         data.graph_accounts
             .first()
