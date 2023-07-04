@@ -413,7 +413,7 @@ impl GraphcastAgent {
         identifier: &str,
         network: NetworkName,
         block_number: u64,
-        payload: Option<T>,
+        payload: T,
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self.match_content_topic(identifier).await?;
         trace!(
