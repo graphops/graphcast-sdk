@@ -101,11 +101,7 @@ async fn main() {
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
     // Helper function to reuse message sending code
-    async fn send_message(
-        payload: Option<RadioPayloadMessage>,
-        network: NetworkName,
-        block_number: u64,
-    ) {
+    async fn send_message(payload: RadioPayloadMessage, network: NetworkName, block_number: u64) {
         if let Err(e) = GRAPHCAST_AGENT
             .get()
             .expect("Could not retrieve Graphcast agent")
@@ -183,7 +179,7 @@ async fn main() {
                 "table".to_string(),
                 std::env::args().nth(1).unwrap_or("Ping".to_string()),
             );
-            send_message(Some(msg), network, block_number).await;
+            send_message(msg, network, block_number).await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(
@@ -194,14 +190,10 @@ async fn main() {
                     .expect("Could not get lock on messages"),
             );
             for msg in messages.lock().await.iter() {
-                let payload = msg
-                    .payload
-                    .as_ref()
-                    .expect("Could not get radio payload payload");
-                if *payload.content == *"Ping" {
+                if msg.payload.content == *"Ping" {
                     let replay_msg =
                         RadioPayloadMessage::new("table".to_string(), "Pong".to_string());
-                    send_message(Some(replay_msg), network, block_number).await;
+                    send_message(replay_msg, network, block_number).await;
                 };
             }
 

@@ -8,7 +8,6 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
-
 use tracing::{debug, error, trace};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
 
@@ -60,8 +59,8 @@ where
     #[prost(string, tag = "1")]
     pub identifier: String,
     /// content to share about the identified entity
-    #[prost(message, tag = "2")]
-    pub payload: Option<T>,
+    #[prost(message, required, tag = "2")]
+    pub payload: T,
     /// nonce cached to check against the next incoming message
     #[prost(int64, tag = "3")]
     pub nonce: i64,
@@ -95,7 +94,7 @@ impl<
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         identifier: String,
-        payload: Option<T>,
+        payload: T,
         nonce: i64,
         network: NetworkName,
         block_number: u64,
@@ -125,13 +124,12 @@ impl<
     pub async fn build(
         wallet: &Wallet<SigningKey>,
         identifier: String,
-        payload: Option<T>,
+        payload: T,
         network: NetworkName,
         block_number: u64,
         block_hash: String,
         graph_account: String,
     ) -> Result<Self, BuildMessageError> {
-        let payload = payload.ok_or(BuildMessageError::Payload)?;
         let sig = wallet
             .sign_typed_data(&payload)
             .await
@@ -139,7 +137,7 @@ impl<
 
         GraphcastMessage::new(
             identifier,
-            Some(payload),
+            payload,
             Utc::now().timestamp(),
             network,
             block_number,
@@ -358,8 +356,6 @@ impl<
     pub fn recover_sender_address(&self) -> Result<String, BuildMessageError> {
         let signed_data = self
             .payload
-            .as_ref()
-            .expect("No payload in the radio message, just a ping")
             .encode_eip712()
             .expect("Could not encode payload using EIP712");
         match Signature::from_str(&self.signature).and_then(|sig| sig.recover(signed_data)) {
@@ -553,9 +549,9 @@ mod tests {
         GraphcastMessage {
             identifier: String::from("ping-pong-content-topic"), 
             payload:
-                Some(RadioPayloadMessage {
+                RadioPayloadMessage {
                     identifier: String::from("table"), 
-                    content: String::from("Ping") }), 
+                    content: String::from("Ping") }, 
             nonce: 1687448729,
             network: String::from("goerli"),
             block_number: 9221945,
@@ -569,9 +565,9 @@ mod tests {
         GraphcastMessage {
             identifier: String::from("ping-pong-content-topic"), 
             payload:
-                Some(RadioPayloadMessage {
+                RadioPayloadMessage {
                     identifier: String::from("table"), 
-                    content: String::from("Ping") }), 
+                    content: String::from("Ping") }, 
             nonce: 1687874581,
             network: String::from("goerli"),
             block_number: 9249797,
@@ -585,9 +581,9 @@ mod tests {
         GraphcastMessage {
             identifier: String::from("ping-pong-content-topic"),
             payload:
-                Some(RadioPayloadMessage {
+                RadioPayloadMessage {
                     identifier: String::from("table"),
-                    content: String::from("Ping") }),
+                    content: String::from("Ping") },
             nonce: 1687451299,
             network: String::from("goerli"),
             block_number: 9222109,
@@ -615,7 +611,7 @@ mod tests {
         let msg = GraphcastMessage::build(
             &wallet,
             hash,
-            Some(payload),
+            payload,
             network,
             block_number,
             block_hash,
@@ -635,15 +631,7 @@ mod tests {
             .await
             .is_err());
         assert!(msg.valid_time().is_ok());
-        // TODO: set up test with mocked graph node responses
-        // assert!(msg.valid_hash("weeelp".to_string()).is_err());
-        assert_eq!(
-            msg.payload
-                .as_ref()
-                .expect("Could not get message payload")
-                .content_string(),
-            content
-        );
+        assert_eq!(msg.payload.content_string(), content);
         assert_eq!(
             msg.recover_sender_address()
                 .expect("Could not recover sender address"),
