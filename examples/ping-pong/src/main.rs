@@ -75,6 +75,7 @@ async fn main() {
         config.registry_subgraph,
         config.network_subgraph,
         config.graph_node_endpoint,
+        config.id_validation.unwrap_or_default(),
         None,
         Some("testnet".to_string()),
         Some(subtopics),
@@ -86,7 +87,6 @@ async fn main() {
         // Example ENR address
         Some(vec![String::from("enr:-JK4QBcfVXu2YDeSKdjF2xE5EDM5f5E_1Akpkv_yw_byn1adESxDXVLVjapjDvS_ujx6MgWDu9hqO_Az_CbKLJ8azbMBgmlkgnY0gmlwhAVOUWOJc2VjcDI1NmsxoQOUZIqKLk5xkiH0RAFaMGrziGeGxypJ03kOod1-7Pum3oN0Y3CCfJyDdWRwgiMohXdha3UyDQ")]),
         None,
-        config.id_validation,
     )
     .await
     .unwrap_or_else(|e| panic!("Could not create GraphcastAgentConfig: {e}"));

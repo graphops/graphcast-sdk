@@ -21,7 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
@@ -59,6 +59,7 @@ pub struct GraphcastAgentConfig {
     pub registry_subgraph: String,
     pub network_subgraph: String,
     pub graph_node_endpoint: String,
+    pub id_validation: IdentityValidation,
     pub boot_node_addresses: Vec<Multiaddr>,
     pub graphcast_namespace: Option<String>,
     pub subtopics: Vec<String>,
@@ -69,7 +70,6 @@ pub struct GraphcastAgentConfig {
     pub filter_protocol: Option<bool>,
     pub discv5_enrs: Vec<String>,
     pub discv5_port: Option<u16>,
-    pub id_validation: Option<IdentityValidation>,
 }
 
 impl GraphcastAgentConfig {
@@ -81,6 +81,7 @@ impl GraphcastAgentConfig {
         registry_subgraph: String,
         network_subgraph: String,
         graph_node_endpoint: String,
+        id_validation: IdentityValidation,
         boot_node_addresses: Option<Vec<String>>,
         graphcast_namespace: Option<String>,
         subtopics: Option<Vec<String>>,
@@ -91,7 +92,6 @@ impl GraphcastAgentConfig {
         filter_protocol: Option<bool>,
         discv5_enrs: Option<Vec<String>>,
         discv5_port: Option<u16>,
-        id_validation: Option<IdentityValidation>,
     ) -> Result<Self, GraphcastAgentError> {
         let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or(vec![]))
             .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
@@ -105,6 +105,7 @@ impl GraphcastAgentConfig {
             graph_node_endpoint,
             boot_node_addresses,
             graphcast_namespace,
+            id_validation,
             subtopics: subtopics.unwrap_or(vec![]),
             waku_node_key,
             waku_host,
@@ -114,7 +115,6 @@ impl GraphcastAgentConfig {
             filter_protocol: Some(filter_protocol.unwrap_or(true)),
             discv5_enrs: discv5_enrs.unwrap_or_default(),
             discv5_port,
-            id_validation,
         };
 
         if let Err(e) = config.validate_set_up().await {
@@ -132,20 +132,27 @@ impl GraphcastAgentConfig {
         })?;
         let graphcast_id = wallet_address(&wallet);
         let account = Account::new(graphcast_id, self.graph_account.clone());
-        let verified_account = match account.account_from_registry(&self.registry_subgraph).await {
-            Ok(a) => a,
-            Err(e) => {
-                debug!(
-                    e = tracing::field::debug(&e),
-                    "Signer is not registered at Graphcast Registry. Check Graph Network"
-                );
-                account
-                    .account_from_network(&self.network_subgraph)
-                    .await
-                    .map_err(|e| ConfigError::ValidateInput(e.to_string()))?
-            }
+
+        // Check if messages sent by configured wallet and graph_account will pass the configured id validation
+        match account
+            .verify(
+                &self.network_subgraph,
+                &self.registry_subgraph,
+                &self.id_validation,
+            )
+            .await
+        {
+            Ok(a) => debug!(
+                account = tracing::field::debug(&a),
+                id_validation = tracing::field::debug(&self.id_validation),
+                "Identity used by local sender can be verified"
+            ),
+            Err(e) => warn!(
+                err = tracing::field::debug(&e),
+                id_validation = tracing::field::debug(&self.id_validation),
+                "Identity used by local sender can not be verified"
+            ),
         };
-        let _ = verified_account.valid_indexer(&self.network_subgraph).await;
         let _ = get_indexing_statuses(&self.graph_node_endpoint)
             .await
             .map_err(|e| {
@@ -318,7 +325,7 @@ impl GraphcastAgent {
             nonces: Arc::new(AsyncMutex::new(HashMap::new())),
             callbook,
             old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
-            id_validation: id_validation.unwrap_or_default(),
+            id_validation,
         })
     }
 

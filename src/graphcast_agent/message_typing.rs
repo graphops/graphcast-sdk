@@ -175,75 +175,15 @@ impl<
         registry_subgraph: &str,
         network_subgraph: &str,
         local_sender_id: String,
-        id_validation: IdentityValidation,
+        id_validation: &IdentityValidation,
     ) -> Result<&Self, BuildMessageError> {
-        match id_validation {
-            IdentityValidation::NoCheck => (),
-            IdentityValidation::ValidAddress => {
-                let _ = self.remote_account(local_sender_id)?;
-            }
-            IdentityValidation::GraphcastRegistered => {
-                let claimed_account = self.remote_account(local_sender_id)?;
-                // Simply check if the message signer is registered at Graphcast Registry, make no validation on Graph Account field
-                let _ = claimed_account
-                    .account_from_registry(registry_subgraph)
-                    .await
-                    .map(|verified_account| {
-                        if verified_account.account == claimed_account.account {Ok(verified_account)} else {
-                            Err(BuildMessageError::InvalidFields(anyhow!("Failed to match signature with a Graph account by `GraphcastRegistered` validation mechanism, drop message")))
-                        }
-                    })
-                    .map_err(BuildMessageError::FieldDerivations)?;
-            }
-            IdentityValidation::GraphNetworkAccount => {
-                let claimed_account = self.remote_account(local_sender_id)?;
-                // allow any Graph account matched with message signer and the self-claimed graph account
-                let _ = claimed_account
-                    .account_from_network(network_subgraph)
-                    .await
-                    .map(|verified_account| {
-                        if verified_account.account == claimed_account.account {Ok(verified_account)} else {
-                            Err(BuildMessageError::InvalidFields(anyhow!("Failed to match signature with a Graph account by `GraphcastRegistered` validation mechanism, drop message")))
-                        }
-                    })
-                    .map_err(BuildMessageError::FieldDerivations)?;
-            }
-            IdentityValidation::RegisteredIndexer => {
-                let claimed_account = self.remote_account(local_sender_id)?;
-                let verified_account = claimed_account
-                    .account_from_registry(registry_subgraph)
-                    .await
-                    .map_err(BuildMessageError::FieldDerivations)?;
-                if verified_account.account() != claimed_account.account() {
-                    return Err(BuildMessageError::InvalidFields(anyhow!("Failed to match signature with a Graph account by `RegisteredIndexer` validation mechanism, drop message")));
-                };
-                verified_account.valid_indexer(network_subgraph).await?;
-            }
-            IdentityValidation::Indexer => {
-                let claimed_account = self.remote_account(local_sender_id)?;
-                let verified_account = match claimed_account
-                    .account_from_registry(registry_subgraph)
-                    .await
-                {
-                    Ok(a) => a,
-                    Err(e) => {
-                        debug!(
-                            e = tracing::field::debug(&e),
-                            account = tracing::field::debug(&claimed_account),
-                            "Signer is not registered at Graphcast Registry. Check Graph Network"
-                        );
-                        claimed_account
-                            .account_from_network(network_subgraph)
-                            .await
-                            .map_err(BuildMessageError::FieldDerivations)?
-                    }
-                };
-                if verified_account.account() != claimed_account.account() {
-                    return Err(BuildMessageError::InvalidFields(anyhow!(format!("Failed to match signature with a Graph account by `Indexer` validation mechanism, drop message. Verified account: {:#?}\n account claimed by message: {:#?}", verified_account, claimed_account))));
-                };
-                let _ = verified_account.valid_indexer(network_subgraph).await;
-            }
+        if id_validation == &IdentityValidation::NoCheck {
+            return Ok(self);
         };
+        let _ = self
+            .remote_account(local_sender_id)?
+            .verify(network_subgraph, registry_subgraph, id_validation)
+            .await?;
         Ok(self)
     }
 
@@ -367,7 +307,7 @@ pub async fn check_message_validity<
     nonces: &Arc<Mutex<NoncesMap>>,
     callbook: CallBook,
     local_sender_id: String,
-    id_validation: IdentityValidation,
+    id_validation: &IdentityValidation,
 ) -> Result<GraphcastMessage<T>, BuildMessageError> {
     graphcast_message
         .valid_sender(
@@ -424,6 +364,9 @@ pub enum IdentityValidation {
     RegisteredIndexer,
     // valid Graph indexer or Graphcast Registered Indexer
     Indexer,
+    // // valid Graph indexer, Graphcast Registered Indexer, or Message identifier owner / subgraph owner
+    // // Does not include Curator or Indexer Delegator
+    // SubgraphStaker,
 }
 
 #[cfg(test)]
@@ -536,7 +479,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::RegisteredIndexer
+                &IdentityValidation::RegisteredIndexer
             )
             .await
             .is_err());
@@ -566,7 +509,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::NoCheck
+                &IdentityValidation::NoCheck
             )
             .await
             .is_ok());
@@ -575,7 +518,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::ValidAddress
+                &IdentityValidation::ValidAddress
             )
             .await
             .is_ok());
@@ -584,7 +527,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::GraphNetworkAccount
+                &IdentityValidation::GraphNetworkAccount
             )
             .await
             .is_ok());
@@ -593,7 +536,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::Indexer
+                &IdentityValidation::Indexer
             )
             .await
             .is_ok());
@@ -604,7 +547,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::GraphcastRegistered
+                &IdentityValidation::GraphcastRegistered
             )
             .await
             .is_err());
@@ -613,7 +556,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::RegisteredIndexer
+                &IdentityValidation::RegisteredIndexer
             )
             .await
             .is_err());
@@ -636,7 +579,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::NoCheck
+                &IdentityValidation::NoCheck
             )
             .await
             .is_ok());
@@ -645,7 +588,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::ValidAddress
+                &IdentityValidation::ValidAddress
             )
             .await
             .is_ok());
@@ -654,7 +597,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::GraphNetworkAccount
+                &IdentityValidation::GraphNetworkAccount
             )
             .await
             .is_ok());
@@ -663,7 +606,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::Indexer
+                &IdentityValidation::Indexer
             )
             .await
             .is_ok());
@@ -674,7 +617,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::GraphcastRegistered
+                &IdentityValidation::GraphcastRegistered
             )
             .await
             .is_err());
@@ -683,7 +626,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::RegisteredIndexer
+                &IdentityValidation::RegisteredIndexer
             )
             .await
             .is_err());
@@ -702,7 +645,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::NoCheck
+                &IdentityValidation::NoCheck
             )
             .await
             .is_ok());
@@ -711,7 +654,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::ValidAddress
+                &IdentityValidation::ValidAddress
             )
             .await
             .is_ok());
@@ -721,7 +664,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::Indexer
+                &IdentityValidation::Indexer
             )
             .await
             .is_ok());
@@ -732,7 +675,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::GraphNetworkAccount
+                &IdentityValidation::GraphNetworkAccount
             )
             .await
             .is_err());
@@ -743,7 +686,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::GraphcastRegistered
+                &IdentityValidation::GraphcastRegistered
             )
             .await
             .is_ok());
@@ -752,7 +695,7 @@ mod tests {
                 registry_subgraph,
                 network_subgraph,
                 "".to_string(),
-                IdentityValidation::RegisteredIndexer
+                &IdentityValidation::RegisteredIndexer
             )
             .await
             .is_ok());
