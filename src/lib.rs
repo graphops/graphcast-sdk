@@ -20,7 +20,7 @@ use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
-use graphcast_agent::message_typing::{BuildMessageError, GraphcastMessage};
+use graphcast_agent::message_typing::{BuildMessageError, GraphcastMessage, IdentityValidation};
 use graphql::{
     client_graph_account::query_graph_account, client_network::query_network_subgraph, QueryError,
 };
@@ -255,18 +255,78 @@ impl Account {
         Ok(matched_account)
     }
 
-    pub async fn valid_indexer(&self, network_subgraph: &str) -> Result<(), BuildMessageError> {
-        if query_network_subgraph(network_subgraph, self.account())
+    pub async fn valid_indexer(&self, network_subgraph: &str) -> Result<bool, BuildMessageError> {
+        Ok(query_network_subgraph(network_subgraph, self.account())
             .await
             .map_err(BuildMessageError::FieldDerivations)?
-            .stake_satisfy_requirement()
+            .stake_satisfy_requirement())
+    }
+
+    pub async fn verify(
+        &self,
+        network_subgraph: &str,
+        registry_subgraph: &str,
+        id_validation: &IdentityValidation,
+    ) -> Result<Account, BuildMessageError> {
+        let verified_account: Account = match id_validation {
+            IdentityValidation::NoCheck | IdentityValidation::ValidAddress => self.clone(),
+            IdentityValidation::GraphcastRegistered => {
+                // Simply check if the message signer is registered at Graphcast Registry, make no validation on Graph Account field
+                self.account_from_registry(registry_subgraph)
+                    .await
+                    .map_err(BuildMessageError::FieldDerivations)?
+            }
+            IdentityValidation::GraphNetworkAccount => {
+                // allow any Graph account matched with message signer and the self-claimed graph account
+                self.account_from_network(network_subgraph)
+                    .await
+                    .map_err(BuildMessageError::FieldDerivations)?
+            }
+            IdentityValidation::RegisteredIndexer => self
+                .account_from_registry(registry_subgraph)
+                .await
+                .map_err(BuildMessageError::FieldDerivations)?,
+            IdentityValidation::Indexer => {
+                match self.account_from_registry(registry_subgraph).await {
+                    Ok(a) => a,
+                    Err(e) => {
+                        debug!(
+                            e = tracing::field::debug(&e),
+                            account = tracing::field::debug(&self),
+                            "Signer is not registered at Graphcast Registry. Check Graph Network"
+                        );
+                        self.account_from_network(network_subgraph)
+                            .await
+                            .map_err(BuildMessageError::FieldDerivations)?
+                    }
+                }
+            }
+        };
+        // Require account info to be consistent from validation mechanism
+        if verified_account.account != self.account {
+            return Err(BuildMessageError::InvalidFields(anyhow::anyhow!(
+                "Verified account is not the one claimed by the message, drop message"
+            )));
+        };
+
+        // Indexer check for indexer validating mechanisms
+        if ((id_validation == &IdentityValidation::RegisteredIndexer)
+            | (id_validation == &IdentityValidation::Indexer))
+            && !(verified_account.valid_indexer(network_subgraph).await?)
         {
-            Ok(())
-        } else {
-            Err(BuildMessageError::InvalidFields(anyhow::anyhow!(
-                "Sender stake is less than the minimum requirement, drop message"
-            )))
-        }
+            return Err(BuildMessageError::InvalidFields(anyhow::anyhow!(format!(
+                "Verified account failed indexer requirement. Verified account: {:#?}",
+                verified_account
+            ))));
+        };
+
+        // TODO: add new mechanism for subgraph upgrade version messages
+        // // Subgraph Owner check for ownership mechanisms
+        // if (id_validation == IdentityValidation::SubgraphStaker) &&
+        //     !(verified_account.valid_indexer(network_subgraph).await?){
+        //     return Err(BuildMessageError::InvalidFields(anyhow::anyhow!(format!("Verified account failed indexer requirement. Verified account: {:#?}", verified_account))));
+        // };
+        Ok(verified_account)
     }
 }
 

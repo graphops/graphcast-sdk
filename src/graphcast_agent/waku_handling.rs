@@ -451,7 +451,7 @@ pub async fn handle_signal<
                         &graphcast_agent.nonces,
                         graphcast_agent.callbook.clone(),
                         graphcast_agent.graphcast_identity.graphcast_id.clone(),
-                        graphcast_agent.id_validation.clone(),
+                        &graphcast_agent.id_validation,
                     )
                     .await
                     .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
