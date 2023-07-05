@@ -9,6 +9,13 @@ query GraphAccount($account_addr: String!, $operator_addr: [String!]!) {
     }
     subgraphs{
       id
+      linkedEntity{
+        versions {
+          subgraphDeployment{
+            ipfsHash
+          }
+        }
+      }
     }
     indexer {
       id

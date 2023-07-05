@@ -22,7 +22,9 @@ use ethers::signers::{
 use ethers_core::k256::ecdsa::SigningKey;
 use graphcast_agent::message_typing::{BuildMessageError, GraphcastMessage, IdentityValidation};
 use graphql::{
-    client_graph_account::query_graph_account, client_network::query_network_subgraph, QueryError,
+    client_graph_account::{query_graph_account, subgraph_hash_by_id},
+    client_network::query_network_subgraph,
+    QueryError,
 };
 use networks::{NetworkName, NETWORKS};
 
@@ -262,6 +264,19 @@ impl Account {
             .stake_satisfy_requirement())
     }
 
+    /// Check if the account owns a subgraph id
+    pub async fn valid_owner(
+        &self,
+        network_subgraph: &str,
+        subgraph_hash: &str,
+        subgraph_id: &str,
+    ) -> Result<bool, BuildMessageError> {
+        let subgraph_hashes = subgraph_hash_by_id(network_subgraph, self.account(), subgraph_id)
+            .await
+            .map_err(BuildMessageError::FieldDerivations)?;
+        Ok(!subgraph_hashes.contains(&subgraph_hash.to_string()))
+    }
+
     pub async fn verify(
         &self,
         network_subgraph: &str,
@@ -286,7 +301,7 @@ impl Account {
                 .account_from_registry(registry_subgraph)
                 .await
                 .map_err(BuildMessageError::FieldDerivations)?,
-            IdentityValidation::Indexer => {
+            IdentityValidation::Indexer | IdentityValidation::SubgraphStaker => {
                 match self.account_from_registry(registry_subgraph).await {
                     Ok(a) => a,
                     Err(e) => {
@@ -320,12 +335,6 @@ impl Account {
             ))));
         };
 
-        // TODO: add new mechanism for subgraph upgrade version messages
-        // // Subgraph Owner check for ownership mechanisms
-        // if (id_validation == IdentityValidation::SubgraphStaker) &&
-        //     !(verified_account.valid_indexer(network_subgraph).await?){
-        //     return Err(BuildMessageError::InvalidFields(anyhow::anyhow!(format!("Verified account failed indexer requirement. Verified account: {:#?}", verified_account))));
-        // };
         Ok(verified_account)
     }
 }

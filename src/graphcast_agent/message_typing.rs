@@ -97,8 +97,8 @@ impl<
     pub async fn build(
         wallet: &Wallet<SigningKey>,
         identifier: String,
-        nonce: i64,
         graph_account: String,
+        nonce: i64,
         payload: T,
     ) -> Result<Self, BuildMessageError> {
         let sig = wallet
@@ -180,6 +180,12 @@ impl<
         if id_validation == &IdentityValidation::NoCheck {
             return Ok(self);
         };
+        trace!(
+            remote_resolved = tracing::field::debug(&self.remote_account(local_sender_id.clone())),
+            id = tracing::field::debug(&id_validation),
+            "Check account"
+        );
+        // Should optionally chain valid_owner check
         let _ = self
             .remote_account(local_sender_id)?
             .verify(network_subgraph, registry_subgraph, id_validation)
@@ -364,13 +370,15 @@ pub enum IdentityValidation {
     RegisteredIndexer,
     // valid Graph indexer or Graphcast Registered Indexer
     Indexer,
-    // // valid Graph indexer, Graphcast Registered Indexer, or Message identifier owner / subgraph owner
-    // // Does not include Curator or Indexer Delegator
-    // SubgraphStaker,
+    // valid Graph indexer, Graphcast Registered Indexer, or Message identifier owner / subgraph owner
+    // Does not include Curator or Indexer Delegator
+    SubgraphStaker,
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::wallet_address;
+
     use super::*;
     use ethers_contract::EthAbiType;
     use ethers_core::rand::thread_rng;
@@ -387,16 +395,16 @@ mod tests {
         chain_id = 1,
         verifying_contract = "0xc944e90c64b2c07662a292be6244bdf05cda44a7"
     )]
-    pub struct RadioPayloadMessage {
+    pub struct SimpleMessage {
         #[prost(string, tag = "1")]
         pub identifier: String,
         #[prost(string, tag = "2")]
         pub content: String,
     }
 
-    impl RadioPayloadMessage {
+    impl SimpleMessage {
         pub fn new(identifier: String, content: String) -> Self {
-            RadioPayloadMessage {
+            SimpleMessage {
                 identifier,
                 content,
             }
@@ -410,44 +418,47 @@ mod tests {
     /// Create a random wallet
     fn dummy_wallet() -> Wallet<SigningKey> {
         Wallet::new(&mut thread_rng())
+        // let wallet =
+        // build_wallet("baf5c93f0c8aee3b945f33b9192014e83d50cec25f727a13460f6ef1eb6a5844").unwrap();
     }
 
-    fn graph_account_message() -> GraphcastMessage<RadioPayloadMessage> {
-        GraphcastMessage {
-            identifier: String::from("ping-pong-content-topic"), 
-            payload:
-                RadioPayloadMessage {
-                    identifier: String::from("table"), 
-                    content: String::from("Ping") }, 
-            nonce: 1687448729,
-            graph_account: String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
-            signature: String::from("2cd3fa305efd9c362bc71adee6e5a85c357a951af84c80667b8ddae23ac81c3821dac7d9c167e2776a9a56d8726b472312f40d9cc7461d1a6950d00e52d6e8521b")
-        }
-    }
-
-    fn indexer_message() -> GraphcastMessage<RadioPayloadMessage> {
-        GraphcastMessage {
-            identifier: String::from("ping-pong-content-topic"), 
-            payload:
-                RadioPayloadMessage {
-                    identifier: String::from("table"), 
-                    content: String::from("Ping") }, 
-            nonce: 1687874581,
-            graph_account: String::from("0x6121d1036d7016b125f019268b0406a4c15bb99d"),
-            signature: String::from("8006bd09f7ca6582ff1bbb9fd5bf657611625cd5a99f9d92088d9098c3391cd373454554bac8b76e13eb39b63be6d985761e76761c607bd2a87078259ab8928d1c")
-        }
-    }
-
-    fn graphcast_id_message() -> GraphcastMessage<RadioPayloadMessage> {
+    // Signature generated from goerli main indexer account
+    fn graph_account_message() -> GraphcastMessage<SimpleMessage> {
         GraphcastMessage {
             identifier: String::from("ping-pong-content-topic"),
+            nonce: 1688744240,
+            graph_account: String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
             payload:
-                RadioPayloadMessage {
+                SimpleMessage {
                     identifier: String::from("table"),
                     content: String::from("Ping") },
-            nonce: 1687451299,
+            signature: String::from("a68733f919065a7eab215add3b0dc9cfb2d63b00fcd310803e8ee2dc9cf034af03f6fa4ba431e3d6167156d604e1dea2136bb3fea6d290ac6db980b30f790acb1c")
+        }
+    }
+
+    // Signature generated from goerli secondary indexer account
+    fn indexer_message() -> GraphcastMessage<SimpleMessage> {
+        GraphcastMessage {
+            identifier: String::from("ping-pong-content-topic"), 
+            nonce: 1688743340,
+            graph_account: String::from("0x6121d1036d7016b125f019268b0406a4c15bb99d"), 
+            payload:
+             SimpleMessage { identifier: String::from("table"), content: String::from("Ping") },
+            signature: String::from("de8b176cb78aa2ec0bc9e163374423309cba10947fed04b5544bd9db81f54ded66328486e959771372ea5e8c093fe80dea64b7d3004bc59cd14712721208fab01b"),
+        }
+    }
+
+    // Signature generated from goerli third graph account
+    fn graphcast_id_message() -> GraphcastMessage<SimpleMessage> {
+        GraphcastMessage {
+            identifier: String::from("ping-pong-content-topic"),
+            nonce: 1688742308,
             graph_account: String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
-            signature: String::from("52dcdd23418fa9c660be6c50f2c828c5b702ac46a452c21747260adc822a79663a3b7eddaa5139a0f5cd1206c8663faf272757d46f87bbb2bb6feedd1389601d1b")
+            payload:
+                SimpleMessage {
+                    identifier: String::from("table"),
+                    content: String::from("Ping") },
+            signature: String::from("60a4b735acaf0c2490a51e34e0b799080c5c144ee2fe5dc9499465c490a4c5e946609c7d27d3b39cf4110d4f9402bac7f89cf2bd3850ae816506e638cde1a3c11c")
         }
     }
 
@@ -458,27 +469,30 @@ mod tests {
         let network_subgraph =
             "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
 
-        let hash: String = "Qmtest".to_string();
-        let content: String = "0x0000".to_string();
-        let nonce = Utc::now().timestamp();
-        let payload: RadioPayloadMessage = RadioPayloadMessage::new(hash.clone(), content.clone());
+        let hash: String = "table".to_string();
+        let content: String = "Ping".to_string();
+        let payload: SimpleMessage = SimpleMessage::new(hash.clone(), content.clone());
+        let nonce = 1688742308;
 
         let wallet = dummy_wallet();
-        let msg = GraphcastMessage::build(
-            &wallet,
-            hash,
-            nonce,
-            String::from("0xE9a1CABd57700B17945Fd81feeFba82340D9568F"),
-            payload,
-        )
-        .await
-        .expect("Could not build message");
+        let msg = GraphcastMessage::build(&wallet, hash, wallet_address(&wallet), nonce, payload)
+            .await
+            .expect("Could not build message");
 
         assert!(msg
             .valid_sender(
                 registry_subgraph,
                 network_subgraph,
-                "".to_string(),
+                "x".to_string(),
+                &IdentityValidation::ValidAddress
+            )
+            .await
+            .is_ok());
+        assert!(msg
+            .valid_sender(
+                registry_subgraph,
+                network_subgraph,
+                "x".to_string(),
                 &IdentityValidation::RegisteredIndexer
             )
             .await

@@ -433,8 +433,8 @@ impl GraphcastAgent {
         GraphcastMessage::build(
             &self.graphcast_identity.wallet,
             identifier.to_string(),
-            nonce,
             self.graphcast_identity.graph_account.clone(),
+            nonce,
             payload,
         )
         .await

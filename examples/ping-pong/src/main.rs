@@ -3,14 +3,9 @@ use chrono::Utc;
 use dotenv::dotenv;
 
 // Import Graphcast SDK types and functions for agent configuration, message handling, and more
-use graphcast_sdk::{
-    graphcast_agent::{
-        message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
-        GraphcastAgentConfig,
-    },
-    graphql::client_graph_node::update_network_chainheads,
-    networks::NetworkName,
-    BlockPointer,
+use graphcast_sdk::graphcast_agent::{
+    message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
+    GraphcastAgentConfig,
 };
 
 // Import the OnceCell container for lazy initialization of global/static data
@@ -30,8 +25,8 @@ use tokio::sync::Mutex as AsyncMutex;
 // Import tracing macros for logging and diagnostic purposes
 use tracing::{debug, error, info};
 
-// Import RadioPayloadMessage from the crate's types module
-use types::RadioPayloadMessage;
+// Import SimpleMessage from the crate's types module
+use types::SimpleMessage;
 
 // Import Config from the crate's config module
 use config::Config;
@@ -55,7 +50,7 @@ async fn main() {
     /// It is used to save incoming messages after they've been validated, in order
     /// defer their processing for later, because async code is required for the processing but
     /// it is not allowed in the handler itself.
-    pub static MESSAGES: OnceCell<Arc<Mutex<Vec<GraphcastMessage<RadioPayloadMessage>>>>> =
+    pub static MESSAGES: OnceCell<Arc<Mutex<Vec<GraphcastMessage<SimpleMessage>>>>> =
         OnceCell::new();
 
     /// The Graphcast Agent instance must be a global static variable (for the time being).
@@ -75,7 +70,7 @@ async fn main() {
         config.registry_subgraph,
         config.network_subgraph,
         config.id_validation.unwrap_or_default(),
-        Some(config.graph_node_endpoint),
+        config.graph_node_endpoint,
         None,
         Some("testnet".to_string()),
         Some(subtopics),
@@ -102,7 +97,7 @@ async fn main() {
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
     // Helper function to reuse message sending code
-    async fn send_message(payload: RadioPayloadMessage) {
+    async fn send_message(payload: SimpleMessage) {
         if let Err(e) = GRAPHCAST_AGENT
             .get()
             .expect("Could not retrieve Graphcast agent")
@@ -122,23 +117,23 @@ async fn main() {
     // The handler specifies what to do with incoming messages.
     // There cannot be any non-deterministic (this includes async) code inside the handler.
     // That is why we're saving the message for later processing, where we will check its content and perform some action based on it.
-    let radio_handler =
-        |msg: Result<GraphcastMessage<RadioPayloadMessage>, WakuHandlingError>| match msg {
-            Ok(msg) => {
-                MESSAGES
-                    .get()
-                    .expect("Could not retrieve messages")
-                    .lock()
-                    .expect("Could not get lock on messages")
-                    .push(msg);
-            }
-            Err(err) => {
-                error!(
-                    error = tracing::field::debug(&err),
-                    "Failed to handle Waku signal"
-                );
-            }
-        };
+    let radio_handler = |msg: Result<GraphcastMessage<SimpleMessage>, WakuHandlingError>| match msg
+    {
+        Ok(msg) => {
+            MESSAGES
+                .get()
+                .expect("Could not retrieve messages")
+                .lock()
+                .expect("Could not get lock on messages")
+                .push(msg);
+        }
+        Err(err) => {
+            error!(
+                error = tracing::field::debug(&err),
+                "Failed to handle Waku signal"
+            );
+        }
+    };
 
     GRAPHCAST_AGENT
         .get()
@@ -146,36 +141,14 @@ async fn main() {
         .register_handler(Arc::new(AsyncMutex::new(radio_handler)))
         .expect("Could not register handler");
 
-    let network = NetworkName::from_string("goerli");
+    let mut block_number = 0;
 
     loop {
-        let mut network_chainhead_blocks = match GRAPHCAST_AGENT
-            .get()
-            .unwrap()
-            .callbook
-            .indexing_statuses()
-            .await
-        {
-            Ok(res) => update_network_chainheads(res),
-            Err(e) => {
-                error!(
-                    err = tracing::field::debug(&e),
-                    "Could not query indexing statuses, pull again later"
-                );
-                continue;
-            }
-        };
-        let block_number = network_chainhead_blocks
-            .entry(network)
-            .or_insert(BlockPointer {
-                number: 0,
-                hash: "temp".to_string(),
-            })
-            .number;
+        block_number += 1;
         info!(block = block_number, "🔗 Block number");
         if block_number & 2 == 0 {
             // If block number is even, send ping message
-            let msg = RadioPayloadMessage::new(
+            let msg = SimpleMessage::new(
                 "table".to_string(),
                 std::env::args().nth(1).unwrap_or("Ping".to_string()),
             );
@@ -191,8 +164,7 @@ async fn main() {
             );
             for msg in messages.lock().await.iter() {
                 if msg.payload.content == *"Ping" {
-                    let replay_msg =
-                        RadioPayloadMessage::new("table".to_string(), "Pong".to_string());
+                    let replay_msg = SimpleMessage::new("table".to_string(), "Pong".to_string());
                     send_message(replay_msg).await;
                 };
             }
