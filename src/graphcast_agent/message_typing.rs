@@ -3,7 +3,6 @@ use async_graphql::SimpleObject;
 use chrono::Utc;
 use ethers::signers::{Signer, Wallet};
 use ethers_core::{k256::ecdsa::SigningKey, types::Signature};
-use num_traits::ToPrimitive;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
@@ -13,11 +12,7 @@ use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData,
 
 use crate::{
     callbook::CallBook,
-    graphql::{
-        client_graph_node::query_graph_node_network_block_hash,
-        client_network::query_network_subgraph, QueryError,
-    },
-    networks::NetworkName,
+    graphql::{client_network::query_network_subgraph, QueryError},
     Account, NetworkBlockError, NoncesMap,
 };
 
@@ -58,26 +53,17 @@ where
     /// Graph identifier for the entity the radio is communicating about
     #[prost(string, tag = "1")]
     pub identifier: String,
-    /// content to share about the identified entity
-    #[prost(message, required, tag = "2")]
-    pub payload: T,
     /// nonce cached to check against the next incoming message
     #[prost(int64, tag = "3")]
     pub nonce: i64,
-    /// blockchain relevant to the message
-    #[prost(string, tag = "4")]
-    pub network: String,
-    /// block relevant to the message
-    #[prost(uint64, tag = "5")]
-    pub block_number: u64,
-    /// block hash generated from the block number
-    #[prost(string, tag = "6")]
-    pub block_hash: String,
     /// Graph account sender
-    #[prost(string, tag = "7")]
+    #[prost(string, tag = "4")]
     pub graph_account: String,
+    /// content to share about the identified entity
+    #[prost(message, required, tag = "2")]
+    pub payload: T,
     /// signature over radio payload
-    #[prost(string, tag = "8")]
+    #[prost(string, tag = "5")]
     pub signature: String,
 }
 
@@ -91,44 +77,28 @@ impl<
     > GraphcastMessage<T>
 {
     /// Create a graphcast message
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         identifier: String,
-        payload: T,
         nonce: i64,
-        network: NetworkName,
-        block_number: u64,
-        block_hash: String,
         graph_account: String,
+        payload: T,
         signature: String,
     ) -> Result<Self, BuildMessageError> {
-        if let Some(block_number) = block_number.to_u64() {
-            Ok(GraphcastMessage {
-                identifier,
-                payload,
-                nonce,
-                network: network.to_string(),
-                block_number,
-                block_hash,
-                graph_account,
-                signature,
-            })
-        } else {
-            Err(BuildMessageError::TypeCast(format!(
-                "Error: Invalid block number {block_number}, conversion to u64 failed."
-            )))
-        }
+        Ok(GraphcastMessage {
+            identifier,
+            nonce,
+            graph_account,
+            payload,
+            signature,
+        })
     }
 
     /// Signs the radio payload and construct graphcast message
     pub async fn build(
         wallet: &Wallet<SigningKey>,
         identifier: String,
-        payload: T,
-        network: NetworkName,
-        block_number: u64,
-        block_hash: String,
         graph_account: String,
+        payload: T,
     ) -> Result<Self, BuildMessageError> {
         let sig = wallet
             .sign_typed_data(&payload)
@@ -137,12 +107,9 @@ impl<
 
         GraphcastMessage::new(
             identifier,
-            payload,
             Utc::now().timestamp(),
-            network,
-            block_number,
-            block_hash.to_string(),
             graph_account,
+            payload,
             sig.to_string(),
         )
     }
@@ -302,13 +269,8 @@ impl<
     }
 
     pub fn remote_account(&self, local_sender_id: String) -> Result<Account, BuildMessageError> {
-        debug!(
-            "recovered sender address: {:#?}\nlocal sender id: {:#?}",
-            self.recover_sender_address(),
-            local_sender_id
-        );
         let sender_address = self.recover_sender_address().and_then(|a| {
-            debug!(
+            trace!(
                 "recovered sender address: {:#?}\nlocal sender id: {:#?}",
                 a,
                 local_sender_id.clone()
@@ -324,34 +286,6 @@ impl<
         Ok(Account::new(sender_address, self.graph_account.clone()))
     }
 
-    /// Check timestamp: prevent messages with incorrect graph node's block provider
-    pub async fn valid_hash(&self, graph_node_endpoint: &str) -> Result<&Self, BuildMessageError> {
-        let block_hash: String = query_graph_node_network_block_hash(
-            graph_node_endpoint,
-            &self.network,
-            self.block_number,
-        )
-        .await
-        .map_err(BuildMessageError::FieldDerivations)?;
-
-        trace!(
-            network = tracing::field::debug(self.network.clone()),
-            block_number = self.block_number,
-            block_hash = block_hash,
-            "Queried block hash from graph node",
-        );
-
-        if self.block_hash == block_hash {
-            Ok(self)
-        } else {
-            Err(BuildMessageError::InvalidFields(anyhow!(
-                "Message hash ({}) differ from trusted provider response ({}), drop message",
-                self.block_hash,
-                block_hash
-            )))
-        }
-    }
-
     /// Recover sender address from Graphcast message radio payload
     pub fn recover_sender_address(&self) -> Result<String, BuildMessageError> {
         let signed_data = self
@@ -359,10 +293,7 @@ impl<
             .encode_eip712()
             .expect("Could not encode payload using EIP712");
         match Signature::from_str(&self.signature).and_then(|sig| sig.recover(signed_data)) {
-            Ok(addr) => {
-                debug!("{}", format!("{addr:#x}"));
-                Ok(format!("{addr:#x}"))
-            }
+            Ok(addr) => Ok(format!("{addr:#x}")),
             Err(x) => Err(BuildMessageError::InvalidFields(x.into())),
         }
     }
@@ -452,8 +383,6 @@ pub async fn check_message_validity<
         )
         .await?
         .valid_time()?
-        .valid_hash(callbook.graph_node_status())
-        .await?
         .valid_nonce(nonces)
         .await?;
 
@@ -553,9 +482,6 @@ mod tests {
                     identifier: String::from("table"), 
                     content: String::from("Ping") }, 
             nonce: 1687448729,
-            network: String::from("goerli"),
-            block_number: 9221945,
-            block_hash: String::from("a8ad1057882ae2bce4e49f811e651ccacd317f3c11918d3724d7e7a551c5fc39"),
             graph_account: String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
             signature: String::from("2cd3fa305efd9c362bc71adee6e5a85c357a951af84c80667b8ddae23ac81c3821dac7d9c167e2776a9a56d8726b472312f40d9cc7461d1a6950d00e52d6e8521b")
         }
@@ -569,9 +495,6 @@ mod tests {
                     identifier: String::from("table"), 
                     content: String::from("Ping") }, 
             nonce: 1687874581,
-            network: String::from("goerli"),
-            block_number: 9249797,
-            block_hash: String::from("af04663a968f48a0bd554e5f4842b4f3546868f5d87221ae194e01d36f640cd0"),
             graph_account: String::from("0x6121d1036d7016b125f019268b0406a4c15bb99d"),
             signature: String::from("8006bd09f7ca6582ff1bbb9fd5bf657611625cd5a99f9d92088d9098c3391cd373454554bac8b76e13eb39b63be6d985761e76761c607bd2a87078259ab8928d1c")
         }
@@ -585,9 +508,6 @@ mod tests {
                     identifier: String::from("table"),
                     content: String::from("Ping") },
             nonce: 1687451299,
-            network: String::from("goerli"),
-            block_number: 9222109,
-            block_hash: String::from("f1523bcac92c7e7d38142b089ec122d1607bc9a3b1b5d55df7cc11cbe10a3c48"),
             graph_account: String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
             signature: String::from("52dcdd23418fa9c660be6c50f2c828c5b702ac46a452c21747260adc822a79663a3b7eddaa5139a0f5cd1206c8663faf272757d46f87bbb2bb6feedd1389601d1b")
         }
@@ -599,28 +519,21 @@ mod tests {
             "https://api.thegraph.com/subgraphs/name/hopeyen/gossip-registry-test";
         let network_subgraph =
             "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
-        let network = NetworkName::from_string("goerli");
 
         let hash: String = "Qmtest".to_string();
         let content: String = "0x0000".to_string();
         let payload: RadioPayloadMessage = RadioPayloadMessage::new(hash.clone(), content.clone());
-        let block_number: u64 = 0;
-        let block_hash: String = "0xblahh".to_string();
 
         let wallet = dummy_wallet();
         let msg = GraphcastMessage::build(
             &wallet,
             hash,
-            payload,
-            network,
-            block_number,
-            block_hash,
             String::from("0xE9a1CABd57700B17945Fd81feeFba82340D9568F"),
+            payload,
         )
         .await
         .expect("Could not build message");
 
-        assert_eq!(msg.block_number, 0);
         assert!(msg
             .valid_sender(
                 registry_subgraph,
