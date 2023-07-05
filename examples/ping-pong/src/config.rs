@@ -20,7 +20,7 @@ pub struct Config {
         env = "GRAPH_NODE_STATUS_ENDPOINT",
         help = "API endpoint to the Graph Node Status Endpoint"
     )]
-    pub graph_node_endpoint: String,
+    pub graph_node_endpoint: Option<String>,
     #[clap(
         long,
         value_name = "KEY",

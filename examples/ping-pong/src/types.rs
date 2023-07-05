@@ -5,6 +5,7 @@ use ethers_derive_eip712::*;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
+/// Make a test radio type
 #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize, SimpleObject)]
 #[eip712(
     name = "Graphcast Ping-Pong Radio",
@@ -12,16 +13,16 @@ use serde::{Deserialize, Serialize};
     chain_id = 1,
     verifying_contract = "0xc944e90c64b2c07662a292be6244bdf05cda44a7"
 )]
-pub struct RadioPayloadMessage {
+pub struct SimpleMessage {
     #[prost(string, tag = "1")]
     pub identifier: String,
     #[prost(string, tag = "2")]
     pub content: String,
 }
 
-impl RadioPayloadMessage {
+impl SimpleMessage {
     pub fn new(identifier: String, content: String) -> Self {
-        RadioPayloadMessage {
+        SimpleMessage {
             identifier,
             content,
         }
