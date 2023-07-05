@@ -34,7 +34,6 @@ use crate::{
     callbook::CallBook,
     graphcast_agent::waku_handling::relay_subscribe,
     graphql::{client_graph_node::get_indexing_statuses, QueryError},
-    networks::NetworkName,
     wallet_address, GraphcastIdentity, NoncesMap,
 };
 
@@ -411,8 +410,6 @@ impl GraphcastAgent {
     >(
         &self,
         identifier: &str,
-        network: NetworkName,
-        block_number: u64,
         payload: T,
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self.match_content_topic(identifier).await?;
@@ -421,11 +418,6 @@ impl GraphcastAgent {
             "Selected content topic from subscriptions"
         );
 
-        let block_hash = self
-            .callbook
-            .block_hash(&network.to_string(), block_number)
-            .await?;
-
         // Check network before sending a message
         network_check(&self.node_handle).map_err(GraphcastAgentError::WakuNodeError)?;
         let mut ids = self.old_message_ids.lock().await;
@@ -433,11 +425,8 @@ impl GraphcastAgent {
         GraphcastMessage::build(
             &self.graphcast_identity.wallet,
             identifier.to_string(),
-            payload,
-            network,
-            block_number,
-            block_hash,
             self.graphcast_identity.graph_account.clone(),
+            payload,
         )
         .await
         .map_err(GraphcastAgentError::MessageError)?

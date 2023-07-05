@@ -101,7 +101,7 @@ async fn main() {
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
     // Helper function to reuse message sending code
-    async fn send_message(payload: RadioPayloadMessage, network: NetworkName, block_number: u64) {
+    async fn send_message(payload: RadioPayloadMessage) {
         if let Err(e) = GRAPHCAST_AGENT
             .get()
             .expect("Could not retrieve Graphcast agent")
@@ -109,8 +109,6 @@ async fn main() {
                 // The identifier can be any string that suits your Radio logic
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
                 "ping-pong-content-topic",
-                network,
-                block_number,
                 payload,
             )
             .await
@@ -179,7 +177,7 @@ async fn main() {
                 "table".to_string(),
                 std::env::args().nth(1).unwrap_or("Ping".to_string()),
             );
-            send_message(msg, network, block_number).await;
+            send_message(msg).await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(
@@ -193,7 +191,7 @@ async fn main() {
                 if msg.payload.content == *"Ping" {
                     let replay_msg =
                         RadioPayloadMessage::new("table".to_string(), "Pong".to_string());
-                    send_message(replay_msg, network, block_number).await;
+                    send_message(replay_msg).await;
                 };
             }
 

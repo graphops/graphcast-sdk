@@ -119,9 +119,9 @@ pub fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
     }
 }
 
+//TODO: maybe blocks operation should be on a radio level
 /* Blocks operation */
-/// Filters for the first message of a particular identifier by block number
-/// get the timestamp it was received from and add the collection duration to
+/// Filters for the first message of a particular identifier by msg timestamp
 /// return the time for which message comparisons should be triggered
 pub async fn comparison_trigger<
     T: Message
@@ -134,20 +134,20 @@ pub async fn comparison_trigger<
     messages: Arc<AsyncMutex<Vec<GraphcastMessage<T>>>>,
     identifier: &str,
     collect_duration: i64,
-) -> (u64, i64) {
+) -> i64 {
     let messages = AsyncMutex::new(messages.lock().await);
     let msgs = messages.lock().await;
     // Filter the messages to get only those that have the matching identifier:
     let matched_msgs = msgs
         .iter()
         .filter(|message| message.identifier == identifier);
-    // Use min_by_key to get the message with the minimum value of (block_number, nonce), and add collect_duration to its nonce value to get the trigger time
+    // Use min_by_key to get the message with the minimum timestamp (nonce), and add collect_duration to its nonce value to get the trigger time
     let msg_trigger_time = matched_msgs
-        .min_by_key(|msg| (msg.block_number, msg.nonce))
-        .map(|message| (message.block_number, message.nonce + collect_duration));
+        .min_by_key(|msg| msg.nonce)
+        .map(|message| message.nonce + collect_duration);
 
-    // If no matching message is found, return (0, i64::MAX) as the trigger
-    msg_trigger_time.unwrap_or((0, i64::MAX))
+    // If no matching message is found, return i64::MAX as the trigger
+    msg_trigger_time.unwrap_or(i64::MAX)
 }
 
 /// This function determines the relevant block to send the message for, depending on the network chainhead block
@@ -274,9 +274,9 @@ impl Account {
 #[derive(Clone, PartialEq, Debug)]
 pub struct GraphcastIdentity {
     wallet: LocalWallet,
-    graphcast_id: String,
+    pub graphcast_id: String,
     // indexer address but will include other graph accounts
-    graph_account: String,
+    pub graph_account: String,
 }
 
 impl GraphcastIdentity {
