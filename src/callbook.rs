@@ -11,24 +11,24 @@ use crate::graphql::QueryError;
 
 #[derive(Clone, Debug, Getters, Serialize, Deserialize, PartialEq)]
 pub struct CallBook {
-    /// A constant defining the graph node endpoint
-    graph_node_status: String,
     /// A constant defining Graphcast registry subgraph endpoint
     graphcast_registry: String,
     /// A constant defining The Graph network subgraph endpoint
     graph_network: String,
+    /// A constant defining the graph node endpoint
+    graph_node_status: String,
 }
 
 impl CallBook {
     pub fn new(
-        graph_node_status: String,
         graphcast_registry: String,
         graph_network: String,
+        graph_node_status: Option<String>,
     ) -> CallBook {
         CallBook {
-            graph_node_status,
             graphcast_registry,
             graph_network,
+            graph_node_status: graph_node_status.unwrap_or("none".to_string()),
         }
     }
     pub async fn block_hash(&self, network: &str, block_number: u64) -> Result<String, QueryError> {

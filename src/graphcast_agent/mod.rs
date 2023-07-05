@@ -58,8 +58,8 @@ pub struct GraphcastAgentConfig {
     pub radio_name: String,
     pub registry_subgraph: String,
     pub network_subgraph: String,
-    pub graph_node_endpoint: String,
     pub id_validation: IdentityValidation,
+    pub graph_node_endpoint: Option<String>,
     pub boot_node_addresses: Vec<Multiaddr>,
     pub graphcast_namespace: Option<String>,
     pub subtopics: Vec<String>,
@@ -80,8 +80,8 @@ impl GraphcastAgentConfig {
         radio_name: String,
         registry_subgraph: String,
         network_subgraph: String,
-        graph_node_endpoint: String,
         id_validation: IdentityValidation,
+        graph_node_endpoint: Option<String>,
         boot_node_addresses: Option<Vec<String>>,
         graphcast_namespace: Option<String>,
         subtopics: Option<Vec<String>>,
@@ -153,13 +153,13 @@ impl GraphcastAgentConfig {
                 "Identity used by local sender can not be verified"
             ),
         };
-        let _ = get_indexing_statuses(&self.graph_node_endpoint)
-            .await
-            .map_err(|e| {
+        if let Some(graph_node) = &self.graph_node_endpoint {
+            let _ = get_indexing_statuses(graph_node).await.map_err(|e| {
                 ConfigError::ValidateInput(format!(
                     "Graph node endpoint must be able to serve indexing statuses query: {e}"
                 ))
             })?;
+        }
         Ok(())
     }
 }
@@ -314,7 +314,7 @@ impl GraphcastAgent {
                 .expect("Could not connect and subscribe to the subtopics");
         }
 
-        let callbook = CallBook::new(graph_node_endpoint, registry_subgraph, network_subgraph);
+        let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
 
         Ok(GraphcastAgent {
             graphcast_identity,
