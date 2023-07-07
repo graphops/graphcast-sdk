@@ -411,6 +411,7 @@ impl GraphcastAgent {
         &self,
         identifier: &str,
         payload: T,
+        nonce: i64,
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self.match_content_topic(identifier).await?;
         trace!(
@@ -425,6 +426,7 @@ impl GraphcastAgent {
         GraphcastMessage::build(
             &self.graphcast_identity.wallet,
             identifier.to_string(),
+            nonce,
             self.graphcast_identity.graph_account.clone(),
             payload,
         )

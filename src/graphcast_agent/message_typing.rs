@@ -97,6 +97,7 @@ impl<
     pub async fn build(
         wallet: &Wallet<SigningKey>,
         identifier: String,
+        nonce: i64,
         graph_account: String,
         payload: T,
     ) -> Result<Self, BuildMessageError> {
@@ -105,13 +106,7 @@ impl<
             .await
             .map_err(|_| BuildMessageError::Signing)?;
 
-        GraphcastMessage::new(
-            identifier,
-            Utc::now().timestamp(),
-            graph_account,
-            payload,
-            sig.to_string(),
-        )
+        GraphcastMessage::new(identifier, nonce, graph_account, payload, sig.to_string())
     }
 
     /// Send Graphcast message to the Waku relay network
@@ -522,12 +517,14 @@ mod tests {
 
         let hash: String = "Qmtest".to_string();
         let content: String = "0x0000".to_string();
+        let nonce = Utc::now().timestamp();
         let payload: RadioPayloadMessage = RadioPayloadMessage::new(hash.clone(), content.clone());
 
         let wallet = dummy_wallet();
         let msg = GraphcastMessage::build(
             &wallet,
             hash,
+            nonce,
             String::from("0xE9a1CABd57700B17945Fd81feeFba82340D9568F"),
             payload,
         )

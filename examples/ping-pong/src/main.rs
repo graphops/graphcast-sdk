@@ -1,3 +1,4 @@
+use chrono::Utc;
 // Load environment variables from .env file
 use dotenv::dotenv;
 
@@ -110,6 +111,7 @@ async fn main() {
                 // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
                 "ping-pong-content-topic",
                 payload,
+                Utc::now().timestamp(),
             )
             .await
         {
