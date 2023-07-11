@@ -18,14 +18,15 @@ use ethers::signers::WalletError;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex as SyncMutex};
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
 use waku::{
-    waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuNodeHandle,
-    WakuPubSubTopic,
+    waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuMessage,
+    WakuNodeHandle, WakuPubSubTopic,
 };
 
 use crate::Account;
@@ -204,6 +205,9 @@ pub struct GraphcastAgent {
     pub old_message_ids: Arc<AsyncMutex<HashSet<String>>>,
     /// Sender identity validation mechanism used by the Graphcast agent
     pub id_validation: IdentityValidation,
+    /// Upon receiving a valid waku signal event of Message type, sender send WakuMessage through mpsc.
+    //TODO: currently graphcast agent returns the handle to radio operator, such that radio handler can process WakuMessage however they want. Ideally we should keep WakuMessage within graphcast agent, but for now radio operator is required to deal with decoding wakuMessage to appropriate types to support multi-types
+    pub sender: Arc<SyncMutex<Sender<WakuMessage>>>,
 }
 
 impl GraphcastAgent {
@@ -278,7 +282,7 @@ impl GraphcastAgent {
             discv5_port,
             id_validation,
         }: GraphcastAgentConfig,
-    ) -> Result<GraphcastAgent, GraphcastAgentError> {
+    ) -> Result<(GraphcastAgent, Receiver<WakuMessage>), GraphcastAgentError> {
         let graphcast_identity = GraphcastIdentity::new(wallet_key, graph_account.clone()).await?;
         let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace.as_deref());
 
@@ -315,18 +319,23 @@ impl GraphcastAgent {
         }
 
         let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
+        let (sender, receiver) = mpsc::channel::<WakuMessage>();
 
-        Ok(GraphcastAgent {
-            graphcast_identity,
-            radio_name,
-            pubsub_topic,
-            content_topics: Arc::new(AsyncMutex::new(content_topics)),
-            node_handle,
-            nonces: Arc::new(AsyncMutex::new(HashMap::new())),
-            callbook,
-            old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
-            id_validation,
-        })
+        Ok((
+            GraphcastAgent {
+                graphcast_identity,
+                radio_name,
+                pubsub_topic,
+                content_topics: Arc::new(AsyncMutex::new(content_topics)),
+                node_handle,
+                nonces: Arc::new(AsyncMutex::new(HashMap::new())),
+                callbook,
+                old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
+                id_validation,
+                sender: Arc::new(SyncMutex::new(sender)),
+            },
+            receiver,
+        ))
     }
 
     /// Get the number of peers excluding self
@@ -377,28 +386,54 @@ impl GraphcastAgent {
         }
     }
 
-    /// Establish custom handler for incoming Waku messages
-    pub fn register_handler<
-        F: FnMut(Result<GraphcastMessage<T>, WakuHandlingError>)
-            + std::marker::Sync
-            + std::marker::Send
-            + 'static,
+    pub async fn decoder<T>(&self, payload: &[u8]) -> Result<GraphcastMessage<T>, WakuHandlingError>
+    where
         T: Message
             + ethers::types::transaction::eip712::Eip712
             + Default
             + Clone
             + 'static
             + async_graphql::OutputType,
-    >(
-        &'static self,
-        radio_handler_mutex: Arc<AsyncMutex<F>>,
-    ) -> Result<(), GraphcastAgentError> {
+    {
+        let id_validation = self.id_validation.clone();
+        let callbook = self.callbook.clone();
+        let nonces = self.nonces.clone();
+        let local_sender = self.graphcast_identity.graphcast_id.clone();
+        match <GraphcastMessage<T> as Message>::decode(payload) {
+            Ok(graphcast_message) => {
+                trace!("Validating Graphcast fields: {:#?}", graphcast_message);
+                // Add radio msg checks
+                message_typing::check_message_validity(
+                    graphcast_message,
+                    &nonces,
+                    callbook.clone(),
+                    local_sender.clone(),
+                    &id_validation,
+                )
+                .await
+                .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
+            }
+            Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
+                "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
+            ))),
+        }
+    }
+
+    /// Establish handler for incoming Waku messages
+    pub fn register_handler(&'static self) -> Result<(), GraphcastAgentError> {
+        let sender = self.sender.clone();
+        let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &self.old_message_ids;
         let handle_async = move |signal: Signal| {
             let rt = Runtime::new().expect("Could not create Tokio runtime");
             rt.block_on(async {
-                let msg = handle_signal(signal, self).await;
-                let mut radio_handler = radio_handler_mutex.lock().await;
-                radio_handler(msg);
+                let msg = handle_signal(signal, old_message_ids).await;
+
+                if let Ok(m) = msg {
+                    match sender.clone().lock().unwrap().send(m) {
+                        Ok(_) => trace!("Sent received message to radio operator"),
+                        Err(e) => error!("Could not send message to channel: {:#?}", e),
+                    }
+                }
             });
         };
         waku_set_event_callback(handle_async);
@@ -429,7 +464,10 @@ impl GraphcastAgent {
         // Check network before sending a message
         network_check(&self.node_handle).map_err(GraphcastAgentError::WakuNodeError)?;
         let mut ids = self.old_message_ids.lock().await;
-
+        trace!(
+            address = &wallet_address(&self.graphcast_identity.wallet),
+            "local sender id"
+        );
         GraphcastMessage::build(
             &self.graphcast_identity.wallet,
             identifier.to_string(),

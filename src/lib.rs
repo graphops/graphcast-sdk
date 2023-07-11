@@ -20,7 +20,7 @@ use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
-use graphcast_agent::message_typing::{BuildMessageError, GraphcastMessage, IdentityValidation};
+use graphcast_agent::message_typing::{BuildMessageError, IdentityValidation};
 use graphql::{
     client_graph_account::{query_graph_account, subgraph_hash_by_id},
     client_network::query_network_subgraph,
@@ -29,7 +29,7 @@ use graphql::{
 use networks::{NetworkName, NETWORKS};
 
 use once_cell::sync::OnceCell;
-use prost::Message;
+
 use serde::{Deserialize, Serialize};
 
 use std::{
@@ -38,7 +38,7 @@ use std::{
     env,
     sync::{Arc, Mutex},
 };
-use tokio::sync::Mutex as AsyncMutex;
+
 use tracing::warn;
 use tracing::{debug, subscriber::SetGlobalDefaultError};
 use tracing_subscriber::EnvFilter;
@@ -123,35 +123,6 @@ pub fn init_tracing(format: String) -> Result<(), SetGlobalDefaultError> {
 
 //TODO: maybe blocks operation should be on a radio level
 /* Blocks operation */
-/// Filters for the first message of a particular identifier by msg timestamp
-/// return the time for which message comparisons should be triggered
-pub async fn comparison_trigger<
-    T: Message
-        + ethers::types::transaction::eip712::Eip712
-        + Default
-        + Clone
-        + 'static
-        + async_graphql::OutputType,
->(
-    messages: Arc<AsyncMutex<Vec<GraphcastMessage<T>>>>,
-    identifier: &str,
-    collect_duration: i64,
-) -> i64 {
-    let messages = AsyncMutex::new(messages.lock().await);
-    let msgs = messages.lock().await;
-    // Filter the messages to get only those that have the matching identifier:
-    let matched_msgs = msgs
-        .iter()
-        .filter(|message| message.identifier == identifier);
-    // Use min_by_key to get the message with the minimum timestamp (nonce), and add collect_duration to its nonce value to get the trigger time
-    let msg_trigger_time = matched_msgs
-        .min_by_key(|msg| msg.nonce)
-        .map(|message| message.nonce + collect_duration);
-
-    // If no matching message is found, return i64::MAX as the trigger
-    msg_trigger_time.unwrap_or(i64::MAX)
-}
-
 /// This function determines the relevant block to send the message for, depending on the network chainhead block
 /// and its pre-configured examination frequency
 pub fn determine_message_block(

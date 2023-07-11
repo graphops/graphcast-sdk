@@ -1,4 +1,3 @@
-use prost::Message;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{collections::HashSet, time::Duration};
 use std::{net::IpAddr, str::FromStr};
@@ -8,15 +7,10 @@ use url::ParseError;
 use waku::{
     waku_dns_discovery, waku_new, ContentFilter, DnsInfo, Encoding, FilterSubscription,
     GossipSubParams, Multiaddr, ProtocolId, Running, SecretKey, Signal, WakuContentTopic,
-    WakuLogLevel, WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    WakuLogLevel, WakuMessage, WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
-use super::GraphcastAgent;
-use crate::{
-    app_name, cf_nameserver, discovery_url,
-    graphcast_agent::message_typing::{self, check_message_validity, GraphcastMessage},
-    graphql::QueryError,
-};
+use crate::{app_name, cf_nameserver, discovery_url, graphql::QueryError};
 
 pub const SDK_VERSION: &str = "0";
 
@@ -414,52 +408,29 @@ pub fn boot_node_handle(
 }
 
 /// Parse and validate incoming message
-pub async fn handle_signal<
-    T: Message
-        + ethers::types::transaction::eip712::Eip712
-        + Default
-        + Clone
-        + 'static
-        + async_graphql::OutputType,
->(
+pub async fn handle_signal(
     signal: Signal,
-    graphcast_agent: &GraphcastAgent,
-) -> Result<GraphcastMessage<T>, WakuHandlingError> {
+    // graphcast_agent: &GraphcastAgent,
+    old_message_ids: &Arc<AsyncMutex<HashSet<String>>>,
+) -> Result<WakuMessage, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
-    let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &graphcast_agent.old_message_ids;
+    // let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &graphcast_agent.old_message_ids;
     let mut ids = old_message_ids.lock().await;
     match signal.event() {
         waku::Event::WakuMessage(event) => {
-            match <message_typing::GraphcastMessage<T> as Message>::decode(
-                event.waku_message().payload(),
-            ) {
-                Ok(graphcast_message) => {
-                    trace!(
-                        id = event.message_id(),
-                        message = tracing::field::debug(&graphcast_message),
-                        "Received message"
-                    );
-                    if ids.contains(event.message_id()) {
-                        return Err(WakuHandlingError::InvalidMessage(
-                            "Skip repeated message".to_string(),
-                        ));
-                    };
-                    // Check for content topic and repetitive message id
-                    ids.insert(event.message_id().clone());
-                    check_message_validity(
-                        graphcast_message,
-                        &graphcast_agent.nonces,
-                        graphcast_agent.callbook.clone(),
-                        graphcast_agent.graphcast_identity.graphcast_id.clone(),
-                        &graphcast_agent.id_validation,
-                    )
-                    .await
-                    .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
-                }
-                Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
-                    "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
-                ))),
-            }
+            trace!(
+                "Received message id: {:#?}\n old ids: {:#?}",
+                event.message_id(),
+                ids
+            );
+            if ids.contains(event.message_id()) {
+                trace!("Skip repeated message");
+                return Err(WakuHandlingError::InvalidMessage(
+                    "Skip repeated message".to_string(),
+                ));
+            };
+            ids.insert(event.message_id().clone());
+            Ok(event.waku_message().clone())
         }
 
         waku::Event::Unrecognized(data) => Err(WakuHandlingError::InvalidMessage(format!(
@@ -480,7 +451,7 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHa
     let local_id = binding.as_str();
 
     let peers = node_handle.peers();
-    debug!(peers = tracing::field::debug(&peers), "Network peers");
+    trace!(peers = tracing::field::debug(&peers), "Network peers");
 
     peers
         .map_err(WakuHandlingError::RetrievePeersError)?
