@@ -180,11 +180,7 @@ impl<
         if id_validation == &IdentityValidation::NoCheck {
             return Ok(self);
         };
-        trace!(
-            remote_resolved = tracing::field::debug(&self.remote_account(local_sender_id.clone())),
-            id = tracing::field::debug(&id_validation),
-            "Check account"
-        );
+        trace!(id = tracing::field::debug(&id_validation), "Check account");
         // Should optionally chain valid_owner check
         let _ = self
             .remote_account(local_sender_id)?
@@ -460,6 +456,25 @@ mod tests {
                     content: String::from("Ping") },
             signature: String::from("60a4b735acaf0c2490a51e34e0b799080c5c144ee2fe5dc9499465c490a4c5e946609c7d27d3b39cf4110d4f9402bac7f89cf2bd3850ae816506e638cde1a3c11c")
         }
+    }
+
+    #[tokio::test]
+    async fn test_signature() {
+        let wallet = dummy_wallet();
+        let msg = GraphcastMessage::build(
+            &wallet,
+            String::from("ping-pong-content-topic"),
+            String::from("0xe9a1cabd57700b17945fd81feefba82340d9568f"),
+            1688742308,
+            SimpleMessage {
+                identifier: String::from("table"),
+                content: String::from("Ping"),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(wallet_address(&wallet) == msg.recover_sender_address().unwrap());
     }
 
     #[tokio::test]

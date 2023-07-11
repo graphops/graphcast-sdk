@@ -1,20 +1,10 @@
 use chrono::Utc;
 // Load environment variables from .env file
 use dotenv::dotenv;
-
-// Import Graphcast SDK types and functions for agent configuration, message handling, and more
-use graphcast_sdk::graphcast_agent::{
-    message_typing::GraphcastMessage, waku_handling::WakuHandlingError, GraphcastAgent,
-    GraphcastAgentConfig,
-};
-
-// Import the OnceCell container for lazy initialization of global/static data
-use once_cell::sync::OnceCell;
-
-// Import HashMap for key-value storage
-
 // Import Arc and Mutex for thread-safe sharing of data across threads
 use std::sync::{Arc, Mutex};
+// Import Graphcast SDK types and functions for agent configuration, message handling, and more
+use graphcast_sdk::graphcast_agent::{GraphcastAgent, GraphcastAgentConfig};
 
 // Import sleep and Duration for handling time intervals and thread delays
 use std::{thread::sleep, time::Duration};
@@ -23,13 +13,15 @@ use std::{thread::sleep, time::Duration};
 use tokio::sync::Mutex as AsyncMutex;
 
 // Import tracing macros for logging and diagnostic purposes
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 // Import SimpleMessage from the crate's types module
 use types::SimpleMessage;
 
 // Import Config from the crate's config module
 use config::Config;
+
+use crate::types::{GRAPHCAST_AGENT, MESSAGES};
 
 // Include the local config and types modules
 mod config;
@@ -46,18 +38,6 @@ async fn main() {
     let config = Config::args();
     let _parent_span = tracing::info_span!("main").entered();
 
-    /// A global static (singleton) instance of A GraphcastMessage vector.
-    /// It is used to save incoming messages after they've been validated, in order
-    /// defer their processing for later, because async code is required for the processing but
-    /// it is not allowed in the handler itself.
-    pub static MESSAGES: OnceCell<Arc<Mutex<Vec<GraphcastMessage<SimpleMessage>>>>> =
-        OnceCell::new();
-
-    /// The Graphcast Agent instance must be a global static variable (for the time being).
-    /// This is because the Radio handler requires a static immutable context and
-    /// the handler itself is being passed into the Graphcast Agent, so it needs to be static as well.
-    pub static GRAPHCAST_AGENT: OnceCell<GraphcastAgent> = OnceCell::new();
-
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
     // if not provided then they are usually generated based on indexer allocations
     let subtopics: Vec<String> = vec!["ping-pong-content-topic".to_string()];
@@ -69,7 +49,7 @@ async fn main() {
         radio_name,
         config.registry_subgraph,
         config.network_subgraph,
-        config.id_validation.unwrap_or_default(),
+        config.id_validation.clone(),
         config.graph_node_endpoint,
         None,
         Some("testnet".to_string()),
@@ -87,7 +67,7 @@ async fn main() {
     .unwrap_or_else(|e| panic!("Could not create GraphcastAgentConfig: {e}"));
 
     debug!("Initializing the Graphcast Agent");
-    let graphcast_agent = GraphcastAgent::new(graphcast_agent_config)
+    let (graphcast_agent, waku_msg_receiver) = GraphcastAgent::new(graphcast_agent_config)
         .await
         .expect("Could not create Graphcast agent");
 
@@ -115,30 +95,35 @@ async fn main() {
     }
 
     // The handler specifies what to do with incoming messages.
-    // There cannot be any non-deterministic (this includes async) code inside the handler.
-    // That is why we're saving the message for later processing, where we will check its content and perform some action based on it.
-    let radio_handler = |msg: Result<GraphcastMessage<SimpleMessage>, WakuHandlingError>| match msg
-    {
-        Ok(msg) => {
-            MESSAGES
-                .get()
-                .expect("Could not retrieve messages")
-                .lock()
-                .expect("Could not get lock on messages")
-                .push(msg);
-        }
-        Err(err) => {
-            error!(
-                error = tracing::field::debug(&err),
-                "Failed to handle Waku signal"
+    // This is where you can define multiple message types and how they gets handled by the radio
+    // by chaining radio payload typed decoder and handler functions
+    tokio::spawn(async move {
+        for msg in waku_msg_receiver {
+            trace!(
+                "Radio operator received a Waku message from Graphcast agent, now try to fit it to Graphcast Message with Radio specified payload"
             );
+            let _ = GRAPHCAST_AGENT
+                .get()
+                .expect("Could not retrieve Graphcast agent")
+                .decoder::<SimpleMessage>(msg.payload())
+                .await
+                .map(|msg| {
+                    msg.payload.radio_handler();
+                })
+                .map_err(|err| {
+                    error!(
+                        error = tracing::field::debug(&err),
+                        "Failed to handle Waku signal"
+                    );
+                    err
+                });
         }
-    };
+    });
 
     GRAPHCAST_AGENT
         .get()
         .expect("Could not retrieve Graphcast agent")
-        .register_handler(Arc::new(AsyncMutex::new(radio_handler)))
+        .register_handler()
         .expect("Could not register handler");
 
     let mut block_number = 0;
@@ -163,7 +148,7 @@ async fn main() {
                     .expect("Could not get lock on messages"),
             );
             for msg in messages.lock().await.iter() {
-                if msg.payload.content == *"Ping" {
+                if msg.content == *"Ping" {
                     let replay_msg = SimpleMessage::new("table".to_string(), "Pong".to_string());
                     send_message(replay_msg).await;
                 };

@@ -77,6 +77,7 @@ pub struct Config {
         value_name = "ID_VALIDATION",
         value_enum,
         env = "ID_VALIDATION",
+        default_value = "valid-address",
         help = "Identity validation mechanism for senders (message signers)",
         long_help = "Identity validation mechanism for senders (message signers)\n
         no-check: all messages signer is valid, \n
@@ -86,7 +87,7 @@ pub struct Config {
         registered-indexer: must be registered at Graphcast Registry, correspond to and Indexer statisfying indexer minimum stake requirement, \n
         indexer: must be registered at Graphcast Registry or is a Graph Account, correspond to and Indexer statisfying indexer minimum stake requirement"
     )]
-    pub id_validation: Option<IdentityValidation>,
+    pub id_validation: IdentityValidation,
 }
 
 impl Config {
