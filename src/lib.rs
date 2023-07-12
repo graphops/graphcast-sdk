@@ -248,6 +248,10 @@ impl Account {
         Ok(!subgraph_hashes.contains(&subgraph_hash.to_string()))
     }
 
+    /// Based on id_validation mechanism, perform the corresponding check between the
+    /// message sender versus the representing graph_account.
+    ///
+    /// Currently do not verify subgraph ownership here, which should be used `IdentityValidation::SubgraphStaker`
     pub async fn verify(
         &self,
         network_subgraph: &str,
@@ -305,6 +309,9 @@ impl Account {
                 verified_account
             ))));
         };
+
+        // SubgraphStaker check for subgraph owner ship is done in Radio Level, triggered
+        // when message field provides detailed information
 
         Ok(verified_account)
     }

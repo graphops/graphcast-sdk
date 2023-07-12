@@ -181,7 +181,7 @@ impl<
             return Ok(self);
         };
         trace!(id = tracing::field::debug(&id_validation), "Check account");
-        // Should optionally chain valid_owner check
+
         let _ = self
             .remote_account(local_sender_id)?
             .verify(network_subgraph, registry_subgraph, id_validation)
@@ -367,7 +367,7 @@ pub enum IdentityValidation {
     // valid Graph indexer or Graphcast Registered Indexer
     Indexer,
     // valid Graph indexer, Graphcast Registered Indexer, or Message identifier owner / subgraph owner
-    // Does not include Curator or Indexer Delegator
+    // Does not include Curator or Delegator
     SubgraphStaker,
 }
 
@@ -414,8 +414,6 @@ mod tests {
     /// Create a random wallet
     fn dummy_wallet() -> Wallet<SigningKey> {
         Wallet::new(&mut thread_rng())
-        // let wallet =
-        // build_wallet("baf5c93f0c8aee3b945f33b9192014e83d50cec25f727a13460f6ef1eb6a5844").unwrap();
     }
 
     // Signature generated from goerli main indexer account

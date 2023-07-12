@@ -410,26 +410,22 @@ pub fn boot_node_handle(
 /// Parse and validate incoming message
 pub async fn handle_signal(
     signal: Signal,
-    // graphcast_agent: &GraphcastAgent,
     old_message_ids: &Arc<AsyncMutex<HashSet<String>>>,
 ) -> Result<WakuMessage, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
-    // let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &graphcast_agent.old_message_ids;
     let mut ids = old_message_ids.lock().await;
     match signal.event() {
         waku::Event::WakuMessage(event) => {
-            trace!(
-                "Received message id: {:#?}\n old ids: {:#?}",
-                event.message_id(),
-                ids
-            );
-            if ids.contains(event.message_id()) {
-                trace!("Skip repeated message");
-                return Err(WakuHandlingError::InvalidMessage(
-                    "Skip repeated message".to_string(),
-                ));
+            let msg_id = event.message_id();
+            trace!(msg_id, "Received message id",);
+            if ids.contains(msg_id) {
+                trace!(msg_id, "Skip repeated message");
+                return Err(WakuHandlingError::InvalidMessage(format!(
+                    "Skip repeated message: {:#?}",
+                    msg_id
+                )));
             };
-            ids.insert(event.message_id().clone());
+            ids.insert(msg_id.to_string());
             Ok(event.waku_message().clone())
         }
 

@@ -32,11 +32,12 @@ pub async fn query_network_subgraph(
         .build()?;
     let request = client.post(url).json(&request_body);
     let response = request.send().await?.error_for_status()?;
+    let response_body: Response<indexer_status::ResponseData> = response.json().await?;
     trace!(
-        result = tracing::field::debug(&response),
+        indexer_address,
+        result = tracing::field::debug(&response_body),
         "Queried result for Indexer and Network"
     );
-    let response_body: Response<indexer_status::ResponseData> = response.json().await?;
 
     if let Some(errors) = response_body.errors.as_deref() {
         let e = &errors[0];

@@ -206,7 +206,7 @@ pub struct GraphcastAgent {
     /// Sender identity validation mechanism used by the Graphcast agent
     pub id_validation: IdentityValidation,
     /// Upon receiving a valid waku signal event of Message type, sender send WakuMessage through mpsc.
-    //TODO: currently graphcast agent returns the handle to radio operator, such that radio handler can process WakuMessage however they want. Ideally we should keep WakuMessage within graphcast agent, but for now radio operator is required to deal with decoding wakuMessage to appropriate types to support multi-types
+    //TODO: currently agent returns the receiver to radio operator, such that radio handler can process WakuMessage however they want. Ideally we should keep WakuMessage within graphcast agent, but for now radio operator is required call generic decode with the specified types. Later we investigate an approach to dynamically register the types during runtime
     pub sender: Arc<SyncMutex<Sender<WakuMessage>>>,
 }
 
@@ -386,7 +386,7 @@ impl GraphcastAgent {
         }
     }
 
-    pub async fn decoder<T>(&self, payload: &[u8]) -> Result<GraphcastMessage<T>, WakuHandlingError>
+    pub async fn decode<T>(&self, payload: &[u8]) -> Result<GraphcastMessage<T>, WakuHandlingError>
     where
         T: Message
             + ethers::types::transaction::eip712::Eip712
@@ -395,24 +395,8 @@ impl GraphcastAgent {
             + 'static
             + async_graphql::OutputType,
     {
-        let id_validation = self.id_validation.clone();
-        let callbook = self.callbook.clone();
-        let nonces = self.nonces.clone();
-        let local_sender = self.graphcast_identity.graphcast_id.clone();
         match <GraphcastMessage<T> as Message>::decode(payload) {
-            Ok(graphcast_message) => {
-                trace!("Validating Graphcast fields: {:#?}", graphcast_message);
-                // Add radio msg checks
-                message_typing::check_message_validity(
-                    graphcast_message,
-                    &nonces,
-                    callbook.clone(),
-                    local_sender.clone(),
-                    &id_validation,
-                )
-                .await
-                .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string()))
-            }
+            Ok(graphcast_message) => Ok(graphcast_message),
             Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
                 "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
             ))),

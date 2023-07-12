@@ -198,3 +198,41 @@ pub async fn subgraph_hash_by_id(
 
     Ok(hashes)
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_owned_subgraphs() {
+        let network_subgraph =
+            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
+        let account = "0xe9a1cabd57700b17945fd81feefba82340d9568f";
+        let owned_subgraphs = owned_subgraphs(network_subgraph, account).await;
+
+        assert!(owned_subgraphs.is_ok());
+        // Current subgraph number
+        assert!(owned_subgraphs.unwrap().len() > 5);
+    }
+    #[tokio::test]
+    async fn test_subgraph_linked() {
+        let network_subgraph =
+            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-mainnet";
+        let account = "0x00000444e5a1a667663b0adfd853e8efa0470698";
+        let subgraph_id = "0x00000444e5a1a667663b0adfd853e8efa0470698-0";
+        let subgraph_hashes = subgraph_hash_by_id(network_subgraph, account, subgraph_id)
+            .await
+            .unwrap();
+
+        assert!(subgraph_hashes.contains(&String::from(
+            "QmQQeCUjemEf6urSR5SUvvdRTn9ZXdctHwuxjPJoFJD6wR"
+        )));
+        assert!(subgraph_hashes.contains(&String::from(
+            "QmXpLT9V82VMYbBCDKTiTAEpG3g6CD3DygRhxmUTiDu9eF"
+        )));
+        assert!(subgraph_hashes.contains(&String::from(
+            "QmfDJFYaDX7BdwT6rYa8Bx71vPjTueUVDN99pdwFgysDiZ"
+        )));
+    }
+}
