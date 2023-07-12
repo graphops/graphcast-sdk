@@ -96,7 +96,7 @@ async fn main() {
 
     // The handler specifies what to do with incoming messages.
     // This is where you can define multiple message types and how they gets handled by the radio
-    // by chaining radio payload typed decoder and handler functions
+    // by chaining radio payload typed decode and handler functions
     tokio::spawn(async move {
         for msg in waku_msg_receiver {
             trace!(
@@ -105,7 +105,7 @@ async fn main() {
             let _ = GRAPHCAST_AGENT
                 .get()
                 .expect("Could not retrieve Graphcast agent")
-                .decoder::<SimpleMessage>(msg.payload())
+                .decode::<SimpleMessage>(msg.payload())
                 .await
                 .map(|msg| {
                     msg.payload.radio_handler();
