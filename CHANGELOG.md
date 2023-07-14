@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 - Disable unsubscribe until waku dep update
 - Callbook input order
 - DNS and Discv5 peer connection
+- Allow indexer without operator
+- Consistent nonce during build
 
 ### Documentation
 
@@ -38,6 +40,9 @@ All notable changes to this project will be documented in this file.
 - Add telegram notifications
 - Enable discv5 configs
 - Graphcast agent relay/filter protocol toggle
+- Validation mechanism options for msg sender identity
+- Subgraph owner, id, and deployment hash check
+- Chainable msg type decoding and handling
 
 ### Miscellaneous Tasks
 
@@ -73,6 +78,8 @@ All notable changes to this project will be documented in this file.
 - Release 0.3.2
 - Release v0.3.3
 - Release 0.3.4
+- Fix waku version
+- Release 0.4.0
 
 ### Refactor
 
@@ -84,6 +91,13 @@ All notable changes to this project will be documented in this file.
 - Update query and add configurations
 - Change radio_name to be String
 - Callbook and graphcast_id struct, clean query fns
+- Remove some unnecessary clones
+- String -> &str
+- Graphcast message requires payload
+- Less msg fields required
+- Verification fn moved to Account
+- Optional graph node endpoint
+- Gc validity not automatically checked
 
 ## [0.0.13] - 2023-03-07
 
