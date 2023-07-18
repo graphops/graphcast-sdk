@@ -564,8 +564,6 @@ mod tests {
         let error =
             GraphcastAgentError::ConfigValidation(ConfigError::Other(anyhow!("test error")));
         assert_eq!(error.type_string(), "ConfigValidation");
-
-        // Add more test cases for other variants...
     }
 
     #[test]
@@ -577,7 +575,5 @@ mod tests {
 
         let error = WakuHandlingError::InvalidMessage(String::from("Invalid message"));
         assert_eq!(error.type_string(), "InvalidMessage");
-
-        // Add more test cases for other variants...
     }
 }
