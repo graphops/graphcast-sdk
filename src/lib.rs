@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
     collections::HashMap,
-    env,
+    env, fmt,
     sync::{Arc, Mutex},
 };
 
@@ -342,6 +342,42 @@ impl GraphcastIdentity {
             graphcast_id,
             graph_account: graph_account.to_lowercase(),
         })
+    }
+}
+
+#[derive(clap::ValueEnum, Clone, Debug, Serialize, Deserialize, Default)]
+pub enum LogFormat {
+    Compact,
+    #[default]
+    Pretty,
+    Json,
+    Full,
+}
+
+impl fmt::Display for LogFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LogFormat::Compact => write!(f, "compact"),
+            LogFormat::Pretty => write!(f, "pretty"),
+            LogFormat::Json => write!(f, "json"),
+            LogFormat::Full => write!(f, "full"),
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Clone, Debug, Serialize, Deserialize, Default)]
+pub enum GraphcastNetworkName {
+    #[default]
+    Testnet,
+    Mainnet,
+}
+
+impl fmt::Display for GraphcastNetworkName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GraphcastNetworkName::Testnet => write!(f, "testnet"),
+            GraphcastNetworkName::Mainnet => write!(f, "mainnet"),
+        }
     }
 }
 

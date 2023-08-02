@@ -5,7 +5,7 @@ use ethers::signers::{Signer, Wallet};
 use ethers_core::{k256::ecdsa::SigningKey, types::Signature};
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{debug, error, trace};
 use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
@@ -380,6 +380,20 @@ pub enum IdentityValidation {
     // valid Graph indexer, Graphcast Registered Indexer, or Message identifier owner / subgraph owner
     // Does not include Curator or Delegator
     SubgraphStaker,
+}
+
+impl fmt::Display for IdentityValidation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IdentityValidation::NoCheck => write!(f, "no-check"),
+            IdentityValidation::ValidAddress => write!(f, "valid-address"),
+            IdentityValidation::GraphcastRegistered => write!(f, "graphcast-registered"),
+            IdentityValidation::GraphNetworkAccount => write!(f, "graph-network-account"),
+            IdentityValidation::RegisteredIndexer => write!(f, "registered-indexer"),
+            IdentityValidation::Indexer => write!(f, "indexer"),
+            IdentityValidation::SubgraphStaker => write!(f, "subgraph-staker"),
+        }
+    }
 }
 
 #[cfg(test)]
