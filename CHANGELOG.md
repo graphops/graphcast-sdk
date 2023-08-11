@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - Validation mechanism options for msg sender identity
 - Subgraph owner, id, and deployment hash check
 - Chainable msg type decoding and handling
+- Add waku error type string
 
 ### Miscellaneous Tasks
 
@@ -80,6 +81,11 @@ All notable changes to this project will be documented in this file.
 - Release 0.3.4
 - Fix waku version
 - Release 0.4.0
+- Add labels workflow
+- Update labels workflow
+- Release 0.4.1
+- Release v0.4.1
+- Release v0.4.1
 
 ### Refactor
 
@@ -98,6 +104,8 @@ All notable changes to this project will be documented in this file.
 - Verification fn moved to Account
 - Optional graph node endpoint
 - Gc validity not automatically checked
+- Generic message validation
+- Add IdValidations to_string
 
 ## [0.0.13] - 2023-03-07
 
