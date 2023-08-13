@@ -133,7 +133,7 @@ pub fn determine_message_block(
     let examination_frequency = match NETWORKS.iter().find(|n| n.name == network_name) {
         Some(n) => n.interval,
         None => {
-            let err_msg = format!("Subgraph is indexing an unsupported network {network_name}, please report an issue on https://github.com/graphops/graphcast-rs");
+            let err_msg = format!("Subgraph is indexing an unsupported network {network_name}, please report an issue on https://github.com/graphops/graphcast-sdk");
             warn!(err_msg);
             return Err(NetworkBlockError::UnsupportedNetwork(err_msg));
         }
