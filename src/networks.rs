@@ -18,7 +18,7 @@ pub enum NetworkName {
     ArbitrumOne,
     ArbitrumGoerli,
     Avalanche,
-    Polygon,
+    Matic, // Previously Polygon
     Celo,
     Optimism,
     Fantom,
@@ -35,7 +35,7 @@ impl NetworkName {
             "arbitrum-one" => NetworkName::ArbitrumOne,
             "arbitrum-goerli" => NetworkName::ArbitrumGoerli,
             "avalanche" => NetworkName::Avalanche,
-            "polygon" => NetworkName::Polygon,
+            "matic" => NetworkName::Matic,
             "celo" => NetworkName::Celo,
             "optimism" => NetworkName::Optimism,
             "fantom" => NetworkName::Fantom,
@@ -54,7 +54,7 @@ impl fmt::Display for NetworkName {
             NetworkName::ArbitrumOne => "arbitrum-one",
             NetworkName::ArbitrumGoerli => "arbitrum-goerli",
             NetworkName::Avalanche => "avalanche",
-            NetworkName::Polygon => "polygon",
+            NetworkName::Matic => "matic",
             NetworkName::Celo => "celo",
             NetworkName::Optimism => "optimism",
             NetworkName::Fantom => "fantom",
@@ -104,9 +104,9 @@ pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
             name: NetworkName::from_string("avalanche"),
             interval: 60,
         },
-        // Polygon: ~2 seconds
+        // Matic: ~2 seconds
         Network {
-            name: NetworkName::from_string("polygon"),
+            name: NetworkName::from_string("matic"),
             interval: 150,
         },
         // Celo: ~5-10 seconds
