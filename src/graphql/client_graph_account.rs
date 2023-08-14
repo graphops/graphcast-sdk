@@ -132,13 +132,12 @@ pub async fn owned_subgraphs(url: &str, account: &str) -> Result<Vec<String>, Qu
     Ok(subgraphs)
 }
 
-/// Query network subgraph for subgraph ownership account
-/// There could be operator relationship between subgraph owner and registered operator
+/// Query network subgraph to get the latest subgraph deployment hash of a subgraph indexed by id
 pub async fn subgraph_hash_by_id(
     url: &str,
     account: &str,
     subgraph_id: &str,
-) -> Result<Vec<String>, QueryError> {
+) -> Result<String, QueryError> {
     let variables: graph_account::Variables = graph_account::Variables {
         // Do not supply operator address if operator is already a graph account
         operator_addr: vec![],
@@ -170,33 +169,43 @@ pub async fn subgraph_hash_by_id(
         ))
     })?;
 
-    let hashes: Vec<String> = data
-        .graph_accounts
-        .first()
-        .map(|x| {
-            x.subgraphs
-                .iter()
-                .find_map(|s| {
-                    if s.id.clone() == subgraph_id {
-                        s.linked_entity.as_ref().map(|e| {
-                            e.versions
-                                .iter()
-                                .map(|v| v.subgraph_deployment.ipfs_hash.clone())
-                                .collect::<Vec<String>>()
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_default()
-        })
-        .ok_or_else(|| {
-            QueryError::ParseResponseError(String::from(
-                "Network subgraph does not have a match for graph account",
-            ))
-        })?;
+    let owned_subgraphs = if let Some(acc) = data.graph_accounts.first() {
+        &acc.subgraphs
+    } else {
+        return Err(QueryError::ParseResponseError(String::from(
+            "Network subgraph does not have match for graph account and operator",
+        )));
+    };
 
-    Ok(hashes)
+    let linked_subgraph =
+        if let Some(subgraph) = owned_subgraphs.iter().find(|s| s.id.clone() == subgraph_id) {
+            &subgraph.linked_entity
+        } else {
+            return Err(QueryError::ParseResponseError(String::from(
+                "Network subgraph does not have subgraph id match for the owner",
+            )));
+        };
+
+    let entity = if let Some(entity) = linked_subgraph {
+        &entity.current_version
+    } else {
+        return Err(QueryError::ParseResponseError(String::from(
+            "Network subgraph does not have a current version for the subgraph (may be deprecated)",
+        )));
+    };
+
+    let hash = if let Some(hash) = entity
+        .as_ref()
+        .map(|v| v.subgraph_deployment.ipfs_hash.clone())
+    {
+        hash
+    } else {
+        return Err(QueryError::ParseResponseError(String::from(
+            "Network subgraph does not have a deployment hash match for subgraph id",
+        )));
+    };
+
+    Ok(hash)
 }
 
 #[cfg(test)]
@@ -215,23 +224,18 @@ mod tests {
         // Current subgraph number
         assert!(owned_subgraphs.unwrap().len() > 5);
     }
+
     #[tokio::test]
     async fn test_subgraph_linked() {
         let network_subgraph =
             "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-mainnet";
         let account = "0x00000444e5a1a667663b0adfd853e8efa0470698";
         let subgraph_id = "0x00000444e5a1a667663b0adfd853e8efa0470698-0";
-        let subgraph_hashes = subgraph_hash_by_id(network_subgraph, account, subgraph_id)
+        let hash = subgraph_hash_by_id(network_subgraph, account, subgraph_id)
             .await
             .unwrap();
 
-        assert!(subgraph_hashes.contains(&String::from(
-            "QmQQeCUjemEf6urSR5SUvvdRTn9ZXdctHwuxjPJoFJD6wR"
-        )));
-        assert!(subgraph_hashes.contains(&String::from(
-            "QmXpLT9V82VMYbBCDKTiTAEpG3g6CD3DygRhxmUTiDu9eF"
-        )));
-        assert!(subgraph_hashes.contains(&String::from(
+        assert!(hash.contains(&String::from(
             "QmfDJFYaDX7BdwT6rYa8Bx71vPjTueUVDN99pdwFgysDiZ"
         )));
     }
