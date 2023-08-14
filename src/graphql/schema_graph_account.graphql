@@ -4,7 +4,7 @@ type Subgraph {
 }
 
 type LinkedEntity{
-  versions: [Version!]!
+  currentVersion: Version
 }
 
 type Version{
