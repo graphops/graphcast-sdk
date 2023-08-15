@@ -175,9 +175,11 @@ fn node_config(
     };
 
     let relay = filter_protocol.map(|b| !b);
-    debug!(
+    trace!(
         "protocols: relay {:#?}, filter {:#?}\ndiscv5_nodes: {:#?}",
-        relay, filter_protocol, discv5_nodes
+        relay,
+        filter_protocol,
+        discv5_nodes
     );
     let discv5 = Some(discv5_nodes.is_empty());
 

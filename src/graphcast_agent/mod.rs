@@ -18,8 +18,8 @@ use ethers::signers::WalletError;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc, Mutex as SyncMutex};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex as SyncMutex};
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace, warn};
@@ -282,7 +282,8 @@ impl GraphcastAgent {
             discv5_port,
             id_validation,
         }: GraphcastAgentConfig,
-    ) -> Result<(GraphcastAgent, Receiver<WakuMessage>), GraphcastAgentError> {
+        sender: Sender<WakuMessage>,
+    ) -> Result<GraphcastAgent, GraphcastAgentError> {
         let graphcast_identity = GraphcastIdentity::new(wallet_key, graph_account.clone()).await?;
         let pubsub_topic: WakuPubSubTopic = pubsub_topic(graphcast_namespace.as_deref());
 
@@ -319,23 +320,19 @@ impl GraphcastAgent {
         }
 
         let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
-        let (sender, receiver) = mpsc::channel::<WakuMessage>();
 
-        Ok((
-            GraphcastAgent {
-                graphcast_identity,
-                radio_name,
-                pubsub_topic,
-                content_topics: Arc::new(AsyncMutex::new(content_topics)),
-                node_handle,
-                nonces: Arc::new(AsyncMutex::new(HashMap::new())),
-                callbook,
-                old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
-                id_validation,
-                sender: Arc::new(SyncMutex::new(sender)),
-            },
-            receiver,
-        ))
+        Ok(GraphcastAgent {
+            graphcast_identity,
+            radio_name,
+            pubsub_topic,
+            content_topics: Arc::new(AsyncMutex::new(content_topics)),
+            node_handle,
+            nonces: Arc::new(AsyncMutex::new(HashMap::new())),
+            callbook,
+            old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
+            id_validation,
+            sender: Arc::new(SyncMutex::new(sender)),
+        })
     }
 
     /// Get the number of peers excluding self

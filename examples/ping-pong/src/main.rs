@@ -2,9 +2,12 @@ use chrono::Utc;
 // Load environment variables from .env file
 use dotenv::dotenv;
 // Import Arc and Mutex for thread-safe sharing of data across threads
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 // Import Graphcast SDK types and functions for agent configuration, message handling, and more
-use graphcast_sdk::graphcast_agent::{GraphcastAgent, GraphcastAgentConfig};
+use graphcast_sdk::{
+    graphcast_agent::{GraphcastAgent, GraphcastAgentConfig},
+    WakuMessage,
+};
 
 // Import sleep and Duration for handling time intervals and thread delays
 use std::{thread::sleep, time::Duration};
@@ -66,8 +69,9 @@ async fn main() {
     .await
     .unwrap_or_else(|e| panic!("Could not create GraphcastAgentConfig: {e}"));
 
+    let (sender, receiver) = mpsc::channel::<WakuMessage>();
     debug!("Initializing the Graphcast Agent");
-    let (graphcast_agent, waku_msg_receiver) = GraphcastAgent::new(graphcast_agent_config)
+    let graphcast_agent = GraphcastAgent::new(graphcast_agent_config, sender)
         .await
         .expect("Could not create Graphcast agent");
 
@@ -98,7 +102,7 @@ async fn main() {
     // This is where you can define multiple message types and how they gets handled by the radio
     // by chaining radio payload typed decode and handler functions
     tokio::spawn(async move {
-        for msg in waku_msg_receiver {
+        for msg in receiver {
             trace!(
                 "Radio operator received a Waku message from Graphcast agent, now try to fit it to Graphcast Message with Radio specified payload"
             );
