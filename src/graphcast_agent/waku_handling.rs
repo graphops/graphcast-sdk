@@ -473,8 +473,10 @@ pub async fn generic_graphcast_check<
     }
 }
 
-/// Check for peer connectivity, try to reconnect if there are disconnected peers
-pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHandlingError> {
+/// Get all peers data aside from the local node
+pub fn peers_data(
+    node_handle: &WakuNodeHandle<Running>,
+) -> Result<Vec<WakuPeerData>, WakuHandlingError> {
     let binding = node_handle
         .peer_id()
         .expect("Failed to get local node's peer id");
@@ -483,11 +485,19 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHa
     let peers = node_handle.peers();
     trace!(peers = tracing::field::debug(&peers), "Network peers");
 
-    peers
-        .map_err(WakuHandlingError::RetrievePeersError)?
+    let peers = peers.map_err(WakuHandlingError::RetrievePeersError)?;
+    Ok(peers
+        .into_iter()
+        .filter(|p| p.peer_id().as_str() != local_id)
+        .collect())
+}
+
+/// Check for peer connectivity, try to reconnect if there are disconnected peers
+pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHandlingError> {
+    peers_data(node_handle)?
         .iter()
-        // filter for nodes that are not self and disconnected
-        .filter(|&peer| (peer.peer_id().as_str() != local_id) & (!peer.connected()))
+        // Get unconnected peers and try to reconnect
+        .filter(|&peer| !peer.connected())
         .map(|peer: &WakuPeerData| {
             debug!(
                 peer = tracing::field::debug(&peer),
@@ -504,6 +514,18 @@ pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHa
             }
         });
     Ok(())
+}
+
+/// Get connected peers
+pub fn connected_peer_count(
+    node_handle: &WakuNodeHandle<Running>,
+) -> Result<usize, WakuHandlingError> {
+    Ok(peers_data(node_handle)?
+        .into_iter()
+        // filter for nodes that are not self and disconnected
+        .filter(|peer| peer.connected())
+        .collect::<Vec<WakuPeerData>>()
+        .len())
 }
 
 #[derive(Debug, thiserror::Error)]
