@@ -200,6 +200,8 @@ fn node_config(
         store_retention_max_messages: None,
         store_retention_max_seconds: None,
         gossipsub_params: Some(gossipsub_params),
+        dns4_domain_name: None,
+        websocket_params: None,
     })
 }
 
@@ -418,6 +420,8 @@ pub async fn handle_signal(
 ) -> Result<WakuMessage, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
     let mut ids = old_message_ids.lock().await;
+
+    info!("SIGNAL: {:?}", signal.event());
     match signal.event() {
         waku::Event::WakuMessage(event) => {
             let msg_id = event.message_id();
