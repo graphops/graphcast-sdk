@@ -177,22 +177,14 @@ pub async fn subgraph_hash_by_id(
         )));
     };
 
-    let linked_subgraph =
+    let entity =
         if let Some(subgraph) = owned_subgraphs.iter().find(|s| s.id.clone() == subgraph_id) {
-            &subgraph.linked_entity
+            &subgraph.current_version
         } else {
             return Err(QueryError::ParseResponseError(String::from(
                 "Network subgraph does not have subgraph id match for the owner",
             )));
         };
-
-    let entity = if let Some(entity) = linked_subgraph {
-        &entity.current_version
-    } else {
-        return Err(QueryError::ParseResponseError(String::from(
-            "Network subgraph does not have a current version for the subgraph (may be deprecated)",
-        )));
-    };
 
     let hash = if let Some(hash) = entity
         .as_ref()
@@ -226,17 +218,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_subgraph_linked() {
+    async fn test_subgraph_current_hash() {
         let network_subgraph =
-            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-mainnet";
-        let account = "0x00000444e5a1a667663b0adfd853e8efa0470698";
-        let subgraph_id = "0x00000444e5a1a667663b0adfd853e8efa0470698-0";
+            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
+        let account = "0xe9a1cabd57700b17945fd81feefba82340d9568f";
+        let subgraph_id = "CnJMdCkW3pr619gsJVtUPAWxspALPdCMw6o7obzYBNp3";
         let hash = subgraph_hash_by_id(network_subgraph, account, subgraph_id)
             .await
             .unwrap();
 
         assert!(hash.contains(&String::from(
-            "QmfDJFYaDX7BdwT6rYa8Bx71vPjTueUVDN99pdwFgysDiZ"
+            "QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB"
         )));
     }
 }

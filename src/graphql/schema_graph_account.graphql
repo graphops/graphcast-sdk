@@ -1,9 +1,5 @@
 type Subgraph {
   id: String!
-  linkedEntity: LinkedEntity
-}
-
-type LinkedEntity{
   currentVersion: Version
 }
 
