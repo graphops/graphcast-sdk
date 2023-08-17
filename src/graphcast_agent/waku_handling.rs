@@ -420,6 +420,8 @@ pub async fn handle_signal(
     signal: Signal,
     old_message_ids: &Arc<AsyncMutex<HashSet<String>>>,
 ) -> Result<WakuMessage, WakuHandlingError> {
+    info!("HELLOOO {:?}", signal.event());
+
     // Do not accept messages that were already received or sent by self
     let mut ids = old_message_ids.lock().await;
     match signal.event() {
