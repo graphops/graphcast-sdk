@@ -202,6 +202,8 @@ fn node_config(
         store_retention_max_messages: None,
         store_retention_max_seconds: None,
         gossipsub_params: Some(gossipsub_params),
+        websocket_params: None,
+        dns4_domain_name: Some("waku-2.mainnet.bootnodes.graphcast.xyz".to_string()),
     })
 }
 
