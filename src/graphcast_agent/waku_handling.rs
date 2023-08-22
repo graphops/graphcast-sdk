@@ -175,13 +175,12 @@ fn node_config(
     };
 
     let relay = filter_protocol.map(|b| !b);
-    trace!(
-        "protocols: relay {:#?}, filter {:#?}\ndiscv5_nodes: {:#?}",
-        relay,
-        filter_protocol,
-        discv5_nodes
+    debug!(
+        relay_protocol = tracing::field::debug(&relay),
+        filter_protocol = tracing::field::debug(&filter_protocol),
+        discv5_nodes = tracing::field::debug(&discv5_nodes),
+        "Protocol setup",
     );
-    let discv5 = Some(discv5_nodes.is_empty());
 
     Some(WakuNodeConfig {
         host: host.and_then(|h| IpAddr::from_str(h).ok()),
@@ -194,7 +193,7 @@ fn node_config(
         filter: filter_protocol,       // Default false
         log_level: Some(log_level),
         relay_topics: [].to_vec(),
-        discv5,
+        discv5: Some(true),
         discv5_bootstrap_nodes: discv5_nodes,
         discv5_udp_port: discv5_port, // Default 9000
         store: None,

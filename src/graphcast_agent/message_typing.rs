@@ -510,7 +510,7 @@ mod tests {
         let hash: String = "table".to_string();
         let content: String = "Ping".to_string();
         let payload: SimpleMessage = SimpleMessage::new(hash.clone(), content.clone());
-        let nonce = 1688742308;
+        let nonce = Utc::now().timestamp();
 
         let wallet = dummy_wallet();
         let msg = GraphcastMessage::build(&wallet, hash, wallet_address(&wallet), nonce, payload)
