@@ -48,7 +48,7 @@ tracing-subscriber = { version = "0.3", features = [
     "std",
     "json",
 ] }
-async-graphql = "4.0.16"
+async-graphql = "6.0.4"
 async-graphql-axum = "4.0.16"
 teloxide = "0.12.2"
 
