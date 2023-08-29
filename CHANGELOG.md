@@ -16,6 +16,9 @@ All notable changes to this project will be documented in this file.
 - DNS and Discv5 peer connection
 - Allow indexer without operator
 - Consistent nonce during build
+- Repo link in unrecognised chain message (#265)
+- Graph account owned current version hash query
+- Discv5 toggle
 
 ### Documentation
 
@@ -44,6 +47,8 @@ All notable changes to this project will be documented in this file.
 - Subgraph owner, id, and deployment hash check
 - Chainable msg type decoding and handling
 - Add waku error type string
+- Replace Polygon with Matic
+- Peer node data helper fns
 
 ### Miscellaneous Tasks
 
@@ -84,8 +89,7 @@ All notable changes to this project will be documented in this file.
 - Add labels workflow
 - Update labels workflow
 - Release 0.4.1
-- Release v0.4.1
-- Release v0.4.1
+- Release 0.4.2
 
 ### Refactor
 
@@ -106,6 +110,8 @@ All notable changes to this project will be documented in this file.
 - Gc validity not automatically checked
 - Generic message validation
 - Add IdValidations to_string
+- Resolve for latest deployment hash instead of a vec
+- Move msg channel and re-export waku msg type
 
 ## [0.0.13] - 2023-03-07
 
