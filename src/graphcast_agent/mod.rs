@@ -20,7 +20,8 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex as SyncMutex};
-use tokio::runtime::Runtime;
+use std::time::Duration;
+use tokio::runtime::{Runtime, Handle};
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
@@ -75,7 +76,7 @@ pub struct GraphcastAgentConfig {
 
 impl GraphcastAgentConfig {
     #[allow(clippy::too_many_arguments)]
-    pub async fn new(
+    pub fn new_unvalidated(
         wallet_key: String,
         graph_account: String,
         radio_name: String,
@@ -118,10 +119,51 @@ impl GraphcastAgentConfig {
             discv5_port,
         };
 
+        Ok(config)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new(
+        wallet_key: String,
+        graph_account: String,
+        radio_name: String,
+        registry_subgraph: String,
+        network_subgraph: String,
+        id_validation: IdentityValidation,
+        graph_node_endpoint: Option<String>,
+        boot_node_addresses: Option<Vec<String>>,
+        graphcast_namespace: Option<String>,
+        subtopics: Option<Vec<String>>,
+        waku_node_key: Option<String>,
+        waku_host: Option<String>,
+        waku_port: Option<String>,
+        waku_addr: Option<String>,
+        filter_protocol: Option<bool>,
+        discv5_enrs: Option<Vec<String>>,
+        discv5_port: Option<u16>,
+    ) -> Result<Self, GraphcastAgentError> {
+        let config = GraphcastAgentConfig::new_unvalidated(
+            wallet_key,
+            graph_account,
+            radio_name,
+            registry_subgraph,
+            network_subgraph,
+            id_validation,
+            graph_node_endpoint,
+            boot_node_addresses,
+            graphcast_namespace,
+            subtopics,
+            waku_node_key,
+            waku_host,
+            waku_port,
+            waku_addr,
+            filter_protocol,
+            discv5_enrs,
+            discv5_port,
+        )?;
         if let Err(e) = config.validate_set_up().await {
             panic!("Could not validate the supplied configurations: {e}")
         }
-
         Ok(config)
     }
 
@@ -401,12 +443,14 @@ impl GraphcastAgent {
     }
 
     /// Establish handler for incoming Waku messages
-    pub fn register_handler(&'static self) -> Result<(), GraphcastAgentError> {
+    pub fn register_handler(&'static self) -> Result<Arc<Runtime>, GraphcastAgentError> {
         let sender = self.sender.clone();
         let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &self.old_message_ids;
+        let rt = Arc::new(Runtime::new().expect("Could not create Tokio runtime"));
+        let agent_rt = rt.clone();
         let handle_async = move |signal: Signal| {
-            let rt = Runtime::new().expect("Could not create Tokio runtime");
-            rt.block_on(async {
+            let simple_rt = Runtime::new().expect("Could not create Tokio runtime");
+            simple_rt.block_on(async {
                 let msg = handle_signal(signal, old_message_ids).await;
 
                 if let Ok(m) = msg {
@@ -416,9 +460,10 @@ impl GraphcastAgent {
                     }
                 }
             });
+            simple_rt.shutdown_background();
         };
         waku_set_event_callback(handle_async);
-        Ok(())
+        Ok(rt)
     }
 
     /// For each topic, construct with custom write function and send
