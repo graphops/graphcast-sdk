@@ -383,6 +383,7 @@ impl GraphcastAgent {
         }
     }
 
+    /// Deprecate in favor of GraphcastMessage::<T>::decode()
     pub async fn decode<T>(&self, payload: &[u8]) -> Result<GraphcastMessage<T>, WakuHandlingError>
     where
         T: Message
