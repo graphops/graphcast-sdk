@@ -286,6 +286,15 @@ impl<
             }
         }
     }
+
+    pub async fn decode(payload: &[u8]) -> Result<Self, WakuHandlingError> {
+        match <GraphcastMessage<T> as Message>::decode(payload) {
+            Ok(graphcast_message) => Ok(graphcast_message),
+            Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
+                "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
+            ))),
+        }
+    }
 }
 
 /// Check validity of the message:

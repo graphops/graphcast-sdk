@@ -5,7 +5,7 @@ use dotenv::dotenv;
 use std::sync::{mpsc, Arc, Mutex};
 // Import Graphcast SDK types and functions for agent configuration, message handling, and more
 use graphcast_sdk::{
-    graphcast_agent::{GraphcastAgent, GraphcastAgentConfig},
+    graphcast_agent::{message_typing::GraphcastMessage, GraphcastAgent, GraphcastAgentConfig},
     WakuMessage,
 };
 
@@ -106,10 +106,7 @@ async fn main() {
             trace!(
                 "Radio operator received a Waku message from Graphcast agent, now try to fit it to Graphcast Message with Radio specified payload"
             );
-            let _ = GRAPHCAST_AGENT
-                .get()
-                .expect("Could not retrieve Graphcast agent")
-                .decode::<SimpleMessage>(msg.payload())
+            let _ = GraphcastMessage::<SimpleMessage>::decode(msg.payload())
                 .await
                 .map(|msg| {
                     msg.payload.radio_handler();
