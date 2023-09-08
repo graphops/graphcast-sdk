@@ -90,6 +90,7 @@ All notable changes to this project will be documented in this file.
 - Update labels workflow
 - Release 0.4.1
 - Release 0.4.2
+- Release 0.4.3
 
 ### Refactor
 
@@ -112,6 +113,7 @@ All notable changes to this project will be documented in this file.
 - Add IdValidations to_string
 - Resolve for latest deployment hash instead of a vec
 - Move msg channel and re-export waku msg type
+- Refactor message decoding
 
 ## [0.0.13] - 2023-03-07
 
