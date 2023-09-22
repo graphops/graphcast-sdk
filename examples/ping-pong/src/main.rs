@@ -80,23 +80,6 @@ async fn main() {
 
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
-    // Helper function to reuse message sending code
-    async fn send_message(payload: SimpleMessage) {
-        if let Err(e) = GRAPHCAST_AGENT
-            .get()
-            .expect("Could not retrieve Graphcast agent")
-            .send_message(
-                // The identifier can be any string that suits your Radio logic
-                // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
-                "ping-pong-content-topic",
-                payload,
-                Utc::now().timestamp(),
-            )
-            .await
-        {
-            error!(error = tracing::field::debug(&e), "Failed to send message");
-        };
-    }
 
     // The handler specifies what to do with incoming messages.
     // This is where you can define multiple message types and how they gets handled by the radio
@@ -127,8 +110,30 @@ async fn main() {
         .register_handler()
         .expect("Could not register handler");
 
-    let mut block_number = 0;
+    main_loop().await;
+}
 
+// Helper function to reuse message sending code
+async fn send_message(payload: SimpleMessage) {
+    if let Err(e) = GRAPHCAST_AGENT
+        .get()
+        .expect("Could not retrieve Graphcast agent")
+        .send_message(
+            // The identifier can be any string that suits your Radio logic
+            // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
+            "ping-pong-content-topic",
+            payload,
+            Utc::now().timestamp(),
+        )
+        .await
+    {
+        error!(error = tracing::field::debug(&e), "Failed to send message");
+    };
+}
+
+/// Main event loop to send ping and respond pong
+async fn main_loop() {
+    let mut block_number = 0;
     loop {
         block_number += 1;
         info!(block = block_number, "🔗 Block number");
