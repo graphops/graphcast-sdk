@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex as SyncMutex};
-use tokio::runtime::Runtime;
+
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
@@ -200,9 +200,9 @@ pub struct GraphcastAgent {
     pub nonces: Arc<AsyncMutex<NoncesMap>>,
     /// Callbook that make query requests
     pub callbook: CallBook,
-    /// TODO: remove after confirming that gossippub seen_ttl works
+    /// msg_seen_ttl is for only relay messages they have not seen before, not effective for client nodes
     /// A set of message ids sent from the agent
-    pub old_message_ids: Arc<AsyncMutex<HashSet<String>>>,
+    pub seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
     /// Sender identity validation mechanism used by the Graphcast agent
     pub id_validation: IdentityValidation,
     /// Upon receiving a valid waku signal event of Message type, sender send WakuMessage through mpsc.
@@ -261,7 +261,6 @@ impl GraphcastAgent {
     ///
     /// let agent = GraphcastAgent::new(config).await?;
     /// ```
-
     pub async fn new(
         GraphcastAgentConfig {
             wallet_key,
@@ -321,6 +320,10 @@ impl GraphcastAgent {
 
         let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
 
+        let sender = Arc::new(SyncMutex::new(sender));
+        let seen_msg_ids = Arc::new(SyncMutex::new(HashSet::new()));
+        register_handler(sender.clone(), seen_msg_ids.clone()).expect("Could not register handler");
+
         Ok(GraphcastAgent {
             graphcast_identity,
             radio_name,
@@ -329,10 +332,23 @@ impl GraphcastAgent {
             node_handle,
             nonces: Arc::new(AsyncMutex::new(HashMap::new())),
             callbook,
-            old_message_ids: Arc::new(AsyncMutex::new(HashSet::new())),
+            seen_msg_ids,
             id_validation,
-            sender: Arc::new(SyncMutex::new(sender)),
+            sender,
         })
+    }
+
+    /// Stop a GraphcastAgent instance
+    pub fn stop(self) -> Result<(), GraphcastAgentError> {
+        debug!("Stop Waku node");
+        let r = self
+            .node_handle
+            .stop()
+            .map_err(|e| GraphcastAgentError::WakuNodeError(WakuHandlingError::StopNodeError(e)));
+        debug!("Drop Arc std sync mutexes");
+        drop(self.seen_msg_ids);
+        drop(self.sender);
+        r
     }
 
     /// Get the number of peers excluding self
@@ -401,27 +417,6 @@ impl GraphcastAgent {
         }
     }
 
-    /// Establish handler for incoming Waku messages
-    pub fn register_handler(&'static self) -> Result<(), GraphcastAgentError> {
-        let sender = self.sender.clone();
-        let old_message_ids: &Arc<AsyncMutex<HashSet<String>>> = &self.old_message_ids;
-        let handle_async = move |signal: Signal| {
-            let rt = Runtime::new().expect("Could not create Tokio runtime");
-            rt.block_on(async {
-                let msg = handle_signal(signal, old_message_ids).await;
-
-                if let Ok(m) = msg {
-                    match sender.clone().lock().unwrap().send(m) {
-                        Ok(_) => trace!("Sent received message to radio operator"),
-                        Err(e) => error!("Could not send message to channel: {:#?}", e),
-                    }
-                }
-            });
-        };
-        waku_set_event_callback(handle_async);
-        Ok(())
-    }
-
     /// For each topic, construct with custom write function and send
     #[allow(unused_must_use)]
     pub async fn send_message<
@@ -445,7 +440,6 @@ impl GraphcastAgent {
 
         // Check network before sending a message
         network_check(&self.node_handle).map_err(GraphcastAgentError::WakuNodeError)?;
-        let mut ids = self.old_message_ids.lock().await;
         trace!(
             address = &wallet_address(&self.graphcast_identity.wallet),
             "local sender id"
@@ -462,7 +456,7 @@ impl GraphcastAgent {
         .send_to_waku(&self.node_handle, self.pubsub_topic.clone(), content_topic)
         .map_err(GraphcastAgentError::WakuNodeError)
         .map(|id| {
-            ids.insert(id.clone());
+            self.seen_msg_ids.lock().unwrap().insert(id.clone());
             trace!(id = id, "Sent message");
             id
         })
@@ -519,6 +513,25 @@ pub enum GraphcastAgentError {
     ConvertMultiaddrError,
     #[error("Unknown error: {0}")]
     Other(anyhow::Error),
+}
+
+/// Establish handler for incoming Waku messages
+pub fn register_handler(
+    sender: Arc<SyncMutex<Sender<WakuMessage>>>,
+    seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
+) -> Result<(), GraphcastAgentError> {
+    let handle_async = move |signal: Signal| {
+        let msg = handle_signal(signal, &seen_msg_ids);
+
+        if let Ok(m) = msg {
+            match sender.clone().lock().unwrap().send(m) {
+                Ok(_) => trace!("Sent received message to radio operator"),
+                Err(e) => error!("Could not send message to channel: {:#?}", e),
+            }
+        }
+    };
+    waku_set_event_callback(handle_async);
+    Ok(())
 }
 
 impl GraphcastAgentError {

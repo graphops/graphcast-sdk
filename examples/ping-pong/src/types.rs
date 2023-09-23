@@ -2,7 +2,7 @@ use async_graphql::SimpleObject;
 use ethers_contract::EthAbiType;
 use ethers_core::types::transaction::eip712::Eip712;
 use ethers_derive_eip712::*;
-use graphcast_sdk::graphcast_agent::GraphcastAgent;
+
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -15,11 +15,6 @@ use std::sync::{Arc, Mutex};
 /// defer their processing for later, because async code is required for the processing but
 /// it is not allowed in the handler itself.
 pub static MESSAGES: OnceCell<Arc<Mutex<Vec<SimpleMessage>>>> = OnceCell::new();
-
-/// The Graphcast Agent instance must be a global static variable (for the time being).
-/// This is because the Radio handler requires a static immutable context and
-/// the handler itself is being passed into the Graphcast Agent, so it needs to be static as well.
-pub static GRAPHCAST_AGENT: OnceCell<GraphcastAgent> = OnceCell::new();
 
 /// Make a test radio type
 #[derive(Eip712, EthAbiType, Clone, Message, Serialize, Deserialize, SimpleObject)]

@@ -1,8 +1,9 @@
 use prost::Message;
+use std::sync::Mutex as SyncMutex;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{collections::HashSet, time::Duration};
 use std::{net::IpAddr, str::FromStr};
-use tokio::sync::Mutex as AsyncMutex;
+
 use tracing::{debug, error, info, trace};
 use url::ParseError;
 use waku::{
@@ -413,16 +414,16 @@ pub fn boot_node_handle(
 }
 
 /// Parse and validate incoming message
-pub async fn handle_signal(
+pub fn handle_signal(
     signal: Signal,
-    old_message_ids: &Arc<AsyncMutex<HashSet<String>>>,
+    seen_msg_ids: &Arc<SyncMutex<HashSet<String>>>,
 ) -> Result<WakuMessage, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
-    let mut ids = old_message_ids.lock().await;
     match signal.event() {
         waku::Event::WakuMessage(event) => {
             let msg_id = event.message_id();
             trace!(msg_id, "Received message id",);
+            let mut ids = seen_msg_ids.lock().unwrap();
             if ids.contains(msg_id) {
                 trace!(msg_id, "Skip repeated message");
                 return Err(WakuHandlingError::InvalidMessage(format!(
@@ -543,6 +544,8 @@ pub enum WakuHandlingError {
     ParsePortError(#[from] ParseIntError),
     #[error("Unable to create waku node: {}", .0)]
     CreateNodeError(String),
+    #[error("Unable to stop waku node: {}", .0)]
+    StopNodeError(String),
     #[error("Unable to get peer information: {}", .0)]
     PeerInfoError(String),
     #[error(transparent)]
@@ -561,6 +564,7 @@ impl WakuHandlingError {
             WakuHandlingError::InvalidMessage(_) => "InvalidMessage",
             WakuHandlingError::ParsePortError(_) => "ParsePortError",
             WakuHandlingError::CreateNodeError(_) => "CreateNodeError",
+            WakuHandlingError::StopNodeError(_) => "StopNodeError",
             WakuHandlingError::PeerInfoError(_) => "PeerInfoError",
             WakuHandlingError::QueryResponseError(_) => "QueryResponseError",
             WakuHandlingError::Other(_) => "Other",

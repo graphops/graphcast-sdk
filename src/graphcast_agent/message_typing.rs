@@ -287,7 +287,7 @@ impl<
         }
     }
 
-    pub async fn decode(payload: &[u8]) -> Result<Self, WakuHandlingError> {
+    pub fn decode(payload: &[u8]) -> Result<Self, WakuHandlingError> {
         match <GraphcastMessage<T> as Message>::decode(payload) {
             Ok(graphcast_message) => Ok(graphcast_message),
             Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
