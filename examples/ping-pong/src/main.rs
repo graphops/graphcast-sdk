@@ -1,6 +1,9 @@
 use chrono::Utc;
 // Load environment variables from .env file
 use dotenv::dotenv;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::signal;
+
 // Import Arc and Mutex for thread-safe sharing of data across threads
 use std::sync::{mpsc, Arc, Mutex};
 // Import Graphcast SDK types and functions for agent configuration, message handling, and more
@@ -24,7 +27,7 @@ use types::SimpleMessage;
 // Import Config from the crate's config module
 use config::Config;
 
-use crate::types::{GRAPHCAST_AGENT, MESSAGES};
+use crate::types::MESSAGES;
 
 // Include the local config and types modules
 mod config;
@@ -36,6 +39,40 @@ async fn main() {
     let radio_name = "ping-pong".to_string();
     // Loads the environment variables from .env
     dotenv().ok();
+
+    let running = Arc::new(AtomicBool::new(true));
+    let listen_running = running.clone();
+
+    tokio::spawn(async move {
+        let ctrl_c = async {
+            signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl+C handler");
+        };
+
+        #[cfg(unix)]
+        let sigterm = async {
+            signal::unix::signal(signal::unix::SignalKind::terminate())
+                .expect("failed to install signal handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let sigterm = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => {
+                println!("Ctrl+C received! Shutting down...");
+            }
+            _ = sigterm => {
+                println!("SIGTERM received! Shutting down...");
+            }
+        }
+        // Set running boolean to false
+        debug!("Finish the current running processes...");
+        listen_running.store(false, Ordering::SeqCst)
+    });
 
     // Instantiates the configuration struct based on provided environment variables or CLI args
     let config = Config::args();
@@ -71,12 +108,11 @@ async fn main() {
 
     let (sender, receiver) = mpsc::channel::<WakuMessage>();
     debug!("Initializing the Graphcast Agent");
-    let graphcast_agent = GraphcastAgent::new(graphcast_agent_config, sender)
+    let graphcast_agent = GraphcastAgent::new(graphcast_agent_config, sender.clone())
         .await
         .expect("Could not create Graphcast agent");
-
-    // A one-off setter to load the Graphcast Agent into the global static variable
-    _ = GRAPHCAST_AGENT.set(graphcast_agent);
+    // Original sender not used, simply drop it
+    drop(sender);
 
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
@@ -84,57 +120,53 @@ async fn main() {
     // The handler specifies what to do with incoming messages.
     // This is where you can define multiple message types and how they gets handled by the radio
     // by chaining radio payload typed decode and handler functions
-    tokio::spawn(async move {
-        for msg in receiver {
-            trace!(
-                "Radio operator received a Waku message from Graphcast agent, now try to fit it to Graphcast Message with Radio specified payload"
-            );
-            let _ = GraphcastMessage::<SimpleMessage>::decode(msg.payload())
-                .await
-                .map(|msg| {
-                    msg.payload.radio_handler();
-                })
-                .map_err(|err| {
-                    error!(
-                        error = tracing::field::debug(&err),
-                        "Failed to handle Waku signal"
+    let receiver_running = running.clone();
+    let receiver_handler = tokio::spawn(async move {
+        while receiver_running.load(Ordering::SeqCst) {
+            match receiver.recv() {
+                Ok(msg) => {
+                    trace!(
+                        "Radio operator received a Waku message from Graphcast agent, now try to fit it to Graphcast Message with Radio specified payload"
                     );
-                    err
-                });
+                    let _ = GraphcastMessage::<SimpleMessage>::decode(msg.payload())
+                        .map(|msg| {
+                            msg.payload.radio_handler();
+                        })
+                        .map_err(|err| {
+                            error!(
+                                error = tracing::field::debug(&err),
+                                "Failed to handle Waku signal"
+                            );
+                            err
+                        });
+                }
+                Err(e) => {
+                    trace!(e = e.to_string(), "All senders have been dropped, exiting");
+                    break;
+                }
+            }
         }
     });
 
-    GRAPHCAST_AGENT
-        .get()
-        .expect("Could not retrieve Graphcast agent")
-        .register_handler()
-        .expect("Could not register handler");
+    // Main loop of the application
+    _ = main_loop(&graphcast_agent, running).await;
 
-    main_loop().await;
-}
+    match graphcast_agent.stop() {
+        Ok(_) => {
+            debug!("Graphcast agent successful shutdown");
+            receiver_handler.await.unwrap();
+            debug!("Operator message receiver successful shutdown");
+        }
+        Err(e) => panic!("Cannot shutdown Graphcast agent: {:#?}", e),
+    }
 
-// Helper function to reuse message sending code
-async fn send_message(payload: SimpleMessage) {
-    if let Err(e) = GRAPHCAST_AGENT
-        .get()
-        .expect("Could not retrieve Graphcast agent")
-        .send_message(
-            // The identifier can be any string that suits your Radio logic
-            // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
-            "ping-pong-content-topic",
-            payload,
-            Utc::now().timestamp(),
-        )
-        .await
-    {
-        error!(error = tracing::field::debug(&e), "Failed to send message");
-    };
+    debug!("Exiting the program");
 }
 
 /// Main event loop to send ping and respond pong
-async fn main_loop() {
+async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
     let mut block_number = 0;
-    loop {
+    while running.load(Ordering::SeqCst) {
         block_number += 1;
         info!(block = block_number, "🔗 Block number");
         if block_number & 2 == 0 {
@@ -143,7 +175,19 @@ async fn main_loop() {
                 "table".to_string(),
                 std::env::args().nth(1).unwrap_or("Ping".to_string()),
             );
-            send_message(msg).await;
+            if let Err(e) = agent
+                .send_message(
+                    // The identifier can be any string that suits your Radio logic
+                    // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
+                    "ping-pong-content-topic",
+                    msg,
+                    Utc::now().timestamp(),
+                )
+                .await
+            {
+                error!(error = tracing::field::debug(&e), "Failed to send message");
+            };
+            // agent.send_message(msg).await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(
@@ -156,7 +200,17 @@ async fn main_loop() {
             for msg in messages.lock().await.iter() {
                 if msg.content == *"Ping" {
                     let replay_msg = SimpleMessage::new("table".to_string(), "Pong".to_string());
-                    send_message(replay_msg).await;
+                    // send_message(replay_msg).await;
+                    if let Err(e) = agent
+                        .send_message(
+                            "ping-pong-content-topic",
+                            replay_msg,
+                            Utc::now().timestamp(),
+                        )
+                        .await
+                    {
+                        error!(error = tracing::field::debug(&e), "Failed to send message");
+                    };
                 };
             }
 
