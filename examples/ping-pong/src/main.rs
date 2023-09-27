@@ -1,7 +1,10 @@
 use chrono::Utc;
 // Load environment variables from .env file
 use dotenv::dotenv;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    process,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use tokio::signal;
 
 // Import Arc and Mutex for thread-safe sharing of data across threads
@@ -63,15 +66,19 @@ async fn main() {
 
         tokio::select! {
             _ = ctrl_c => {
-                println!("Ctrl+C received! Shutting down...");
+                info!("Ctrl+C received! Shutting down...");
             }
             _ = sigterm => {
-                println!("SIGTERM received! Shutting down...");
+                info!("SIGTERM received! Shutting down...");
             }
         }
         // Set running boolean to false
         debug!("Finish the current running processes...");
-        listen_running.store(false, Ordering::SeqCst)
+        listen_running.store(false, Ordering::SeqCst);
+
+        sleep(Duration::from_secs(5));
+        debug!("Allowed 5 seconds for graceful shutdown, force exit");
+        process::exit(1);
     });
 
     // Instantiates the configuration struct based on provided environment variables or CLI args
