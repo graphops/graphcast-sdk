@@ -202,6 +202,8 @@ fn node_config(
         store_retention_max_messages: None,
         store_retention_max_seconds: None,
         gossipsub_params: Some(gossipsub_params),
+        dns4_domain_name: None,
+        websocket_params: None,
     })
 }
 
