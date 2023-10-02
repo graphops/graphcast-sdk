@@ -1,6 +1,6 @@
 [package]
 name = "graphcast-sdk"
-version = "0.4.3"
+version = "0.5.0-alpha.1"
 edition = "2021"
 authors = ["GraphOps (axiomatic-aardvark, hopeyen)"]
 description = "SDK to build Graphcast Radios"
