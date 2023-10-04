@@ -90,14 +90,6 @@ pub fn filter_peer_subscriptions(
         .peers()
         .map_err(WakuHandlingError::RetrievePeersError)?
         .iter()
-        .filter(|&peer| {
-            // Filter out local peer_id to prevent self dial
-            peer.peer_id().as_str()
-                != node_handle
-                    .peer_id()
-                    .expect("Failed to find local node's peer id")
-                    .as_str()
-        })
         .map(|peer: &WakuPeerData| {
             // subscribe to all other peers
             let filter_res = node_handle.filter_subscribe(
@@ -166,7 +158,7 @@ fn node_config(
             "PANIC" => WakuLogLevel::Panic,
             _ => WakuLogLevel::Warn,
         },
-        Err(_) => WakuLogLevel::Error,
+        Err(_) => WakuLogLevel::Panic,
     };
 
     let gossipsub_params = GossipSubParams {
@@ -495,26 +487,42 @@ pub fn peers_data(
 }
 
 /// Check for peer connectivity, try to reconnect if there are disconnected peers
-pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHandlingError> {
-    peers_data(node_handle)?
-        .iter()
-        // Get unconnected peers and try to reconnect
-        .filter(|&peer| !peer.connected())
-        .map(|peer: &WakuPeerData| {
-            debug!(
-                peer = tracing::field::debug(&peer),
-                "Disconnected peer data"
-            );
-            node_handle.connect_peer_with_id(peer.peer_id(), None)
-        })
-        .for_each(|res| {
-            if let Err(e) = res {
-                debug!(
-                    error = tracing::field::debug(&e),
-                    "Could not connect to peer"
-                );
+pub fn network_check(
+    node_handle: &WakuNodeHandle<Running>,
+    filter_protocol_enabled: bool,
+) -> Result<(), WakuHandlingError> {
+    let peers = peers_data(node_handle)?;
+
+    for peer in peers.iter() {
+        let supports_filter = peer
+            .protocols()
+            .iter()
+            .any(|p| p == "/vac/waku/filter/2.0.0-beta1");
+        let supports_lightpush = peer
+            .protocols()
+            .iter()
+            .any(|p| p == "/vac/waku/lightpush/2.0.0-beta1");
+        let supports_relay = peer
+            .protocols()
+            .iter()
+            .any(|p| p == "/vac/waku/relay/2.0.0");
+
+        let should_check_filter = filter_protocol_enabled && supports_filter;
+        let should_check_relay = !filter_protocol_enabled && supports_relay;
+
+        if supports_lightpush && (should_check_filter || should_check_relay) {
+            if !peer.connected() {
+                if let Err(e) = node_handle.connect_peer_with_id(peer.peer_id(), None) {
+                    debug!(
+                        error = tracing::field::debug(&e),
+                        "Could not connect to peer"
+                    );
+                }
             }
-        });
+        } else {
+            node_handle.disconnect_peer_with_id(peer.peer_id()).unwrap();
+        }
+    }
     Ok(())
 }
 

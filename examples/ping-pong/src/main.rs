@@ -89,6 +89,8 @@ async fn main() {
     // if not provided then they are usually generated based on indexer allocations
     let subtopics: Vec<String> = vec!["ping-pong-content-topic".to_string()];
 
+    let discovery_enr = "enr:-P-4QJI8tS1WTdIQxq_yIrD05oIIW1Xg-tm_qfP0CHfJGnp9dfr6ttQJmHwTNxGEl4Le8Q7YHcmi-kXTtphxFysS11oBgmlkgnY0gmlwhLymh5GKbXVsdGlhZGRyc7hgAC02KG5vZGUtMDEuZG8tYW1zMy53YWt1djIucHJvZC5zdGF0dXNpbS5uZXQGdl8ALzYobm9kZS0wMS5kby1hbXMzLndha3V2Mi5wcm9kLnN0YXR1c2ltLm5ldAYfQN4DiXNlY3AyNTZrMaEDbl1X_zJIw3EAJGtmHMVn4Z2xhpSoUaP5ElsHKCv7hlWDdGNwgnZfg3VkcIIjKIV3YWt1Mg8".to_string();
+
     // GraphcastAgentConfig defines the configuration that the SDK expects from all Radios, regardless of their specific functionality
     let graphcast_agent_config = GraphcastAgentConfig::new(
         config.private_key.expect("No private key provided"),
@@ -106,8 +108,7 @@ async fn main() {
         None,
         None,
         Some(true),
-        // Example ENR address
-        Some(vec![String::from("enr:-JK4QBcfVXu2YDeSKdjF2xE5EDM5f5E_1Akpkv_yw_byn1adESxDXVLVjapjDvS_ujx6MgWDu9hqO_Az_CbKLJ8azbMBgmlkgnY0gmlwhAVOUWOJc2VjcDI1NmsxoQOUZIqKLk5xkiH0RAFaMGrziGeGxypJ03kOod1-7Pum3oN0Y3CCfJyDdWRwgiMohXdha3UyDQ")]),
+        Some(vec![discovery_enr]),
         None,
     )
     .await
@@ -178,10 +179,7 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
         info!(block = block_number, "🔗 Block number");
         if block_number & 2 == 0 {
             // If block number is even, send ping message
-            let msg = SimpleMessage::new(
-                "table".to_string(),
-                std::env::args().nth(1).unwrap_or("Ping".to_string()),
-            );
+            let msg = SimpleMessage::new("table".to_string(), "Ping".to_string());
             if let Err(e) = agent
                 .send_message(
                     // The identifier can be any string that suits your Radio logic
@@ -193,6 +191,8 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
                 .await
             {
                 error!(error = tracing::field::debug(&e), "Failed to send message");
+            } else {
+                debug!("Ping message sent successfully")
             };
             // agent.send_message(msg).await;
         } else {
@@ -217,7 +217,9 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
                         .await
                     {
                         error!(error = tracing::field::debug(&e), "Failed to send message");
-                    };
+                    } else {
+                        debug!("Pong message sent successfully")
+                    }
                 };
             }
 

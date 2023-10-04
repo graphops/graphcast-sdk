@@ -134,14 +134,7 @@ impl<
             .map_err(WakuHandlingError::RetrievePeersError)
             .unwrap_or_default()
             .iter()
-            .filter(|&peer| {
-                // Filter out local peer_id to prevent self dial
-                peer.peer_id().as_str()
-                    != node_handle
-                        .peer_id()
-                        .expect("Failed to find local node's peer id")
-                        .as_str()
-            })
+            .filter(|&peer| peer.connected())
             .map(|peer: &WakuPeerData| {
                 // Filter subscribe to all other peers
                 node_handle
