@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Repo link in unrecognised chain message (#265)
 - Graph account owned current version hash query
 - Discv5 toggle
+- Boot node connections
 
 ### Documentation
 
@@ -49,6 +50,7 @@ All notable changes to this project will be documented in this file.
 - Add waku error type string
 - Replace Polygon with Matic
 - Peer node data helper fns
+- Limit graceful shutdown interval and add force exit
 
 ### Miscellaneous Tasks
 
@@ -90,7 +92,14 @@ All notable changes to this project will be documented in this file.
 - Update labels workflow
 - Release 0.4.1
 - Release 0.4.2
+- Release 0.4.2
 - Release 0.4.3
+- Remove labels workflow
+- Update waku rust binding for sni fix
+- Update bindings version to use crates.io
+- Release 0.5.0-alpha1
+- Waku version 0.3.1 for peer count fix
+- Release 0.5.0
 
 ### Refactor
 
@@ -114,6 +123,8 @@ All notable changes to this project will be documented in this file.
 - Resolve for latest deployment hash instead of a vec
 - Move msg channel and re-export waku msg type
 - Refactor message decoding
+- Move main loop to dedicated function
+- Agent signal handler and waku msg receiver repositioned
 
 ## [0.0.13] - 2023-03-07
 
