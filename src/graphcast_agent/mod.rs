@@ -208,6 +208,8 @@ pub struct GraphcastAgent {
     /// Upon receiving a valid waku signal event of Message type, sender send WakuMessage through mpsc.
     //TODO: currently agent returns the receiver to radio operator, such that radio handler can process WakuMessage however they want. Ideally we should keep WakuMessage within graphcast agent, but for now radio operator is required call generic decode with the specified types. Later we investigate an approach to dynamically register the types during runtime
     pub sender: Arc<SyncMutex<Sender<WakuMessage>>>,
+    /// Keeps track of whether Filter protocol is enabled, if false -> we're using Relay protocol
+    pub filter_protocol_enabled: bool,
 }
 
 impl GraphcastAgent {
@@ -335,6 +337,7 @@ impl GraphcastAgent {
             seen_msg_ids,
             id_validation,
             sender,
+            filter_protocol_enabled: filter_protocol.is_some(),
         })
     }
 
@@ -439,7 +442,8 @@ impl GraphcastAgent {
         );
 
         // Check network before sending a message
-        network_check(&self.node_handle).map_err(GraphcastAgentError::WakuNodeError)?;
+        network_check(&self.node_handle, self.filter_protocol_enabled)
+            .map_err(GraphcastAgentError::WakuNodeError)?;
         trace!(
             address = &wallet_address(&self.graphcast_identity.wallet),
             "local sender id"
@@ -530,6 +534,8 @@ pub fn register_handler(
             }
         }
     };
+
+    trace!("Registering handler");
     waku_set_event_callback(handle_async);
     Ok(())
 }
