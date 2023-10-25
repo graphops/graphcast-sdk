@@ -94,7 +94,7 @@ impl GraphcastAgentConfig {
         discv5_enrs: Option<Vec<String>>,
         discv5_port: Option<u16>,
     ) -> Result<Self, GraphcastAgentError> {
-        let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or(vec![]))
+        let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or_default())
             .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
 
         let config = GraphcastAgentConfig {
@@ -107,7 +107,7 @@ impl GraphcastAgentConfig {
             boot_node_addresses,
             graphcast_namespace,
             id_validation,
-            subtopics: subtopics.unwrap_or(vec![]),
+            subtopics: subtopics.unwrap_or_default(),
             waku_node_key,
             waku_host,
             waku_port,
@@ -205,9 +205,6 @@ pub struct GraphcastAgent {
     pub seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
     /// Sender identity validation mechanism used by the Graphcast agent
     pub id_validation: IdentityValidation,
-    /// Upon receiving a valid waku signal event of Message type, sender send WakuMessage through mpsc.
-    //TODO: currently agent returns the receiver to radio operator, such that radio handler can process WakuMessage however they want. Ideally we should keep WakuMessage within graphcast agent, but for now radio operator is required call generic decode with the specified types. Later we investigate an approach to dynamically register the types during runtime
-    pub sender: Arc<SyncMutex<Sender<WakuMessage>>>,
     /// Keeps track of whether Filter protocol is enabled, if false -> we're using Relay protocol
     pub filter_protocol_enabled: bool,
 }
@@ -322,9 +319,8 @@ impl GraphcastAgent {
 
         let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
 
-        let sender = Arc::new(SyncMutex::new(sender));
         let seen_msg_ids = Arc::new(SyncMutex::new(HashSet::new()));
-        register_handler(sender.clone(), seen_msg_ids.clone()).expect("Could not register handler");
+        register_handler(sender, seen_msg_ids.clone()).expect("Could not register handler");
 
         Ok(GraphcastAgent {
             graphcast_identity,
@@ -336,22 +332,23 @@ impl GraphcastAgent {
             callbook,
             seen_msg_ids,
             id_validation,
-            sender,
             filter_protocol_enabled: filter_protocol.is_some(),
         })
     }
 
     /// Stop a GraphcastAgent instance
     pub fn stop(self) -> Result<(), GraphcastAgentError> {
-        debug!("Stop Waku node");
-        let r = self
-            .node_handle
+        trace!("Set an empty event callback");
+        waku_set_event_callback(|_| {});
+        debug!("Stop Waku gossip node");
+        self.node_handle
             .stop()
-            .map_err(|e| GraphcastAgentError::WakuNodeError(WakuHandlingError::StopNodeError(e)));
-        debug!("Drop Arc std sync mutexes");
+            .map_err(|e| GraphcastAgentError::WakuNodeError(WakuHandlingError::StopNodeError(e)))?;
+        trace!("Drop Arc std sync mutexes");
+        drop(self.content_topics);
+        drop(self.nonces);
         drop(self.seen_msg_ids);
-        drop(self.sender);
-        r
+        Ok(())
     }
 
     /// Get the number of peers excluding self
@@ -521,14 +518,14 @@ pub enum GraphcastAgentError {
 
 /// Establish handler for incoming Waku messages
 pub fn register_handler(
-    sender: Arc<SyncMutex<Sender<WakuMessage>>>,
+    sender: Sender<WakuMessage>,
     seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
 ) -> Result<(), GraphcastAgentError> {
     let handle_async = move |signal: Signal| {
         let msg = handle_signal(signal, &seen_msg_ids);
 
         if let Ok(m) = msg {
-            match sender.clone().lock().unwrap().send(m) {
+            match sender.send(m) {
                 Ok(_) => trace!("Sent received message to radio operator"),
                 Err(e) => error!("Could not send message to channel: {:#?}", e),
             }
