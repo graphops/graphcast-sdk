@@ -1,10 +1,7 @@
 use chrono::Utc;
 // Load environment variables from .env file
 use dotenv::dotenv;
-use std::{
-    process,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::signal;
 
 // Import Arc and Mutex for thread-safe sharing of data across threads
@@ -75,15 +72,10 @@ async fn main() {
         // Set running boolean to false
         debug!("Finish the current running processes...");
         listen_running.store(false, Ordering::SeqCst);
-
-        sleep(Duration::from_secs(5));
-        debug!("Allowed 5 seconds for graceful shutdown, force exit");
-        process::exit(1);
     });
 
     // Instantiates the configuration struct based on provided environment variables or CLI args
     let config = Config::args();
-    let _parent_span = tracing::info_span!("main").entered();
 
     // subtopics are optionally provided and used as the content topic identifier of the message subject,
     // if not provided then they are usually generated based on indexer allocations
@@ -116,11 +108,9 @@ async fn main() {
 
     let (sender, receiver) = mpsc::channel::<WakuMessage>();
     debug!("Initializing the Graphcast Agent");
-    let graphcast_agent = GraphcastAgent::new(graphcast_agent_config, sender.clone())
+    let graphcast_agent = GraphcastAgent::new(graphcast_agent_config, sender)
         .await
         .expect("Could not create Graphcast agent");
-    // Original sender not used, simply drop it
-    drop(sender);
 
     // A one-off setter to instantiate an empty vec before populating it with incoming messages
     _ = MESSAGES.set(Arc::new(Mutex::new(vec![])));
@@ -128,36 +118,27 @@ async fn main() {
     // The handler specifies what to do with incoming messages.
     // This is where you can define multiple message types and how they gets handled by the radio
     // by chaining radio payload typed decode and handler functions
-    let receiver_running = running.clone();
     let receiver_handler = tokio::spawn(async move {
-        while receiver_running.load(Ordering::SeqCst) {
-            match receiver.recv() {
-                Ok(msg) => {
-                    trace!(
+        while let Ok(msg) = receiver.recv() {
+            trace!(
                         "Radio operator received a Waku message from Graphcast agent, now try to fit it to Graphcast Message with Radio specified payload"
                     );
-                    let _ = GraphcastMessage::<SimpleMessage>::decode(msg.payload())
-                        .map(|msg| {
-                            msg.payload.radio_handler();
-                        })
-                        .map_err(|err| {
-                            error!(
-                                error = tracing::field::debug(&err),
-                                "Failed to handle Waku signal"
-                            );
-                            err
-                        });
-                }
-                Err(e) => {
-                    trace!(e = e.to_string(), "All senders have been dropped, exiting");
-                    break;
-                }
-            }
+            let _ = GraphcastMessage::<SimpleMessage>::decode(msg.payload())
+                .map(|msg| {
+                    msg.payload.radio_handler();
+                })
+                .map_err(|err| {
+                    error!(
+                        error = tracing::field::debug(&err),
+                        "Failed to handle Waku signal"
+                    );
+                    err
+                });
         }
     });
 
     // Main loop of the application
-    _ = main_loop(&graphcast_agent, running).await;
+    _ = main_loop(&graphcast_agent, running.clone()).await;
 
     match graphcast_agent.stop() {
         Ok(_) => {
