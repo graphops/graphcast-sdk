@@ -92,16 +92,16 @@ async fn main() {
         config.network_subgraph,
         config.id_validation.clone(),
         config.graph_node_endpoint,
-        None,
+        Some(config.boot_node_addresses),
         Some("testnet".to_string()),
         Some(subtopics),
         None,
         None,
-        None,
+        config.waku_port,
         None,
         Some(false),
         Some(vec![discovery_enr]),
-        None,
+        config.discv5_port,
     )
     .await
     .unwrap_or_else(|e| panic!("Could not create GraphcastAgentConfig: {e}"));
@@ -165,7 +165,7 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
                 .send_message(
                     // The identifier can be any string that suits your Radio logic
                     // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
-                    "ping-pong-content-topic",
+                    agent.content_identifiers().first().unwrap(),
                     msg,
                     Utc::now().timestamp(),
                 )
@@ -191,7 +191,7 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
                     // send_message(replay_msg).await;
                     if let Err(e) = agent
                         .send_message(
-                            "ping-pong-content-topic",
+                            agent.content_identifiers().first().unwrap(),
                             replay_msg,
                             Utc::now().timestamp(),
                         )

@@ -88,6 +88,27 @@ pub struct Config {
         indexer: must be registered at Graphcast Registry or is a Graph Account, correspond to and Indexer statisfying indexer minimum stake requirement"
     )]
     pub id_validation: IdentityValidation,
+    #[clap(
+        long,
+        value_name = "WAKU_PORT",
+        help = "Port for the Waku gossip client",
+        env = "WAKU_PORT"
+    )]
+    pub waku_port: Option<String>,
+    #[clap(
+        long,
+        value_name = "NODE_ADDRESSES",
+        help = "Comma separated static list of waku boot nodes to connect to",
+        env = "BOOT_NODE_ADDRESSES"
+    )]
+    pub boot_node_addresses: Vec<String>,
+    #[clap(
+        long,
+        value_name = "DISCV5_PORT",
+        help = "Waku node to expose discoverable udp port",
+        env = "DISCV5_PORT"
+    )]
+    pub discv5_port: Option<u16>,
 }
 
 impl Config {

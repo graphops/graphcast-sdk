@@ -411,6 +411,7 @@ pub fn boot_node_handle(
 pub fn handle_signal(
     signal: Signal,
     seen_msg_ids: &Arc<SyncMutex<HashSet<String>>>,
+    content_topics: &Arc<SyncMutex<Vec<WakuContentTopic>>>,
 ) -> Result<WakuMessage, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
     match signal.event() {
@@ -418,6 +419,7 @@ pub fn handle_signal(
             let msg_id = event.message_id();
             trace!(msg_id, "Received message id",);
             let mut ids = seen_msg_ids.lock().unwrap();
+            // Check if message has been received before or sent from local node
             if ids.contains(msg_id) {
                 trace!(msg_id, "Skip repeated message");
                 return Err(WakuHandlingError::InvalidMessage(format!(
@@ -426,6 +428,18 @@ pub fn handle_signal(
                 )));
             };
             ids.insert(msg_id.to_string());
+            let content_topic = event.waku_message().content_topic();
+            // Check if message belongs to a relevant topic
+            if !match_content_topic(content_topics, content_topic) {
+                trace!(
+                    topic = tracing::field::debug(content_topic),
+                    "Skip irrelevant content topic"
+                );
+                return Err(WakuHandlingError::InvalidMessage(format!(
+                    "Skip irrelevant content topic: {:#?}",
+                    content_topic
+                )));
+            };
             Ok(event.waku_message().clone())
         }
 
@@ -437,6 +451,15 @@ pub fn handle_signal(
             serde_json::to_string(&signal)
         ))),
     }
+}
+
+/// Check if a content topic exists in a list of topics
+pub fn match_content_topic(
+    content_topics: &Arc<SyncMutex<Vec<WakuContentTopic>>>,
+    topic: &WakuContentTopic,
+) -> bool {
+    trace!(topic = tracing::field::debug(topic), "Target content topic");
+    content_topics.lock().unwrap().iter().any(|t| t == topic)
 }
 
 /// Parse and validate incoming message
