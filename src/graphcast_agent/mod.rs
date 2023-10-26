@@ -195,7 +195,7 @@ pub struct GraphcastAgent {
     /// Graphcast agent waku instance's pubsub topic
     pub pubsub_topic: WakuPubSubTopic,
     /// Graphcast agent waku instance's content topics
-    pub content_topics: Arc<AsyncMutex<Vec<WakuContentTopic>>>,
+    pub content_topics: Arc<SyncMutex<Vec<WakuContentTopic>>>,
     /// Nonces map for caching sender nonces in each subtopic
     pub nonces: Arc<AsyncMutex<NoncesMap>>,
     /// Callbook that make query requests
@@ -321,13 +321,15 @@ impl GraphcastAgent {
         let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
 
         let seen_msg_ids = Arc::new(SyncMutex::new(HashSet::new()));
-        register_handler(sender, seen_msg_ids.clone()).expect("Could not register handler");
+        let content_topics = Arc::new(SyncMutex::new(content_topics));
+        register_handler(sender, seen_msg_ids.clone(), content_topics.clone())
+            .expect("Could not register handler");
 
         Ok(GraphcastAgent {
             graphcast_identity,
             radio_name,
             pubsub_topic,
-            content_topics: Arc::new(AsyncMutex::new(content_topics)),
+            content_topics,
             node_handle,
             nonces: Arc::new(AsyncMutex::new(HashMap::new())),
             callbook,
@@ -360,36 +362,55 @@ impl GraphcastAgent {
         })
     }
 
+    /// Get Radio content topics in a Vec
+    pub fn content_topics(&self) -> Vec<WakuContentTopic> {
+        match self.content_topics.lock() {
+            Ok(topics) => topics.iter().cloned().collect(),
+            Err(e) => {
+                debug!(
+                    err = e.to_string(),
+                    "Graphcast Agent content topics poisoned"
+                );
+                vec![]
+            }
+        }
+    }
+
     /// Get identifiers of Radio content topics
-    pub async fn content_identifiers(&self) -> Vec<String> {
-        self.content_topics
-            .lock()
-            .await
-            .iter()
-            .cloned()
-            .map(|topic| topic.content_topic_name.into_owned())
-            .collect()
+    pub fn content_identifiers(&self) -> Vec<String> {
+        match self.content_topics.lock() {
+            Ok(topics) => topics
+                .iter()
+                .cloned()
+                .map(|topic| topic.content_topic_name.into_owned())
+                .collect(),
+            Err(e) => {
+                debug!(
+                    err = e.to_string(),
+                    "Graphcast Agent content topics poisoned"
+                );
+                vec![]
+            }
+        }
     }
 
     pub async fn print_subscriptions(&self) {
         info!(
             pubsub_topic = tracing::field::debug(&self.pubsub_topic),
-            content_topic = tracing::field::debug(&self.content_identifiers().await),
+            content_topic = tracing::field::debug(&self.content_identifiers()),
             "Subscriptions"
         );
     }
 
     /// Find the subscribed content topic with an identifier
     /// Error if topic doesn't exist
-    pub async fn match_content_topic(
+    pub fn match_content_topic_identifier(
         &self,
         identifier: &str,
     ) -> Result<WakuContentTopic, GraphcastAgentError> {
         trace!(topic = identifier, "Target content topic");
         match self
-            .content_topics
-            .lock()
-            .await
+            .content_topics()
             .iter()
             .find(|&x| x.content_topic_name == identifier)
         {
@@ -433,7 +454,7 @@ impl GraphcastAgent {
         payload: T,
         nonce: i64,
     ) -> Result<String, GraphcastAgentError> {
-        let content_topic = self.match_content_topic(identifier).await?;
+        let content_topic = self.match_content_topic_identifier(identifier)?;
         trace!(
             topic = tracing::field::debug(&content_topic),
             "Selected content topic from subscriptions"
@@ -467,7 +488,7 @@ impl GraphcastAgent {
     pub async fn update_content_topics(&self, subtopics: Vec<String>) {
         // build content topics
         let new_topics = build_content_topics(&self.radio_name, 0, &subtopics);
-        let mut cur_topics = self.content_topics.lock().await;
+        let cur_topics = self.content_topics();
 
         // Check if an update to the content topic is necessary
         if *cur_topics != new_topics {
@@ -488,6 +509,7 @@ impl GraphcastAgent {
             // Subscribe to the new content topics
             filter_peer_subscriptions(&self.node_handle, &self.pubsub_topic, &new_topics)
                 .expect("Connect and subscribe to subtopics");
+            let mut cur_topics = self.content_topics.lock().unwrap();
             *cur_topics = new_topics;
         }
         drop(cur_topics);
@@ -520,9 +542,10 @@ pub enum GraphcastAgentError {
 pub fn register_handler(
     sender: Sender<WakuMessage>,
     seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
+    content_topics: Arc<SyncMutex<Vec<WakuContentTopic>>>,
 ) -> Result<(), GraphcastAgentError> {
     let handle_async = move |signal: Signal| {
-        let msg = handle_signal(signal, &seen_msg_ids);
+        let msg = handle_signal(signal, &seen_msg_ids, &content_topics);
 
         if let Ok(m) = msg {
             match sender.send(m) {
