@@ -112,8 +112,8 @@ impl GraphcastAgentConfig {
             waku_host,
             waku_port,
             waku_addr,
-            // Extra handling here to make sure the default behavior is filter protocol enabled
-            filter_protocol: Some(filter_protocol.unwrap_or(true)),
+            // Extra handling here to make sure the default behavior is filter protocol disabled
+            filter_protocol: Some(filter_protocol.unwrap_or(false)),
             discv5_enrs: discv5_enrs.unwrap_or_default(),
             discv5_port,
         };
@@ -205,6 +205,7 @@ pub struct GraphcastAgent {
     pub seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
     /// Sender identity validation mechanism used by the Graphcast agent
     pub id_validation: IdentityValidation,
+    //TODO: Consider deprecating this field as it isn't utilized in network_check anymore
     /// Keeps track of whether Filter protocol is enabled, if false -> we're using Relay protocol
     pub filter_protocol_enabled: bool,
 }
@@ -439,8 +440,7 @@ impl GraphcastAgent {
         );
 
         // Check network before sending a message
-        network_check(&self.node_handle, self.filter_protocol_enabled)
-            .map_err(GraphcastAgentError::WakuNodeError)?;
+        network_check(&self.node_handle).map_err(GraphcastAgentError::WakuNodeError)?;
         trace!(
             address = &wallet_address(&self.graphcast_identity.wallet),
             "local sender id"

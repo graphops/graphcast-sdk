@@ -487,30 +487,15 @@ pub fn peers_data(
 }
 
 /// Check for peer connectivity, try to reconnect if there are disconnected peers
-pub fn network_check(
-    node_handle: &WakuNodeHandle<Running>,
-    filter_protocol_enabled: bool,
-) -> Result<(), WakuHandlingError> {
+pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHandlingError> {
     let peers = peers_data(node_handle)?;
 
     for peer in peers.iter() {
-        let supports_filter = peer
+        if peer
             .protocols()
             .iter()
-            .any(|p| p == "/vac/waku/filter/2.0.0-beta1");
-        let supports_lightpush = peer
-            .protocols()
-            .iter()
-            .any(|p| p == "/vac/waku/lightpush/2.0.0-beta1");
-        let supports_relay = peer
-            .protocols()
-            .iter()
-            .any(|p| p == "/vac/waku/relay/2.0.0");
-
-        let should_check_filter = filter_protocol_enabled && supports_filter;
-        let should_check_relay = !filter_protocol_enabled && supports_relay;
-
-        if supports_lightpush && (should_check_filter || should_check_relay) {
+            .any(|p| p == "/vac/waku/relay/2.0.0")
+        {
             if !peer.connected() {
                 if let Err(e) = node_handle.connect_peer_with_id(peer.peer_id(), None) {
                     debug!(
