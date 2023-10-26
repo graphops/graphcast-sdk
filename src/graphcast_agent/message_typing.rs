@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{debug, error, trace};
-use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic};
+use waku::{Running, WakuContentTopic, WakuMessage, WakuNodeHandle, WakuPubSubTopic};
 
 use crate::{
     callbook::CallBook,
@@ -129,37 +129,15 @@ impl<
         );
         trace!(message = tracing::field::debug(&self), "Sending message");
 
-        let sent_result: Vec<Result<String, WakuHandlingError>> = node_handle
-            .peers()
-            .map_err(WakuHandlingError::RetrievePeersError)
-            .unwrap_or_default()
-            .iter()
-            .filter(|&peer| peer.connected())
-            .map(|peer: &WakuPeerData| {
-                // Filter subscribe to all other peers
-                node_handle
-                    .lightpush_publish(
-                        &waku_message,
-                        Some(pubsub_topic.clone()),
-                        peer.peer_id().to_string(),
-                        None,
-                    )
-                    .map_err(|e| {
-                        debug!(
-                            error = tracing::field::debug(&e),
-                            "Failed to send message to Waku peer"
-                        );
-                        WakuHandlingError::PublishMessage(e)
-                    })
+        node_handle
+            .relay_publish_message(&waku_message, Some(pubsub_topic.clone()), None)
+            .map_err(|e| {
+                debug!(
+                    error = tracing::field::debug(&e),
+                    "Failed to relay publish the message"
+                );
+                WakuHandlingError::PublishMessage(e)
             })
-            .collect();
-        // The message id is the same for all successful publish
-        sent_result
-            .into_iter()
-            .find_map(|res| res.ok())
-            .ok_or(WakuHandlingError::PublishMessage(
-                "Message could not be sent to any peers".to_string(),
-            ))
     }
 
     /// Check message from valid sender: resolve indexer address and self stake

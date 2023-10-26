@@ -99,7 +99,7 @@ async fn main() {
         None,
         None,
         None,
-        Some(true),
+        Some(false),
         Some(vec![discovery_enr]),
         None,
     )
