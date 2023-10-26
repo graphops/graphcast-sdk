@@ -11,11 +11,15 @@
 //!
 use self::message_typing::{BuildMessageError, GraphcastMessage, IdentityValidation};
 use self::waku_handling::{
-    build_content_topics, filter_peer_subscriptions, handle_signal, network_check, pubsub_topic,
+    build_content_topics, filter_peer_subscriptions, handle_signal, pubsub_topic,
     setup_node_handle, WakuHandlingError,
 };
 use ethers::signers::WalletError;
+
 use prost::Message;
+use serde::{Deserialize, Serialize};
+
+use async_graphql::{self, Result, SimpleObject};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
@@ -26,7 +30,7 @@ use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
 use waku::{
     waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuMessage,
-    WakuNodeHandle, WakuPubSubTopic,
+    WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 use crate::Account;
@@ -461,7 +465,8 @@ impl GraphcastAgent {
         );
 
         // Check network before sending a message
-        network_check(&self.node_handle).map_err(GraphcastAgentError::WakuNodeError)?;
+        self.network_check()
+            .map_err(GraphcastAgentError::WakuNodeError)?;
         trace!(
             address = &wallet_address(&self.graphcast_identity.wallet),
             "local sender id"
@@ -513,6 +518,74 @@ impl GraphcastAgent {
             *cur_topics = new_topics;
         }
         drop(cur_topics);
+    }
+
+    /// Get local node peer data
+    pub fn local_peer(&self) -> Option<WakuPeerData> {
+        let binding = self
+            .node_handle
+            .peer_id()
+            .expect("Failed to get local node's peer id");
+        let local_id = binding.as_str();
+
+        let peers = self.node_handle.peers().ok()?;
+        peers.into_iter().find(|p| p.peer_id().as_str() == local_id)
+    }
+
+    /// Get all peers data aside from the local node
+    pub fn peers_data(&self) -> Result<Vec<WakuPeerData>, WakuHandlingError> {
+        let binding = self
+            .node_handle
+            .peer_id()
+            .expect("Failed to get local node's peer id");
+        let local_id = binding.as_str();
+
+        let peers = self.node_handle.peers();
+        trace!(peers = tracing::field::debug(&peers), "Network peers");
+
+        let peers = peers.map_err(WakuHandlingError::RetrievePeersError)?;
+        Ok(peers
+            .into_iter()
+            .filter(|p| p.peer_id().as_str() != local_id)
+            .collect())
+    }
+
+    /// Check for peer connectivity, try to reconnect if there are disconnected peers
+    pub fn network_check(&self) -> Result<(), WakuHandlingError> {
+        let peers = self.peers_data()?;
+
+        for peer in peers.iter() {
+            if peer
+                .protocols()
+                .iter()
+                .any(|p| p == "/vac/waku/relay/2.0.0")
+            {
+                if !peer.connected() {
+                    if let Err(e) = self.node_handle.connect_peer_with_id(peer.peer_id(), None) {
+                        debug!(
+                            error = tracing::field::debug(&e),
+                            "Could not connect to peer"
+                        );
+                    }
+                }
+            } else {
+                self.node_handle
+                    .disconnect_peer_with_id(peer.peer_id())
+                    .unwrap();
+            }
+        }
+        Ok(())
+    }
+
+    /// Get connected peers
+    pub fn connected_peer_count(&self) -> Result<usize, WakuHandlingError> {
+        Ok(self
+            .peers_data()?
+            .into_iter()
+            // filter for nodes that are not self and disconnected
+            .filter(|peer| peer.connected())
+            .collect::<Vec<WakuPeerData>>()
+            .len())
     }
 }
 
@@ -574,6 +647,19 @@ impl GraphcastAgentError {
             GraphcastAgentError::Other(_) => "Other",
         }
     }
+}
+
+/// Peer data from known/connected waku nodes
+#[derive(Serialize, Deserialize, Clone, Debug, SimpleObject)]
+pub struct PeerData {
+    /// Waku peer id
+    pub peer_id: String,
+    /// Supported node protocols
+    pub protocols: Vec<String>,
+    /// Node available addresses
+    pub addresses: Vec<String>,
+    /// Already connected flag
+    pub connected: bool,
 }
 
 #[cfg(test)]

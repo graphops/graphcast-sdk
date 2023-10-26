@@ -490,62 +490,6 @@ pub async fn generic_graphcast_check<
     }
 }
 
-/// Get all peers data aside from the local node
-pub fn peers_data(
-    node_handle: &WakuNodeHandle<Running>,
-) -> Result<Vec<WakuPeerData>, WakuHandlingError> {
-    let binding = node_handle
-        .peer_id()
-        .expect("Failed to get local node's peer id");
-    let local_id = binding.as_str();
-
-    let peers = node_handle.peers();
-    trace!(peers = tracing::field::debug(&peers), "Network peers");
-
-    let peers = peers.map_err(WakuHandlingError::RetrievePeersError)?;
-    Ok(peers
-        .into_iter()
-        .filter(|p| p.peer_id().as_str() != local_id)
-        .collect())
-}
-
-/// Check for peer connectivity, try to reconnect if there are disconnected peers
-pub fn network_check(node_handle: &WakuNodeHandle<Running>) -> Result<(), WakuHandlingError> {
-    let peers = peers_data(node_handle)?;
-
-    for peer in peers.iter() {
-        if peer
-            .protocols()
-            .iter()
-            .any(|p| p == "/vac/waku/relay/2.0.0")
-        {
-            if !peer.connected() {
-                if let Err(e) = node_handle.connect_peer_with_id(peer.peer_id(), None) {
-                    debug!(
-                        error = tracing::field::debug(&e),
-                        "Could not connect to peer"
-                    );
-                }
-            }
-        } else {
-            node_handle.disconnect_peer_with_id(peer.peer_id()).unwrap();
-        }
-    }
-    Ok(())
-}
-
-/// Get connected peers
-pub fn connected_peer_count(
-    node_handle: &WakuNodeHandle<Running>,
-) -> Result<usize, WakuHandlingError> {
-    Ok(peers_data(node_handle)?
-        .into_iter()
-        // filter for nodes that are not self and disconnected
-        .filter(|peer| peer.connected())
-        .collect::<Vec<WakuPeerData>>()
-        .len())
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum WakuHandlingError {
     #[error(transparent)]
