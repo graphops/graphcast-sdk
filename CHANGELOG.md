@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Graph account owned current version hash query
 - Discv5 toggle
 - Boot node connections
+- Empty set_waku_event_callback at shutdown, refactor mpsc sender
 
 ### Documentation
 
@@ -51,31 +52,15 @@ All notable changes to this project will be documented in this file.
 - Replace Polygon with Matic
 - Peer node data helper fns
 - Limit graceful shutdown interval and add force exit
+- Add content topic check at message handle
+- PeerData GraphQL type, refactor peer helpers
 
 ### Miscellaneous Tasks
 
 - V0.0.14 (#137)
-- Bump thiserror from 1.0.39 to 1.0.40 (#145)
-- Bump actions/setup-go from 3 to 4 (#146)
-- Bump serde from 1.0.156 to 1.0.158 (#144)
-- Bump pascalgn/automerge-action from 0.8.0 to 0.15.6
-- Bump reqwest from 0.11.14 to 0.11.16
-- Bump serde_json from 1.0.94 to 1.0.95
-- Bump ethers-core from 2.0.0 to 2.0.1
-- Bump toml from 0.5.11 to 0.7.3
-- Bump anyhow from 1.0.69 to 1.0.70
-- Bump ethers from 2.0.0 to 2.0.1
 - Bump version
-- Bump ethers-contract from 2.0.1 to 2.0.2
-- Bump ethers-derive-eip712 from 2.0.0 to 2.0.1
-- Bump serde from 1.0.158 to 1.0.159
-- Bump tokio from 1.26.0 to 1.27.0
-- Bump slack-morphism from 1.8.0 to 1.9.0
 - 0.0.17
-- Bump ethers from 2.0.1 to 2.0.2
-- Bump slack-morphism from 1.9.0 to 1.10.0
 - Remove dependabot auto-merge
-- Bump prometheus-http-query from 0.6.5 to 0.6.6
 - Add e2e test helpers
 - Release v0.1.1
 - Release vv0.1.2
@@ -97,9 +82,10 @@ All notable changes to this project will be documented in this file.
 - Remove labels workflow
 - Update waku rust binding for sni fix
 - Update bindings version to use crates.io
-- Release 0.5.0-alpha1
+- Release 0.5.0
 - Waku version 0.3.1 for peer count fix
 - Release 0.5.0
+- Release 0.5.1
 
 ### Refactor
 
@@ -125,6 +111,7 @@ All notable changes to this project will be documented in this file.
 - Refactor message decoding
 - Move main loop to dedicated function
 - Agent signal handler and waku msg receiver repositioned
+- Default to relay protocol - relay_publish messages
 
 ## [0.0.13] - 2023-03-07
 
@@ -159,10 +146,6 @@ All notable changes to this project will be documented in this file.
 ### Miscellaneous Tasks
 
 - Add husky hook + dependabot (#65)
-- Bump slack-morphism from 1.4.2 to 1.5.0 (#72)
-- Bump serde_json from 1.0.91 to 1.0.92 (#73)
-- Bump anyhow from 1.0.68 to 1.0.69 (#74)
-- Bump serde_json from 1.0.92 to 1.0.93 (#83)
 - Publish to crates.io
 - Bump version
 - Bump waku bindings
