@@ -260,12 +260,11 @@ impl<T: RadioPayload> GraphcastMessage<T> {
     }
 
     pub fn decode(payload: &[u8]) -> Result<Self, WakuHandlingError> {
-        match <GraphcastMessage<T> as Message>::decode(payload) {
-            Ok(graphcast_message) => Ok(graphcast_message),
-            Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
+        <GraphcastMessage<T> as Message>::decode(payload).map_err(|e| {
+            WakuHandlingError::InvalidMessage(format!(
                 "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
-            ))),
-        }
+            ))
+        })
     }
 }
 
