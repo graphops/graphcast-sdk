@@ -3,6 +3,9 @@ use ethers_contract::EthAbiType;
 use ethers_core::types::transaction::eip712::Eip712;
 use ethers_derive_eip712::*;
 
+use graphcast_sdk::graphcast_agent::message_typing::{
+    GraphcastMessage, MessageError, RadioPayload,
+};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +32,20 @@ pub struct SimpleMessage {
     pub identifier: String,
     #[prost(string, tag = "2")]
     pub content: String,
+}
+
+impl RadioPayload for SimpleMessage {
+    fn valid_outer(&self, outer: &GraphcastMessage<Self>) -> Result<&Self, MessageError> {
+        if self.identifier == outer.identifier {
+            Ok(self)
+        } else {
+            Err(MessageError::InvalidFields(anyhow::anyhow!(
+                "Radio message wrapped by inconsistent GraphcastMessage: {:#?} <- {:#?}",
+                &self,
+                &outer,
+            )))
+        }
+    }
 }
 
 impl SimpleMessage {

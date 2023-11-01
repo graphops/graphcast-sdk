@@ -20,7 +20,7 @@ use ethers::signers::{
     coins_bip39::English, LocalWallet, MnemonicBuilder, Signer, Wallet, WalletError,
 };
 use ethers_core::k256::ecdsa::SigningKey;
-use graphcast_agent::message_typing::{BuildMessageError, IdentityValidation};
+use graphcast_agent::message_typing::{IdentityValidation, MessageError};
 use graphql::{
     client_graph_account::{query_graph_account, subgraph_hash_by_id},
     client_network::query_network_subgraph,
@@ -228,10 +228,10 @@ impl Account {
         Ok(matched_account)
     }
 
-    pub async fn valid_indexer(&self, network_subgraph: &str) -> Result<bool, BuildMessageError> {
+    pub async fn valid_indexer(&self, network_subgraph: &str) -> Result<bool, MessageError> {
         Ok(query_network_subgraph(network_subgraph, self.account())
             .await
-            .map_err(BuildMessageError::FieldDerivations)?
+            .map_err(MessageError::FieldDerivations)?
             .stake_satisfy_requirement())
     }
 
@@ -241,10 +241,10 @@ impl Account {
         network_subgraph: &str,
         subgraph_hash: &str,
         subgraph_id: &str,
-    ) -> Result<bool, BuildMessageError> {
+    ) -> Result<bool, MessageError> {
         let subgraph_hashes = subgraph_hash_by_id(network_subgraph, self.account(), subgraph_id)
             .await
-            .map_err(BuildMessageError::FieldDerivations)?;
+            .map_err(MessageError::FieldDerivations)?;
         Ok(!subgraph_hashes.contains(&subgraph_hash.to_string()))
     }
 
@@ -257,25 +257,25 @@ impl Account {
         network_subgraph: &str,
         registry_subgraph: &str,
         id_validation: &IdentityValidation,
-    ) -> Result<Account, BuildMessageError> {
+    ) -> Result<Account, MessageError> {
         let verified_account: Account = match id_validation {
             IdentityValidation::NoCheck | IdentityValidation::ValidAddress => self.clone(),
             IdentityValidation::GraphcastRegistered => {
                 // Simply check if the message signer is registered at Graphcast Registry, make no validation on Graph Account field
                 self.account_from_registry(registry_subgraph)
                     .await
-                    .map_err(BuildMessageError::FieldDerivations)?
+                    .map_err(MessageError::FieldDerivations)?
             }
             IdentityValidation::GraphNetworkAccount => {
                 // allow any Graph account matched with message signer and the self-claimed graph account
                 self.account_from_network(network_subgraph)
                     .await
-                    .map_err(BuildMessageError::FieldDerivations)?
+                    .map_err(MessageError::FieldDerivations)?
             }
             IdentityValidation::RegisteredIndexer => self
                 .account_from_registry(registry_subgraph)
                 .await
-                .map_err(BuildMessageError::FieldDerivations)?,
+                .map_err(MessageError::FieldDerivations)?,
             IdentityValidation::Indexer | IdentityValidation::SubgraphStaker => {
                 match self.account_from_registry(registry_subgraph).await {
                     Ok(a) => a,
@@ -287,14 +287,14 @@ impl Account {
                         );
                         self.account_from_network(network_subgraph)
                             .await
-                            .map_err(BuildMessageError::FieldDerivations)?
+                            .map_err(MessageError::FieldDerivations)?
                     }
                 }
             }
         };
         // Require account info to be consistent from validation mechanism
         if verified_account.account != self.account {
-            return Err(BuildMessageError::InvalidFields(anyhow::anyhow!(
+            return Err(MessageError::InvalidFields(anyhow::anyhow!(
                 "Verified account is not the one claimed by the message, drop message"
             )));
         };
@@ -304,7 +304,7 @@ impl Account {
             | (id_validation == &IdentityValidation::Indexer))
             && !(verified_account.valid_indexer(network_subgraph).await?)
         {
-            return Err(BuildMessageError::InvalidFields(anyhow::anyhow!(format!(
+            return Err(MessageError::InvalidFields(anyhow::anyhow!(format!(
                 "Verified account failed indexer requirement. Verified account: {:#?}",
                 verified_account
             ))));
