@@ -9,14 +9,13 @@
 //! Graphcast agent shall be able to construct, send, receive, validate, and attest
 //! Graphcast messages regardless of specific radio use cases
 //!
-use self::message_typing::{BuildMessageError, GraphcastMessage, IdentityValidation};
+use self::message_typing::{GraphcastMessage, IdentityValidation, MessageError, RadioPayload};
 use self::waku_handling::{
     build_content_topics, filter_peer_subscriptions, handle_signal, pubsub_topic,
     setup_node_handle, WakuHandlingError,
 };
 use ethers::signers::WalletError;
 
-use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use async_graphql::{self, Result, SimpleObject};
@@ -428,14 +427,9 @@ impl GraphcastAgent {
     /// Deprecate in favor of GraphcastMessage::<T>::decode()
     pub async fn decode<T>(&self, payload: &[u8]) -> Result<GraphcastMessage<T>, WakuHandlingError>
     where
-        T: Message
-            + ethers::types::transaction::eip712::Eip712
-            + Default
-            + Clone
-            + 'static
-            + async_graphql::OutputType,
+        T: RadioPayload,
     {
-        match <GraphcastMessage<T> as Message>::decode(payload) {
+        match <GraphcastMessage<T> as prost::Message>::decode(payload) {
             Ok(graphcast_message) => Ok(graphcast_message),
             Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
                 "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
@@ -445,14 +439,7 @@ impl GraphcastAgent {
 
     /// For each topic, construct with custom write function and send
     #[allow(unused_must_use)]
-    pub async fn send_message<
-        T: Message
-            + ethers::types::transaction::eip712::Eip712
-            + Default
-            + Clone
-            + 'static
-            + async_graphql::OutputType,
-    >(
+    pub async fn send_message<T: RadioPayload>(
         &self,
         identifier: &str,
         payload: T,
@@ -602,7 +589,7 @@ pub enum GraphcastAgentError {
     #[error("Could not set up node handle. More info: {}", .0)]
     WakuNodeError(WakuHandlingError),
     #[error("Could not build the message: {}", .0)]
-    MessageError(BuildMessageError),
+    MessageError(MessageError),
     #[error("Could not parse Waku port")]
     WakuPortError,
     #[error("Failed to convert Multiaddr from String")]
@@ -669,10 +656,10 @@ mod tests {
 
     #[test]
     fn test_build_message_error_type_string() {
-        let error = BuildMessageError::Payload;
+        let error = MessageError::Payload;
         assert_eq!(error.type_string(), "Payload");
 
-        let error = BuildMessageError::Signing;
+        let error = MessageError::Signing;
         assert_eq!(error.type_string(), "Signing");
 
         // Add more test cases for other variants...

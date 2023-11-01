@@ -2,7 +2,10 @@ use anyhow::anyhow;
 use async_graphql::SimpleObject;
 use chrono::Utc;
 use ethers::signers::{Signer, Wallet};
-use ethers_core::{k256::ecdsa::SigningKey, types::Signature};
+use ethers_core::{
+    k256::ecdsa::SigningKey,
+    types::{transaction::eip712::Eip712Error, Signature},
+};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
@@ -39,17 +42,26 @@ pub async fn get_indexer_stake(
         .indexer_stake())
 }
 
+//TODO: add required functions for RadioPayload, such as
+// Build, new, validations, ...; may need to be async trait for valid checks
+pub trait RadioPayload:
+    Message
+    + ethers::types::transaction::eip712::Eip712<Error = Eip712Error>
+    + Default
+    + Clone
+    + 'static
+    + Serialize
+    + async_graphql::OutputType
+{
+    // type ExternalValidation;
+    // async fn validity_check(&self, gc: GraphcastMessage<Self>, input: Self::ExternalValidation) -> Result<&Self, MessageError>;
+
+    fn valid_outer(&self, outer: &GraphcastMessage<Self>) -> Result<&Self, MessageError>;
+}
+
 /// GraphcastMessage type casts over radio payload
 #[derive(Clone, Message, Serialize, Deserialize, SimpleObject)]
-pub struct GraphcastMessage<T>
-where
-    T: Message
-        + ethers::types::transaction::eip712::Eip712
-        + Default
-        + Clone
-        + 'static
-        + async_graphql::OutputType,
-{
+pub struct GraphcastMessage<T: RadioPayload> {
     /// Graph identifier for the entity the radio is communicating about
     #[prost(string, tag = "1")]
     pub identifier: String,
@@ -67,15 +79,7 @@ where
     pub signature: String,
 }
 
-impl<
-        T: Message
-            + ethers::types::transaction::eip712::Eip712
-            + Default
-            + Clone
-            + 'static
-            + async_graphql::OutputType,
-    > GraphcastMessage<T>
-{
+impl<T: RadioPayload> GraphcastMessage<T> {
     /// Create a graphcast message
     pub fn new(
         identifier: String,
@@ -83,7 +87,7 @@ impl<
         graph_account: String,
         payload: T,
         signature: String,
-    ) -> Result<Self, BuildMessageError> {
+    ) -> Result<Self, MessageError> {
         Ok(GraphcastMessage {
             identifier,
             nonce,
@@ -100,11 +104,11 @@ impl<
         graph_account: String,
         nonce: i64,
         payload: T,
-    ) -> Result<Self, BuildMessageError> {
+    ) -> Result<Self, MessageError> {
         let sig = wallet
             .sign_typed_data(&payload)
             .await
-            .map_err(|_| BuildMessageError::Signing)?;
+            .map_err(|_| MessageError::Signing)?;
 
         GraphcastMessage::new(identifier, nonce, graph_account, payload, sig.to_string())
     }
@@ -147,7 +151,7 @@ impl<
         network_subgraph: &str,
         local_sender_id: String,
         id_validation: &IdentityValidation,
-    ) -> Result<&Self, BuildMessageError> {
+    ) -> Result<&Self, MessageError> {
         if id_validation == &IdentityValidation::NoCheck {
             return Ok(self);
         };
@@ -161,14 +165,14 @@ impl<
     }
 
     /// Check timestamp: prevent past message replay
-    pub fn valid_time(&self) -> Result<&Self, BuildMessageError> {
+    pub fn valid_time(&self) -> Result<&Self, MessageError> {
         //Can store for measuring overall Graphcast message latency
         let message_age = Utc::now().timestamp() - self.nonce;
         // 0 allow instant atomic messaging, use 1 to exclude them
         if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
             Ok(self)
         } else {
-            Err(BuildMessageError::InvalidFields(anyhow!(
+            Err(MessageError::InvalidFields(anyhow!(
                 "Message timestamp {} outside acceptable range {}, drop message",
                 message_age,
                 MSG_REPLAY_LIMIT
@@ -176,13 +180,13 @@ impl<
         }
     }
 
-    pub fn remote_account(&self, local_sender_id: String) -> Result<Account, BuildMessageError> {
+    pub fn remote_account(&self, local_sender_id: String) -> Result<Account, MessageError> {
         let sender_address = self.recover_sender_address().and_then(|a| {
             trace!("recovered sender address: {:#?}\n", a,);
             if a != local_sender_id {
                 Ok(a)
             } else {
-                Err(BuildMessageError::InvalidFields(anyhow!(
+                Err(MessageError::InvalidFields(anyhow!(
                     "Message is from self, drop message"
                 )))
             }
@@ -191,22 +195,19 @@ impl<
     }
 
     /// Recover sender address from Graphcast message radio payload
-    pub fn recover_sender_address(&self) -> Result<String, BuildMessageError> {
+    pub fn recover_sender_address(&self) -> Result<String, MessageError> {
         let signed_data = self
             .payload
             .encode_eip712()
             .expect("Could not encode payload using EIP712");
         match Signature::from_str(&self.signature).and_then(|sig| sig.recover(signed_data)) {
             Ok(addr) => Ok(format!("{addr:#x}")),
-            Err(x) => Err(BuildMessageError::InvalidFields(x.into())),
+            Err(x) => Err(MessageError::InvalidFields(x.into())),
         }
     }
 
     /// Check historic nonce: ensure message sequencing
-    pub async fn valid_nonce(
-        &self,
-        nonces: &Arc<Mutex<NoncesMap>>,
-    ) -> Result<&Self, BuildMessageError> {
+    pub async fn valid_nonce(&self, nonces: &Arc<Mutex<NoncesMap>>) -> Result<&Self, MessageError> {
         let address = self.recover_sender_address()?;
 
         let mut nonces = nonces.lock().await;
@@ -225,7 +226,7 @@ impl<
                         );
 
                         if nonce > &self.nonce {
-                            Err(BuildMessageError::InvalidFields(anyhow!(
+                            Err(MessageError::InvalidFields(anyhow!(
                                     "Invalid nonce for subgraph {} and address {}! Received nonce - {} is smaller than currently saved one - {}, skipping message...",
                                     self.identifier, address, self.nonce, nonce
                                 )))
@@ -240,7 +241,7 @@ impl<
                         let updated_nonces =
                             prepare_nonces(nonces_per_subgraph, address.clone(), self.nonce);
                         nonces.insert(self.identifier.clone(), updated_nonces);
-                        Err(BuildMessageError::InvalidFields(anyhow!(
+                        Err(MessageError::InvalidFields(anyhow!(
                                     "No saved nonce for address {} on topic {}, saving this one and skipping message...",
                                     address, self.identifier
                                 )))
@@ -250,7 +251,7 @@ impl<
             None => {
                 let updated_nonces = prepare_nonces(&HashMap::new(), address, self.nonce);
                 nonces.insert(self.identifier.clone(), updated_nonces);
-                Err(BuildMessageError::InvalidFields(anyhow!(
+                Err(MessageError::InvalidFields(anyhow!(
                             "First time receiving message for subgraph {}. Saving sender and nonce, skipping message...",
                             self.identifier
                         )))
@@ -273,20 +274,13 @@ impl<
 /// Time check verifies that message was from within the acceptable timestamp
 /// Block hash check verifies sender's access to valid Ethereum node provider and blocks
 /// Nonce check ensures the ordering of the messages and avoids past messages
-pub async fn check_message_validity<
-    T: Message
-        + ethers::types::transaction::eip712::Eip712
-        + Default
-        + Clone
-        + 'static
-        + async_graphql::OutputType,
->(
+pub async fn check_message_validity<T: RadioPayload>(
     graphcast_message: GraphcastMessage<T>,
     nonces: &Arc<Mutex<NoncesMap>>,
     callbook: CallBook,
     local_sender_id: String,
     id_validation: &IdentityValidation,
-) -> Result<GraphcastMessage<T>, BuildMessageError> {
+) -> Result<GraphcastMessage<T>, MessageError> {
     graphcast_message
         .valid_sender(
             callbook.graphcast_registry(),
@@ -307,7 +301,7 @@ pub async fn check_message_validity<
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum BuildMessageError {
+pub enum MessageError {
     #[error("Radio payload failed to satisfy the defined Eip712 typing")]
     Payload,
     #[error("Could not sign payload")]
@@ -326,17 +320,17 @@ pub enum BuildMessageError {
     TypeCast(String),
 }
 
-impl BuildMessageError {
+impl MessageError {
     pub fn type_string(&self) -> &'static str {
         match self {
-            BuildMessageError::Payload => "Payload",
-            BuildMessageError::Signing => "Signing",
-            BuildMessageError::Encoding => "Encoding",
-            BuildMessageError::Decoding => "Decoding",
-            BuildMessageError::InvalidFields(_) => "InvalidFields",
-            BuildMessageError::Network(_) => "Network",
-            BuildMessageError::FieldDerivations(_) => "FieldDerivations",
-            BuildMessageError::TypeCast(_) => "TypeCast",
+            MessageError::Payload => "Payload",
+            MessageError::Signing => "Signing",
+            MessageError::Encoding => "Encoding",
+            MessageError::Decoding => "Decoding",
+            MessageError::InvalidFields(_) => "InvalidFields",
+            MessageError::Network(_) => "Network",
+            MessageError::FieldDerivations(_) => "FieldDerivations",
+            MessageError::TypeCast(_) => "TypeCast",
         }
     }
 }
@@ -385,7 +379,6 @@ mod tests {
     use ethers_core::rand::thread_rng;
     use ethers_core::types::transaction::eip712::Eip712;
     use ethers_derive_eip712::*;
-    use prost::Message;
     use serde::{Deserialize, Serialize};
 
     /// Make a test radio type
@@ -401,6 +394,25 @@ mod tests {
         pub identifier: String,
         #[prost(string, tag = "2")]
         pub content: String,
+    }
+
+    impl RadioPayload for SimpleMessage {
+        //TODO: Add various requirements to RadioPayload
+        // type ExternalValidation = Option<String>;
+        // fn validity_check(&self, _gc: GraphcastMessage<Self>, _val: Option<String>) -> Result<&Self, MessageError> {
+        //     Ok(self)
+        // }
+        fn valid_outer(&self, outer: &GraphcastMessage<Self>) -> Result<&Self, MessageError> {
+            if self.identifier == outer.identifier {
+                Ok(self)
+            } else {
+                Err(MessageError::InvalidFields(anyhow::anyhow!(
+                    "Radio message wrapped by inconsistent GraphcastMessage: {:#?} <- {:#?}",
+                    &self,
+                    &outer,
+                )))
+            }
+        }
     }
 
     impl SimpleMessage {

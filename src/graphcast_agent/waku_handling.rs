@@ -1,4 +1,3 @@
-use prost::Message;
 use std::sync::Mutex as SyncMutex;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
 use std::{collections::HashSet, time::Duration};
@@ -13,9 +12,6 @@ use waku::{
 };
 
 use crate::{app_name, cf_nameserver, discovery_url, graphql::QueryError};
-
-use super::message_typing::GraphcastMessage;
-use super::{message_typing, GraphcastAgent};
 
 pub const SDK_VERSION: &str = "0";
 
@@ -460,34 +456,6 @@ pub fn match_content_topic(
 ) -> bool {
     trace!(topic = tracing::field::debug(topic), "Target content topic");
     content_topics.lock().unwrap().iter().any(|t| t == topic)
-}
-
-/// Parse and validate incoming message
-pub async fn generic_graphcast_check<
-    T: Message
-        + ethers::types::transaction::eip712::Eip712
-        + Default
-        + Clone
-        + 'static
-        + async_graphql::OutputType,
->(
-    message: WakuMessage,
-    graphcast_agent: &GraphcastAgent,
-) -> Result<GraphcastMessage<T>, WakuHandlingError> {
-    match <message_typing::GraphcastMessage<T> as Message>::decode(message.payload()) {
-        Ok(graphcast_message) => message_typing::check_message_validity(
-            graphcast_message,
-            &graphcast_agent.nonces,
-            graphcast_agent.callbook.clone(),
-            graphcast_agent.graphcast_identity.graphcast_id.clone(),
-            &graphcast_agent.id_validation,
-        )
-        .await
-        .map_err(|e| WakuHandlingError::InvalidMessage(e.to_string())),
-        Err(e) => Err(WakuHandlingError::InvalidMessage(format!(
-            "Waku message not interpretated as a Graphcast message\nError occurred: {e:?}"
-        ))),
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
