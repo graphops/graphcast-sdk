@@ -489,34 +489,12 @@ impl GraphcastAgent {
         })
     }
 
-    // TODO: Could register the query function at intialization and call it within this fn
-    pub async fn update_content_topics(&self, subtopics: Vec<String>) {
+    pub fn update_content_topics(&self, subtopics: Vec<String>) {
         // build content topics
         let new_topics = build_content_topics(&self.radio_name, 0, &subtopics);
-        let cur_topics = self.content_topics();
+        let mut cur_topics = self.content_topics.lock().unwrap();
+        *cur_topics = new_topics;
 
-        // Check if an update to the content topic is necessary
-        if *cur_topics != new_topics {
-            debug!(
-                new_topics = tracing::field::debug(&new_topics),
-                current_topics = tracing::field::debug(&*cur_topics),
-                "Updating to new set of content topics"
-            );
-
-            // TODO: Uncomment after a release that contains this issue
-            // https://github.com/waku-org/go-waku/pull/536/files
-            // // Unsubscribe to the old content topics
-            // if !cur_topics.is_empty() {
-            //     unsubscribe_peer(&self.node_handle, &self.pubsub_topic, &cur_topics)
-            //         .expect("Connect and unsubscribe to subtopics");
-            // }
-
-            // Subscribe to the new content topics
-            filter_peer_subscriptions(&self.node_handle, &self.pubsub_topic, &new_topics)
-                .expect("Connect and subscribe to subtopics");
-            let mut cur_topics = self.content_topics.lock().unwrap();
-            *cur_topics = new_topics;
-        }
         drop(cur_topics);
     }
 

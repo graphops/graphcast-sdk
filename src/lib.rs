@@ -44,7 +44,7 @@ use tracing::{debug, subscriber::SetGlobalDefaultError};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::FmtSubscriber;
 use url::{Host, Url};
-pub use waku::{WakuMessage, WakuPeerData, WakuPubSubTopic};
+pub use waku::{waku_set_event_callback, WakuMessage, WakuPeerData, WakuPubSubTopic};
 
 use crate::{graphcast_agent::ConfigError, graphql::client_registry::query_registry};
 
