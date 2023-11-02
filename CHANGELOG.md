@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Discv5 toggle
 - Boot node connections
 - Empty set_waku_event_callback at shutdown, refactor mpsc sender
+- Remove filter subscription from content topic update
 
 ### Documentation
 
@@ -86,6 +87,7 @@ All notable changes to this project will be documented in this file.
 - Waku version 0.3.1 for peer count fix
 - Release 0.5.0
 - Release 0.5.1
+- Release 0.5.2
 
 ### Refactor
 
