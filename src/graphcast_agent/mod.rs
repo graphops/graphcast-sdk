@@ -45,7 +45,7 @@ pub mod message_typing;
 pub mod waku_handling;
 
 /// A constant defining a message expiration limit.
-pub const MSG_REPLAY_LIMIT: i64 = 3_600_000;
+pub const MSG_REPLAY_LIMIT: u64 = 3_600_000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -443,7 +443,7 @@ impl GraphcastAgent {
         &self,
         identifier: &str,
         payload: T,
-        nonce: i64,
+        nonce: u64,
     ) -> Result<String, GraphcastAgentError> {
         let content_topic = self.match_content_topic_identifier(identifier)?;
         trace!(

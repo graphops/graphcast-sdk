@@ -23,10 +23,10 @@ use super::{waku_handling::WakuHandlingError, MSG_REPLAY_LIMIT};
 
 /// Prepare sender:nonce to update
 fn prepare_nonces(
-    nonces_per_subgraph: &HashMap<String, i64>,
+    nonces_per_subgraph: &HashMap<String, u64>,
     address: String,
-    nonce: i64,
-) -> HashMap<std::string::String, i64> {
+    nonce: u64,
+) -> HashMap<std::string::String, u64> {
     let mut updated_nonces = HashMap::new();
     updated_nonces.clone_from(nonces_per_subgraph);
     updated_nonces.insert(address, nonce);
@@ -66,8 +66,8 @@ pub struct GraphcastMessage<T: RadioPayload> {
     #[prost(string, tag = "1")]
     pub identifier: String,
     /// nonce cached to check against the next incoming message
-    #[prost(int64, tag = "3")]
-    pub nonce: i64,
+    #[prost(uint64, tag = "3")]
+    pub nonce: u64,
     /// Graph account sender
     #[prost(string, tag = "4")]
     pub graph_account: String,
@@ -83,7 +83,7 @@ impl<T: RadioPayload> GraphcastMessage<T> {
     /// Create a graphcast message
     pub fn new(
         identifier: String,
-        nonce: i64,
+        nonce: u64,
         graph_account: String,
         payload: T,
         signature: String,
@@ -102,7 +102,7 @@ impl<T: RadioPayload> GraphcastMessage<T> {
         wallet: &Wallet<SigningKey>,
         identifier: String,
         graph_account: String,
-        nonce: i64,
+        nonce: u64,
         payload: T,
     ) -> Result<Self, MessageError> {
         let sig = wallet
@@ -167,7 +167,7 @@ impl<T: RadioPayload> GraphcastMessage<T> {
     /// Check timestamp: prevent past message replay
     pub fn valid_time(&self) -> Result<&Self, MessageError> {
         //Can store for measuring overall Graphcast message latency
-        let message_age = Utc::now().timestamp() - self.nonce;
+        let message_age = Utc::now().timestamp() as u64 - self.nonce;
         // 0 allow instant atomic messaging, use 1 to exclude them
         if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
             Ok(self)
@@ -501,7 +501,7 @@ mod tests {
         let hash: String = "table".to_string();
         let content: String = "Ping".to_string();
         let payload: SimpleMessage = SimpleMessage::new(hash.clone(), content.clone());
-        let nonce = Utc::now().timestamp();
+        let nonce = Utc::now().timestamp() as u64;
 
         let wallet = dummy_wallet();
         let msg = GraphcastMessage::build(&wallet, hash, wallet_address(&wallet), nonce, payload)

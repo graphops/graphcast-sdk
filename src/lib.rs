@@ -54,7 +54,7 @@ pub mod graphcast_agent;
 pub mod graphql;
 pub mod networks;
 
-type NoncesMap = HashMap<String, HashMap<String, i64>>;
+type NoncesMap = HashMap<String, HashMap<String, u64>>;
 
 /// Each radio persist Nonces from sub-topic messages differentiating sender
 pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();

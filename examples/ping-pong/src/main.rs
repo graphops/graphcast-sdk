@@ -167,7 +167,7 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
                     // If it doesn't matter for your Radio logic (like in this case), you can just use a UUID or a hardcoded string
                     agent.content_identifiers().first().unwrap(),
                     msg,
-                    Utc::now().timestamp(),
+                    Utc::now().timestamp() as u64,
                 )
                 .await
             {
@@ -193,7 +193,7 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
                         .send_message(
                             agent.content_identifiers().first().unwrap(),
                             replay_msg,
-                            Utc::now().timestamp(),
+                            Utc::now().timestamp() as u64,
                         )
                         .await
                     {
