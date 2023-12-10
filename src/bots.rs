@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
 use teloxide::types::ParseMode;
 use thiserror::Error;
 
@@ -41,29 +40,31 @@ impl DiscordBot {
 
 // SlackBot
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SlackBot {
-    token: SlackApiToken,
+pub struct SlackBot {}
+
+#[derive(Error, Debug)]
+pub enum SlackBotError {
+    #[error("Request error: {0}")]
+    RequestError(#[from] reqwest::Error),
 }
 
 impl SlackBot {
     pub async fn send_webhook(
-        token_key: String,
-        channel: &str,
+        webhook_url: &str,
         radio_name: &str,
         content: &str,
-    ) -> Result<SlackApiChatPostMessageResponse, Box<dyn Error>> {
-        let client = SlackClient::new(SlackClientHyperConnector::new());
-        let token: SlackApiToken = SlackApiToken::new(token_key.into());
-        let session = client.open_session(&token);
-        let message =
-            AlertMessageTemplateParams::create(radio_name.to_string(), content.to_string());
-
-        let post_chat_req = SlackApiChatPostMessageRequest::new(
-            SlackChannelId(channel.to_string()),
-            message.render_template(),
+    ) -> Result<(), SlackBotError> {
+        let mut map = HashMap::new();
+        map.insert(
+            "text",
+            format!("🚨 Notification from Radio '{radio_name}' \n{content}"),
         );
-        let post_chat_resp = session.chat_post_message(&post_chat_req).await?;
-        Ok(post_chat_resp)
+
+        let client = reqwest::Client::new();
+
+        client.post(webhook_url).json(&map).send().await?;
+
+        Ok(())
     }
 }
 
