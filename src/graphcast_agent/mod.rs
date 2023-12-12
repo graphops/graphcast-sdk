@@ -47,6 +47,9 @@ pub mod waku_handling;
 /// A constant defining a message expiration limit.
 pub const MSG_REPLAY_LIMIT: u64 = 3_600_000;
 
+// Waku discovery network
+pub const WAKU_DISCOVERY_ENR: &str = "enr:-P-4QJI8tS1WTdIQxq_yIrD05oIIW1Xg-tm_qfP0CHfJGnp9dfr6ttQJmHwTNxGEl4Le8Q7YHcmi-kXTtphxFysS11oBgmlkgnY0gmlwhLymh5GKbXVsdGlhZGRyc7hgAC02KG5vZGUtMDEuZG8tYW1zMy53YWt1djIucHJvZC5zdGF0dXNpbS5uZXQGdl8ALzYobm9kZS0wMS5kby1hbXMzLndha3V2Mi5wcm9kLnN0YXR1c2ltLm5ldAYfQN4DiXNlY3AyNTZrMaEDbl1X_zJIw3EAJGtmHMVn4Z2xhpSoUaP5ElsHKCv7hlWDdGNwgnZfg3VkcIIjKIV3YWt1Mg8";
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("Validate the input: {0}")]
@@ -100,6 +103,8 @@ impl GraphcastAgentConfig {
         let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or_default())
             .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
 
+        let discv5_enrs = discv5_enrs.unwrap_or(vec![WAKU_DISCOVERY_ENR.to_string()]);
+
         let config = GraphcastAgentConfig {
             wallet_key,
             graph_account,
@@ -117,7 +122,7 @@ impl GraphcastAgentConfig {
             waku_addr,
             // Extra handling here to make sure the default behavior is filter protocol disabled
             filter_protocol: Some(filter_protocol.unwrap_or(false)),
-            discv5_enrs: discv5_enrs.unwrap_or_default(),
+            discv5_enrs,
             discv5_port,
         };
 

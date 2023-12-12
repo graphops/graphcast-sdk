@@ -81,8 +81,6 @@ async fn main() {
     // if not provided then they are usually generated based on indexer allocations
     let subtopics: Vec<String> = vec!["ping-pong-content-topic".to_string()];
 
-    let discovery_enr = "enr:-P-4QJI8tS1WTdIQxq_yIrD05oIIW1Xg-tm_qfP0CHfJGnp9dfr6ttQJmHwTNxGEl4Le8Q7YHcmi-kXTtphxFysS11oBgmlkgnY0gmlwhLymh5GKbXVsdGlhZGRyc7hgAC02KG5vZGUtMDEuZG8tYW1zMy53YWt1djIucHJvZC5zdGF0dXNpbS5uZXQGdl8ALzYobm9kZS0wMS5kby1hbXMzLndha3V2Mi5wcm9kLnN0YXR1c2ltLm5ldAYfQN4DiXNlY3AyNTZrMaEDbl1X_zJIw3EAJGtmHMVn4Z2xhpSoUaP5ElsHKCv7hlWDdGNwgnZfg3VkcIIjKIV3YWt1Mg8".to_string();
-
     // GraphcastAgentConfig defines the configuration that the SDK expects from all Radios, regardless of their specific functionality
     let graphcast_agent_config = GraphcastAgentConfig::new(
         config.private_key.expect("No private key provided"),
@@ -100,7 +98,7 @@ async fn main() {
         config.waku_port,
         None,
         Some(false),
-        Some(vec![discovery_enr]),
+        None,
         config.discv5_port,
     )
     .await
