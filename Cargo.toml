@@ -11,7 +11,7 @@ categories = ["network-programming", "web-programming::http-client"]
 
 [dependencies]
 waku = { version = "=0.4.0", package = "waku-bindings" }
-slack-morphism = { version = "1.10", features = ["hyper", "axum"] }
+slack-morphism = { version = "1.15", features = ["hyper", "axum"] }
 prost = "0.11"
 once_cell = "1.17"
 derive-getters = "0.2.1"
