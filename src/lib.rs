@@ -33,7 +33,6 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use std::{
-    borrow::Cow,
     collections::HashMap,
     env, fmt,
     sync::{Arc, Mutex},
@@ -60,14 +59,14 @@ type NoncesMap = HashMap<String, HashMap<String, u64>>;
 pub static NONCES: OnceCell<Arc<Mutex<NoncesMap>>> = OnceCell::new();
 
 /// Returns Graphcast application domain name
-pub fn app_name() -> Cow<'static, str> {
-    Cow::from("graphcast")
+pub fn app_name() -> &'static str {
+    "graphcast"
 }
 
 /// Returns hardcoded DNS Url to a discoverable ENR tree that should be used to retrieve boot nodes
 pub fn discovery_url(pubsub_topic: &WakuPubSubTopic) -> Result<Url, url::ParseError> {
     let enr_url = config_env_var("ENR_URL").unwrap_or_else(|_| {
-        if pubsub_topic.topic_name == "graphcast-v0-mainnet"{
+        if pubsub_topic == "graphcast-v0-mainnet" {
             "enrtree://APDKVCM3Q7TLTBD2FXKMXNIOIDPQRXNNI4ZXKEQLOWAFO3BZXZM3C@mainnet.bootnodes.graphcast.xyz"
             .to_string()
         }else {

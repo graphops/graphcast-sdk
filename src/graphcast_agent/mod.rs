@@ -28,8 +28,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
 use waku::{
-    waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuMessage,
-    WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    waku_set_event_callback, ContentFilter, Multiaddr, Running, Signal, WakuContentTopic,
+    WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 use crate::Account;
@@ -303,7 +303,7 @@ impl GraphcastAgent {
 
         let node_handle = setup_node_handle(
             boot_node_addresses,
-            &pubsub_topic,
+            pubsub_topic.clone(),
             host,
             port,
             advertised_addr,
@@ -315,10 +315,12 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::WakuNodeError)?;
 
         // Filter subscriptions only if provided subtopic
-        let content_topics = build_content_topics(&radio_name, 0, &subtopics);
+        let content_topics = build_content_topics(&radio_name, 0.to_string(), &subtopics);
+        let content_filter = ContentFilter::new(Some(pubsub_topic.clone()), content_topics.clone());
+
         if filter_protocol.is_some() && !filter_protocol.unwrap() {
             debug!("Filter protocol disabled, subscribe to pubsub topic on the relay protocol");
-            relay_subscribe(&node_handle, &pubsub_topic)
+            relay_subscribe(&node_handle, &content_filter)
                 .expect("Could not subscribe to the pubsub topic");
         } else {
             debug!("Filter protocol enabled, filter subscriptions with peers");
@@ -483,7 +485,7 @@ impl GraphcastAgent {
 
     pub fn update_content_topics(&self, subtopics: Vec<String>) {
         // build content topics
-        let new_topics = build_content_topics(&self.radio_name, 0, &subtopics);
+        let new_topics = build_content_topics(&self.radio_name, 0.to_string(), &subtopics);
         let mut cur_topics = self.content_topics.lock().unwrap();
         *cur_topics = new_topics;
 
