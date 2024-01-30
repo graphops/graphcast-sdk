@@ -408,6 +408,7 @@ pub fn handle_signal(
     signal: Signal,
     seen_msg_ids: &Arc<SyncMutex<HashSet<String>>>,
     content_topics: &Arc<SyncMutex<Vec<WakuContentTopic>>>,
+    allow_all_content_topics: bool,
 ) -> Result<WakuMessage, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
     match signal.event() {
@@ -424,19 +425,22 @@ pub fn handle_signal(
                 )));
             };
             ids.insert(msg_id.to_string());
-            let content_topic = event.waku_message().content_topic();
-            // Check if message belongs to a relevant topic
-            if !match_content_topic(content_topics, content_topic) {
-                trace!(
-                    topic = tracing::field::debug(content_topic),
-                    "Skip irrelevant content topic"
-                );
-                error!("our content topics: {:?}", content_topics);
-                return Err(WakuHandlingError::InvalidMessage(format!(
-                    "Skip irrelevant content topic: {:#?}",
-                    content_topic
-                )));
-            };
+            if !allow_all_content_topics {
+                let content_topic = event.waku_message().content_topic();
+                // Check if message belongs to a relevant topic
+                if !match_content_topic(content_topics, content_topic) {
+                    trace!(
+                        topic = tracing::field::debug(content_topic),
+                        "Skip irrelevant content topic"
+                    );
+                    error!("our content topics: {:?}", content_topics);
+                    return Err(WakuHandlingError::InvalidMessage(format!(
+                        "Skip irrelevant content topic: {:#?}",
+                        content_topic
+                    )));
+                };
+            }
+
             Ok(event.waku_message().clone())
         }
 

@@ -77,6 +77,7 @@ pub struct GraphcastAgentConfig {
     pub filter_protocol: Option<bool>,
     pub discv5_enrs: Vec<String>,
     pub discv5_port: Option<u16>,
+    allow_all_content_topics: Option<bool>,
 }
 
 impl GraphcastAgentConfig {
@@ -99,6 +100,7 @@ impl GraphcastAgentConfig {
         filter_protocol: Option<bool>,
         discv5_enrs: Option<Vec<String>>,
         discv5_port: Option<u16>,
+        allow_all_content_topics: Option<bool>,
     ) -> Result<Self, GraphcastAgentError> {
         let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or_default())
             .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
@@ -124,6 +126,7 @@ impl GraphcastAgentConfig {
             filter_protocol: Some(filter_protocol.unwrap_or(false)),
             discv5_enrs,
             discv5_port,
+            allow_all_content_topics,
         };
 
         if let Err(e) = config.validate_set_up().await {
@@ -288,6 +291,7 @@ impl GraphcastAgent {
             discv5_enrs,
             discv5_port,
             id_validation,
+            allow_all_content_topics,
         }: GraphcastAgentConfig,
         sender: Sender<WakuMessage>,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
@@ -330,8 +334,13 @@ impl GraphcastAgent {
 
         let seen_msg_ids = Arc::new(SyncMutex::new(HashSet::new()));
         let content_topics = Arc::new(SyncMutex::new(content_topics));
-        register_handler(sender, seen_msg_ids.clone(), content_topics.clone())
-            .expect("Could not register handler");
+        register_handler(
+            sender,
+            seen_msg_ids.clone(),
+            content_topics.clone(),
+            allow_all_content_topics.is_some(),
+        )
+        .expect("Could not register handler");
 
         Ok(GraphcastAgent {
             graphcast_identity,
@@ -586,9 +595,15 @@ pub fn register_handler(
     sender: Sender<WakuMessage>,
     seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
     content_topics: Arc<SyncMutex<Vec<WakuContentTopic>>>,
+    allow_all_content_topics: bool,
 ) -> Result<(), GraphcastAgentError> {
     let handle_async = move |signal: Signal| {
-        let msg = handle_signal(signal, &seen_msg_ids, &content_topics);
+        let msg = handle_signal(
+            signal,
+            &seen_msg_ids,
+            &content_topics,
+            allow_all_content_topics,
+        );
 
         if let Ok(m) = msg {
             match sender.send(m) {
