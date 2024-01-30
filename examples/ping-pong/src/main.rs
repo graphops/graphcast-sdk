@@ -100,6 +100,7 @@ async fn main() {
         Some(false),
         None,
         config.discv5_port,
+        None,
     )
     .await
     .unwrap_or_else(|e| panic!("Could not create GraphcastAgentConfig: {e}"));
