@@ -431,6 +431,7 @@ pub fn handle_signal(
                     topic = tracing::field::debug(content_topic),
                     "Skip irrelevant content topic"
                 );
+                error!("our content topics: {:?}", content_topics);
                 return Err(WakuHandlingError::InvalidMessage(format!(
                     "Skip irrelevant content topic: {:#?}",
                     content_topic
