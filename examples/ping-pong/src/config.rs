@@ -109,6 +109,13 @@ pub struct Config {
         env = "DISCV5_PORT"
     )]
     pub discv5_port: Option<u16>,
+    #[clap(
+        long,
+        value_name = "ALLOW_ALL_CONTENT_TOPICS",
+        help = "If enabled, the Radio will listen to all content topics",
+        env = "ALLOW_ALL_CONTENT_TOPICS"
+    )]
+    pub allow_all_content_topics: Option<bool>,
 }
 
 impl Config {
