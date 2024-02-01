@@ -449,13 +449,15 @@ pub fn handle_signal(
     }
 }
 
-/// Check if a content topic exists in a list of topics
+/// Check if a content topic exists in a list of topics or if the list is empty
 pub fn match_content_topic(
     content_topics: &Arc<SyncMutex<Vec<WakuContentTopic>>>,
     topic: &WakuContentTopic,
 ) -> bool {
     trace!(topic = tracing::field::debug(topic), "Target content topic");
-    content_topics.lock().unwrap().iter().any(|t| t == topic)
+
+    let locked_topics = content_topics.lock().unwrap();
+    locked_topics.is_empty() || locked_topics.iter().any(|t| t == topic)
 }
 
 #[derive(Debug, thiserror::Error)]
