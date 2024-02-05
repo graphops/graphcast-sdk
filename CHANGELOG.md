@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2024-02-05
+
+### Features
+
+- Allow content topic matching when topic list is empty
+
+### Miscellaneous Tasks
+
+- Release 0.6.1
+
 ## [0.6.0] - 2024-01-04
 
 ### Features
