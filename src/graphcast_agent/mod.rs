@@ -11,8 +11,7 @@
 //!
 use self::message_typing::{GraphcastMessage, IdentityValidation, MessageError, RadioPayload};
 use self::waku_handling::{
-    build_content_topics, filter_peer_subscriptions, handle_signal, pubsub_topic,
-    setup_node_handle, WakuHandlingError,
+    build_content_topics, handle_signal, pubsub_topic, setup_node_handle, WakuHandlingError,
 };
 use ethers::signers::WalletError;
 
@@ -28,10 +27,11 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
 use waku::{
-    waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuMessage,
-    WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    waku_set_event_callback, ContentFilter, Multiaddr, Running, Signal, WakuContentTopic,
+    WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
+use crate::graphcast_agent::waku_handling::filter_peer_subscriptions;
 use crate::Account;
 use crate::{
     build_wallet,
@@ -48,7 +48,7 @@ pub mod waku_handling;
 pub const MSG_REPLAY_LIMIT: u64 = 3_600_000;
 
 // Waku discovery network
-pub const WAKU_DISCOVERY_ENR: &str = "enr:-P-4QJI8tS1WTdIQxq_yIrD05oIIW1Xg-tm_qfP0CHfJGnp9dfr6ttQJmHwTNxGEl4Le8Q7YHcmi-kXTtphxFysS11oBgmlkgnY0gmlwhLymh5GKbXVsdGlhZGRyc7hgAC02KG5vZGUtMDEuZG8tYW1zMy53YWt1djIucHJvZC5zdGF0dXNpbS5uZXQGdl8ALzYobm9kZS0wMS5kby1hbXMzLndha3V2Mi5wcm9kLnN0YXR1c2ltLm5ldAYfQN4DiXNlY3AyNTZrMaEDbl1X_zJIw3EAJGtmHMVn4Z2xhpSoUaP5ElsHKCv7hlWDdGNwgnZfg3VkcIIjKIV3YWt1Mg8";
+pub const WAKU_DISCOVERY_ENR: &str = "enr:-P-4QGVNANzbhCI49du6Moyw98AjuMhKoOpE_Jges9JlCq-ICAVadktjfcNpuhQgT0g1cu86_S3nbM7eYkCsqDAQG7UBgmlkgnY0gmlwhI_G-a6KbXVsdGlhZGRyc7hgAC02KG5vZGUtMDEuZG8tYW1zMy5zdGF0dXMucHJvZC5zdGF0dXNpbS5uZXQGdl8ALzYobm9kZS0wMS5kby1hbXMzLnN0YXR1cy5wcm9kLnN0YXR1c2ltLm5ldAYBu94DiXNlY3AyNTZrMaECoVyonsTGEQvVioM562Q1fjzTb_vKD152PPIdsV7sM6SDdGNwgnZfg3VkcIIjKIV3YWt1Mg8";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -303,7 +303,7 @@ impl GraphcastAgent {
 
         let node_handle = setup_node_handle(
             boot_node_addresses,
-            &pubsub_topic,
+            &pubsub_topic.clone(),
             host,
             port,
             advertised_addr,
@@ -315,10 +315,12 @@ impl GraphcastAgent {
         .map_err(GraphcastAgentError::WakuNodeError)?;
 
         // Filter subscriptions only if provided subtopic
-        let content_topics = build_content_topics(&radio_name, 0, &subtopics);
+        let content_topics = build_content_topics(&radio_name, 0.to_string(), &subtopics);
+        let content_filter = ContentFilter::new(Some(pubsub_topic.clone()), content_topics.clone());
+
         if filter_protocol.is_some() && !filter_protocol.unwrap() {
             debug!("Filter protocol disabled, subscribe to pubsub topic on the relay protocol");
-            relay_subscribe(&node_handle, &pubsub_topic)
+            relay_subscribe(&node_handle, &content_filter)
                 .expect("Could not subscribe to the pubsub topic");
         } else {
             debug!("Filter protocol enabled, filter subscriptions with peers");
@@ -483,7 +485,7 @@ impl GraphcastAgent {
 
     pub fn update_content_topics(&self, subtopics: Vec<String>) {
         // build content topics
-        let new_topics = build_content_topics(&self.radio_name, 0, &subtopics);
+        let new_topics = build_content_topics(&self.radio_name, 0.to_string(), &subtopics);
         let mut cur_topics = self.content_topics.lock().unwrap();
         *cur_topics = new_topics;
 

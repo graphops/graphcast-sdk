@@ -173,7 +173,6 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
             } else {
                 debug!("Ping message sent successfully")
             };
-            // agent.send_message(msg).await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(

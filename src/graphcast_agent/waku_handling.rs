@@ -6,9 +6,9 @@ use std::{net::IpAddr, str::FromStr};
 use tracing::{debug, error, info, trace};
 use url::ParseError;
 use waku::{
-    waku_dns_discovery, waku_new, ContentFilter, DnsInfo, Encoding, FilterSubscription,
-    GossipSubParams, Multiaddr, ProtocolId, Running, SecretKey, Signal, WakuContentTopic,
-    WakuLogLevel, WakuMessage, WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    waku_dns_discovery, waku_new, ContentFilter, DnsInfo, Encoding, GossipSubParams, Multiaddr,
+    ProtocolId, Running, SecretKey, Signal, WakuContentTopic, WakuLogLevel, WakuMessage,
+    WakuNodeConfig, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
 use crate::{app_name, cf_nameserver, discovery_url, graphql::QueryError};
@@ -19,25 +19,21 @@ pub const SDK_VERSION: &str = "0";
 /// With the default namespace of "testnet"
 pub fn pubsub_topic(namespace: Option<&str>) -> WakuPubSubTopic {
     let namespace = namespace.unwrap_or("testnet");
-
-    WakuPubSubTopic {
-        topic_name: Cow::from(app_name().to_string() + "-v" + SDK_VERSION + "-" + namespace),
-        encoding: Encoding::Proto,
-    }
+    "/waku/2/".to_string() + app_name().as_ref() + "-v" + SDK_VERSION + "-" + namespace + "/proto"
 }
 
 // TODO: update to content topics
 /// Generate and format content topics based on recommendations from https://rfc.vac.dev/spec/23/
 pub fn build_content_topics(
     radio_name: &str,
-    radio_version: usize,
+    radio_version: String,
     subtopics: &[String],
 ) -> Vec<WakuContentTopic> {
     (*subtopics
         .iter()
         .map(|subtopic| WakuContentTopic {
             application_name: Cow::from(radio_name.to_string()),
-            version: radio_version,
+            version: Cow::from(radio_version.clone()),
             content_topic_name: Cow::from(subtopic.to_string()),
             encoding: Encoding::Proto,
         })
@@ -47,25 +43,20 @@ pub fn build_content_topics(
 
 /// Makes a filter subscription from content topics and optionally pubsub topic
 /// Strictly use the first of pubsub topics as we assume radios only listen to one network (pubsub topic) at a time
-pub fn content_filter_subscription(
+pub fn content_filter(
     pubsub_topic: &WakuPubSubTopic,
     content_topics: &[WakuContentTopic],
-) -> FilterSubscription {
-    let filters = (*content_topics
-        .iter()
-        .map(|topic| ContentFilter::new(topic.clone()))
-        .collect::<Vec<ContentFilter>>())
-    .to_vec();
-    FilterSubscription::new(filters, Some(pubsub_topic.clone()))
+) -> ContentFilter {
+    ContentFilter::new(Some(pubsub_topic.to_string()), content_topics.to_vec())
 }
 
 /// Subscribe to pubsub topic on the relay protocol
 pub fn relay_subscribe(
     node_handle: &WakuNodeHandle<Running>,
-    graphcast_topic: &WakuPubSubTopic,
+    content_filter: &ContentFilter,
 ) -> Result<(), WakuHandlingError> {
     node_handle
-        .relay_subscribe(Some(graphcast_topic.clone()))
+        .relay_subscribe(content_filter)
         .map_err(WakuHandlingError::CreateNodeError)
 }
 
@@ -76,8 +67,8 @@ pub fn filter_peer_subscriptions(
     graphcast_topic: &WakuPubSubTopic,
     content_topics: &[WakuContentTopic],
 ) -> Result<Vec<String>, WakuHandlingError> {
-    let subscription: FilterSubscription =
-        content_filter_subscription(graphcast_topic, content_topics);
+    let subscription: ContentFilter = content_filter(graphcast_topic, content_topics);
+
     debug!(
         peers = tracing::field::debug(&subscription),
         "Subscribe to topics"
@@ -90,8 +81,8 @@ pub fn filter_peer_subscriptions(
             // subscribe to all other peers
             let filter_res = node_handle.filter_subscribe(
                 &subscription,
-                peer.peer_id().clone(),
-                Duration::new(6000, 0),
+                Some(peer.peer_id().clone()),
+                Some(Duration::new(6000, 0)),
             );
             match filter_res {
                 Ok(_) => format!(
@@ -116,14 +107,14 @@ pub fn unsubscribe_peer(
     graphcast_topic: &WakuPubSubTopic,
     content_topics: &[WakuContentTopic],
 ) -> Result<(), WakuHandlingError> {
-    let subscription: FilterSubscription =
-        content_filter_subscription(graphcast_topic, content_topics);
-    debug!(
-        peers = tracing::field::debug(&subscription),
-        "Unsubscribe content topics on filter protocol",
-    );
+    let content_filter =
+        ContentFilter::new(Some(graphcast_topic.to_string()), content_topics.to_vec());
     node_handle
-        .filter_unsubscribe(&subscription, Duration::new(6000, 0))
+        .filter_unsubscribe(
+            &content_filter,
+            node_handle.peer_id().unwrap(),
+            Some(Duration::new(6000, 0)),
+        )
         .map_err(|e| {
             WakuHandlingError::ContentTopicsError(format!(
                 "Waku node cannot unsubscribe to the topics: {e}"
@@ -179,7 +170,6 @@ fn node_config(
         keep_alive_interval: None,
         relay,                         // Default true - will receive all msg on relay
         min_peers_to_publish: Some(0), // Default 0
-        filter: filter_protocol,       // Default false
         log_level: Some(log_level),
         relay_topics: [].to_vec(),
         discv5: Some(true),
@@ -192,6 +182,8 @@ fn node_config(
         gossipsub_params: Some(gossipsub_params),
         dns4_domain_name: None,
         websocket_params: None,
+        dns_discovery_urls: vec![],
+        dns_discovery_nameserver: None,
     })
 }
 
@@ -337,6 +329,7 @@ pub fn setup_node_handle(
                 .start()
                 .map_err(WakuHandlingError::CreateNodeError)?;
             let nodes = gather_nodes(boot_node_addresses, pubsub_topic);
+
             // Connect to peers on the filter protocol or relay protocol
             if let Some(false) = filter_protocol {
                 connect_multiaddresses(nodes, &node_handle, ProtocolId::Relay);
@@ -379,9 +372,11 @@ pub fn boot_node_handle(
         .start()
         .map_err(WakuHandlingError::CreateNodeError)?;
 
+    let content_filter = ContentFilter::new(Some(pubsub_topic.to_string()), vec![]);
+
     // Relay node subscribe pubsub_topic of graphcast
     boot_node_handle
-        .relay_subscribe(Some(pubsub_topic.clone()))
+        .relay_subscribe(&content_filter)
         .expect("Could not subscribe to the topic");
 
     let boot_node_id = boot_node_handle.peer_id().map_err(|_e| {
@@ -513,7 +508,7 @@ mod tests {
         let empty_vec = [].to_vec();
         let empty_topic_vec: Vec<Option<WakuPubSubTopic>> = [].to_vec();
         assert_eq!(
-            build_content_topics("test", 0, &empty_vec).len(),
+            build_content_topics("test", 0.to_string(), &empty_vec).len(),
             empty_topic_vec.len()
         );
     }
@@ -521,7 +516,7 @@ mod tests {
     #[test]
     fn test_build_content_topics() {
         let basics = ["Qmyumyum".to_string(), "Ymqumqum".to_string()].to_vec();
-        let res = build_content_topics("some-radio", 0, &basics);
+        let res = build_content_topics("some-radio", 0.to_string(), &basics);
         for i in 0..res.len() {
             assert_eq!(res[i].content_topic_name, basics[i]);
             assert_eq!(res[i].application_name, "some-radio");
