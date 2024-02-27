@@ -459,12 +459,12 @@ impl GraphcastAgent {
         );
 
         // Check network before sending a message
-        self.network_check()
-            .map_err(GraphcastAgentError::WakuNodeError)?;
-        trace!(
-            address = &wallet_address(&self.graphcast_identity.wallet),
-            "local sender id"
-        );
+        // self.network_check()
+        //     .map_err(GraphcastAgentError::WakuNodeError)?;
+        // trace!(
+        //     address = &wallet_address(&self.graphcast_identity.wallet),
+        //     "local sender id"
+        // );
         GraphcastMessage::build(
             &self.graphcast_identity.wallet,
             identifier.to_string(),
