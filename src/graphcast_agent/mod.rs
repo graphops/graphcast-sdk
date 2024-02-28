@@ -11,8 +11,7 @@
 //!
 use self::message_typing::{GraphcastMessage, IdentityValidation, MessageError, RadioPayload};
 use self::waku_handling::{
-    build_content_topics, filter_peer_subscriptions, handle_signal, pubsub_topic,
-    setup_node_handle, WakuHandlingError,
+    build_content_topics, handle_signal, pubsub_topic, setup_node_handle, WakuHandlingError,
 };
 use ethers::signers::WalletError;
 
@@ -28,10 +27,11 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, error, info, trace, warn};
 use url::ParseError;
 use waku::{
-    waku_set_event_callback, Multiaddr, Running, Signal, WakuContentTopic, WakuMessage,
-    WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
+    waku_set_event_callback, ContentFilter, Multiaddr, Running, Signal, WakuContentTopic,
+    WakuMessage, WakuNodeHandle, WakuPeerData, WakuPubSubTopic,
 };
 
+use crate::graphcast_agent::waku_handling::filter_peer_subscriptions;
 use crate::Account;
 use crate::{
     build_wallet,
@@ -77,6 +77,8 @@ pub struct GraphcastAgentConfig {
     pub filter_protocol: Option<bool>,
     pub discv5_enrs: Vec<String>,
     pub discv5_port: Option<u16>,
+    dns_discovery_urls: Vec<String>,
+    dns_discovery_nameserver: Option<String>,
 }
 
 impl GraphcastAgentConfig {
@@ -99,6 +101,8 @@ impl GraphcastAgentConfig {
         filter_protocol: Option<bool>,
         discv5_enrs: Option<Vec<String>>,
         discv5_port: Option<u16>,
+        dns_discovery_urls: Vec<String>,
+        dns_discovery_nameserver: Option<String>,
     ) -> Result<Self, GraphcastAgentError> {
         let boot_node_addresses = convert_to_multiaddrs(&boot_node_addresses.unwrap_or_default())
             .map_err(|_| GraphcastAgentError::ConvertMultiaddrError)?;
@@ -124,6 +128,8 @@ impl GraphcastAgentConfig {
             filter_protocol: Some(filter_protocol.unwrap_or(false)),
             discv5_enrs,
             discv5_port,
+            dns_discovery_urls,
+            dns_discovery_nameserver,
         };
 
         if let Err(e) = config.validate_set_up().await {
@@ -288,6 +294,8 @@ impl GraphcastAgent {
             discv5_enrs,
             discv5_port,
             id_validation,
+            dns_discovery_nameserver,
+            dns_discovery_urls,
         }: GraphcastAgentConfig,
         sender: Sender<WakuMessage>,
     ) -> Result<GraphcastAgent, GraphcastAgentError> {
@@ -303,7 +311,7 @@ impl GraphcastAgent {
 
         let node_handle = setup_node_handle(
             boot_node_addresses,
-            &pubsub_topic,
+            &pubsub_topic.clone(),
             host,
             port,
             advertised_addr,
@@ -311,14 +319,18 @@ impl GraphcastAgent {
             filter_protocol,
             discv5_enrs,
             discv5_port,
+            dns_discovery_urls,
+            dns_discovery_nameserver,
         )
         .map_err(GraphcastAgentError::WakuNodeError)?;
 
         // Filter subscriptions only if provided subtopic
-        let content_topics = build_content_topics(&radio_name, 0, &subtopics);
+        let content_topics = build_content_topics(&radio_name, 0.to_string(), &subtopics);
+        let content_filter = ContentFilter::new(Some(pubsub_topic.clone()), content_topics.clone());
+
         if filter_protocol.is_some() && !filter_protocol.unwrap() {
             debug!("Filter protocol disabled, subscribe to pubsub topic on the relay protocol");
-            relay_subscribe(&node_handle, &pubsub_topic)
+            relay_subscribe(&node_handle, &content_filter)
                 .expect("Could not subscribe to the pubsub topic");
         } else {
             debug!("Filter protocol enabled, filter subscriptions with peers");
@@ -456,9 +468,6 @@ impl GraphcastAgent {
             "Selected content topic from subscriptions"
         );
 
-        // Check network before sending a message
-        self.network_check()
-            .map_err(GraphcastAgentError::WakuNodeError)?;
         trace!(
             address = &wallet_address(&self.graphcast_identity.wallet),
             "local sender id"
@@ -483,7 +492,7 @@ impl GraphcastAgent {
 
     pub fn update_content_topics(&self, subtopics: Vec<String>) {
         // build content topics
-        let new_topics = build_content_topics(&self.radio_name, 0, &subtopics);
+        let new_topics = build_content_topics(&self.radio_name, 0.to_string(), &subtopics);
         let mut cur_topics = self.content_topics.lock().unwrap();
         *cur_topics = new_topics;
 

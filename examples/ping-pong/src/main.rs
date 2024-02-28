@@ -100,6 +100,8 @@ async fn main() {
         Some(false),
         None,
         config.discv5_port,
+        vec![],
+        None,
     )
     .await
     .unwrap_or_else(|e| panic!("Could not create GraphcastAgentConfig: {e}"));
@@ -173,7 +175,6 @@ async fn main_loop(agent: &GraphcastAgent, running: Arc<AtomicBool>) {
             } else {
                 debug!("Ping message sent successfully")
             };
-            // agent.send_message(msg).await;
         } else {
             // If block number is odd, process received messages
             let messages = AsyncMutex::new(

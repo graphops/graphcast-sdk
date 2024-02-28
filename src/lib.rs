@@ -67,7 +67,7 @@ pub fn app_name() -> Cow<'static, str> {
 /// Returns hardcoded DNS Url to a discoverable ENR tree that should be used to retrieve boot nodes
 pub fn discovery_url(pubsub_topic: &WakuPubSubTopic) -> Result<Url, url::ParseError> {
     let enr_url = config_env_var("ENR_URL").unwrap_or_else(|_| {
-        if pubsub_topic.topic_name == "graphcast-v0-mainnet"{
+        if pubsub_topic == "/waku/2/graphcast-v0-mainnet/proto" {
             "enrtree://APDKVCM3Q7TLTBD2FXKMXNIOIDPQRXNNI4ZXKEQLOWAFO3BZXZM3C@mainnet.bootnodes.graphcast.xyz"
             .to_string()
         }else {
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn test_build_content_topics() {
         let basics = ["Qmyumyum".to_string(), "Ymqumqum".to_string()].to_vec();
-        let res = build_content_topics("some-radio", 0, &basics);
+        let res = build_content_topics("some-radio", 0.to_string(), &basics);
         for i in 0..res.len() {
             assert_eq!(res[i].content_topic_name, basics[i]);
             assert_eq!(res[i].application_name, "some-radio");
