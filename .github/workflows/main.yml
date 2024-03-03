@@ -21,7 +21,7 @@ jobs:
               - RUSTFLAGS: -C link-args=-framework CoreFoundation -framework Security -framework CoreServices
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Checkout submodules
@@ -54,7 +54,7 @@ jobs:
               - RUSTFLAGS: -C link-args=-framework CoreFoundation -framework Security -framework CoreServices
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Checkout submodules
@@ -82,7 +82,7 @@ jobs:
     name: Rust lints
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Checkout submodules
