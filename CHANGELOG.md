@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.6.0] - 2024-02-05
+## [0.7.0] - 2024-03-04
+
+### Miscellaneous Tasks
+
+- Update waku bindings version
+- 0.7.0
+
+## [0.6.1] - 2024-02-05
 
 ### Features
 
