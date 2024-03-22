@@ -166,17 +166,19 @@ impl<T: RadioPayload> GraphcastMessage<T> {
 
     /// Check timestamp: prevent past message replay
     pub fn valid_time(&self) -> Result<&Self, MessageError> {
-        //Can store for measuring overall Graphcast message latency
-        let message_age = Utc::now().timestamp() as u64 - self.nonce;
-        // 0 allow instant atomic messaging, use 1 to exclude them
-        if (0..MSG_REPLAY_LIMIT).contains(&message_age) {
-            Ok(self)
-        } else {
-            Err(MessageError::InvalidFields(anyhow!(
+        let current_time = Utc::now().timestamp();
+        let current_time_u64 = current_time as u64;
+
+        match current_time_u64.checked_sub(self.nonce) {
+            Some(message_age) if (0..MSG_REPLAY_LIMIT).contains(&message_age) => Ok(self),
+            Some(message_age) => Err(MessageError::InvalidFields(anyhow!(
                 "Message timestamp {} outside acceptable range {}, drop message",
                 message_age,
                 MSG_REPLAY_LIMIT
-            )))
+            ))),
+            None => Err(MessageError::InvalidFields(anyhow!(
+                "Error calculating message age, possible underflow."
+            ))),
         }
     }
 
