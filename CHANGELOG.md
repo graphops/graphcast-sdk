@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2024-03-25
+
+### Bug Fixes
+
+- fix: handle underflow error
+
 ## [0.7.0] - 2024-03-04
 
 ### Miscellaneous Tasks
