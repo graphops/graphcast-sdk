@@ -22,7 +22,7 @@ tokio = { version = "1.28.1", features = ["full"] }
 anyhow = "1.0.71"
 graphql_client = "0.12.0"
 serde_derive = "1.0.163"
-reqwest = { version = "0.11.17", features = ["json"] }
+reqwest = { version = "0.11.24", default-features = false, features = ["json", "rustls-tls"] }
 ethers = "2.0.4"
 ethers-contract = "2.0.4"
 ethers-core = "2.0.4"
