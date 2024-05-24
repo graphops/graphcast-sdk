@@ -22,7 +22,7 @@ tokio = { version = "1.28.1", features = ["full"] }
 anyhow = "1.0.71"
 graphql_client = "0.12.0"
 serde_derive = "1.0.163"
-reqwest = { version = "0.11.17", features = ["json"] }
+reqwest = { version = "0.11.24", default-features = false, features = ["json", "rustls-tls"] }
 ethers = "2.0.4"
 ethers-contract = "2.0.4"
 ethers-core = "2.0.4"
@@ -30,7 +30,7 @@ ethers-derive-eip712 = "1.0.2"
 clap = { version = "4.3.1", features = ["derive", "env"] }
 toml = "0.7.3"
 partial_application = "0.2.1"
-prometheus-http-query = "0.6.6"
+prometheus-http-query = { version = "0.6.6", default-features = false, features = ["rustls-tls"] }
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
 lazy_static = "1.4.0"
@@ -50,11 +50,11 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 async-graphql = "4.0.16"
 async-graphql-axum = "4.0.16"
-teloxide = "0.12.2"
+teloxide = { git = "https://github.com/petkodes/teloxide" }
 
 [dev-dependencies.cargo-husky]
 version = "1"
-default-features = false                                           # Disable features which are enabled by default
+default-features = false
 features = ["precommit-hook", "run-cargo-fmt", "run-cargo-clippy"]
 
 [[example]]
