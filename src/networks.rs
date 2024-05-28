@@ -17,6 +17,7 @@ pub enum NetworkName {
     Hardhat,
     ArbitrumOne,
     ArbitrumGoerli,
+    ArbitrumSepolia,
     Avalanche,
     Matic, // Previously Polygon
     Celo,
@@ -34,6 +35,7 @@ impl NetworkName {
             "hardhat" => NetworkName::Hardhat,
             "arbitrum-one" => NetworkName::ArbitrumOne,
             "arbitrum-goerli" => NetworkName::ArbitrumGoerli,
+            "arbitrum-sepolia" => NetworkName::ArbitrumSepolia,
             "avalanche" => NetworkName::Avalanche,
             "matic" => NetworkName::Matic,
             "celo" => NetworkName::Celo,
@@ -53,6 +55,7 @@ impl fmt::Display for NetworkName {
             NetworkName::Hardhat => "hardhat",
             NetworkName::ArbitrumOne => "arbitrum-one",
             NetworkName::ArbitrumGoerli => "arbitrum-goerli",
+            NetworkName::ArbitrumSepolia => "arbitrum-sepolia",
             NetworkName::Avalanche => "avalanche",
             NetworkName::Matic => "matic",
             NetworkName::Celo => "celo",
@@ -65,7 +68,7 @@ impl fmt::Display for NetworkName {
     }
 }
 
-/// Maintained static list of supported Networks, the intervals target ~5minutes
+/// Maintained static list of supported Networks, the intervals target ~5 minutes
 /// depending on the blockchain average block processing time
 pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
     vec![
@@ -94,10 +97,15 @@ pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
             name: NetworkName::from_string("arbitrum-one"),
             interval: 600,
         },
-        // ArbitrumGoerli (Arbitrum Testnet): ~.6 seconds
+        // ArbitrumGoerli (Arbitrum Testnet): ~0.6 seconds
         Network {
             name: NetworkName::from_string("arbitrum-goerli"),
             interval: 500,
+        },
+        // ArbitrumSepolia: ~0.258 seconds
+        Network {
+            name: NetworkName::from_string("arbitrum-sepolia"),
+            interval: 1160,
         },
         // Avalanche: ~3-5 seconds
         Network {
