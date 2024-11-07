@@ -23,6 +23,7 @@ pub enum NetworkName {
     Celo,
     Optimism,
     Fantom,
+    Base,
     Unknown,
 }
 
@@ -40,6 +41,7 @@ impl NetworkName {
             "matic" => NetworkName::Matic,
             "celo" => NetworkName::Celo,
             "optimism" => NetworkName::Optimism,
+            "base" => NetworkName::Base,
             "fantom" => NetworkName::Fantom,
             _ => NetworkName::Unknown,
         }
@@ -61,6 +63,7 @@ impl fmt::Display for NetworkName {
             NetworkName::Celo => "celo",
             NetworkName::Optimism => "optimism",
             NetworkName::Fantom => "fantom",
+            NetworkName::Base => "base",
             NetworkName::Unknown => "unknown",
         };
 
@@ -130,6 +133,11 @@ pub static NETWORKS: Lazy<Vec<Network>> = Lazy::new(|| {
         // Fantom: ~2-3 seconds
         Network {
             name: NetworkName::from_string("fantom"),
+            interval: 100,
+        },
+        // Base: ~2-3 seconds
+        Network {
+            name: NetworkName::from_string("base"),
             interval: 100,
         },
     ]
