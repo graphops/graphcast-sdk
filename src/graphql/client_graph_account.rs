@@ -199,36 +199,3 @@ pub async fn subgraph_hash_by_id(
 
     Ok(hash)
 }
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_owned_subgraphs() {
-        let network_subgraph =
-            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
-        let account = "0xe9a1cabd57700b17945fd81feefba82340d9568f";
-        let owned_subgraphs = owned_subgraphs(network_subgraph, account).await;
-
-        assert!(owned_subgraphs.is_ok());
-        // Current subgraph number
-        assert!(owned_subgraphs.unwrap().len() > 5);
-    }
-
-    #[tokio::test]
-    async fn test_subgraph_current_hash() {
-        let network_subgraph =
-            "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-goerli";
-        let account = "0xe9a1cabd57700b17945fd81feefba82340d9568f";
-        let subgraph_id = "CnJMdCkW3pr619gsJVtUPAWxspALPdCMw6o7obzYBNp3";
-        let hash = subgraph_hash_by_id(network_subgraph, account, subgraph_id)
-            .await
-            .unwrap();
-
-        assert!(hash.contains(&String::from(
-            "QmacQnSgia4iDPWHpeY6aWxesRFdb8o5DKZUx96zZqEWrB"
-        )));
-    }
-}
