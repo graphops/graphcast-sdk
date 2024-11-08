@@ -21,6 +21,12 @@ We recommend using [nextest](https://nexte.st/) as your test runner. Once you ha
 cargo nextest run
 ```
 
+Alternatively, to run graphcast-sdk tests using docker to avoid local dependency issues:
+```
+./scripts/docker-run-tests.sh
+```
+
+
 ## How does the Graphcast SDK work?
 
 The SDK is essentially a base layer that Radio developers can use to build their applications without needing to worry about starting everything from scratch. The components that are included in the SDK are:
