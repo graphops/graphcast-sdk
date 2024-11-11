@@ -15,7 +15,7 @@ jobs:
         include:
           - os: ubuntu-latest
             toolchain: stable-x86_64-unknown-linux-gnu
-          - os: macos-latest
+          - os: macos-13
             toolchain: stable-x86_64-apple-darwin
             env:
               - RUSTFLAGS: -C link-args=-framework CoreFoundation -framework Security -framework CoreServices
@@ -48,7 +48,7 @@ jobs:
         include:
           - os: ubuntu-latest
             toolchain: stable-x86_64-unknown-linux-gnu
-          - os: macos-latest
+          - os: macos-13
             toolchain: stable-x86_64-apple-darwin
             env:
               - RUSTFLAGS: -C link-args=-framework CoreFoundation -framework Security -framework CoreServices
