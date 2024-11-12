@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] - 2024-11-12
+
+### Bug Fixes
+
+- Update deps to fix ci
+- Remove deprecated tests. Add local dev Dockerfile and scripts to run tests in docker
+- Set os to macos-13
+- Add base network
+
 ## [0.7.2] - 2024-05-27
 
 ### Bug Fixes

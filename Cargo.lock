@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "graphcast-sdk"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "async-graphql",
