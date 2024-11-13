@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4] - 2024-11-13
+
+### Bug Fixes
+
+- Set teloxide version in Cargo.toml to allow publishing of crate.
+
 ## [0.7.3] - 2024-11-12
 
 ### Bug Fixes
