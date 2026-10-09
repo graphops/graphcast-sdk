@@ -11,14 +11,15 @@
 //!
 use self::message_typing::{GraphcastMessage, IdentityValidation, MessageError, RadioPayload};
 use self::waku_handling::{
-    build_content_topics, handle_signal, pubsub_topic, setup_node_handle, WakuHandlingError,
+    build_content_topics, handle_signal, pubsub_topic, setup_node_handle, SeenMsgIds,
+    WakuHandlingError,
 };
 use ethers::signers::WalletError;
 
 use serde::{Deserialize, Serialize};
 
 use async_graphql::{self, Result, SimpleObject};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex as SyncMutex};
@@ -215,8 +216,8 @@ pub struct GraphcastAgent {
     /// Callbook that make query requests
     pub callbook: CallBook,
     /// msg_seen_ttl is for only relay messages they have not seen before, not effective for client nodes
-    /// A set of message ids sent from the agent
-    pub seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
+    /// Message ids received or sent by the agent, bounded by SEEN_MSG_IDS_CAP
+    pub seen_msg_ids: Arc<SyncMutex<SeenMsgIds>>,
     /// Sender identity validation mechanism used by the Graphcast agent
     pub id_validation: IdentityValidation,
     //TODO: Consider deprecating this field as it isn't utilized in network_check anymore
@@ -340,7 +341,7 @@ impl GraphcastAgent {
 
         let callbook = CallBook::new(registry_subgraph, network_subgraph, graph_node_endpoint);
 
-        let seen_msg_ids = Arc::new(SyncMutex::new(HashSet::new()));
+        let seen_msg_ids = Arc::new(SyncMutex::new(SeenMsgIds::default()));
         let content_topics = Arc::new(SyncMutex::new(content_topics));
         register_handler(sender, seen_msg_ids.clone(), content_topics.clone())
             .expect("Could not register handler");
@@ -593,7 +594,7 @@ pub enum GraphcastAgentError {
 /// Establish handler for incoming Waku messages
 pub fn register_handler(
     sender: Sender<WakuMessage>,
-    seen_msg_ids: Arc<SyncMutex<HashSet<String>>>,
+    seen_msg_ids: Arc<SyncMutex<SeenMsgIds>>,
     content_topics: Arc<SyncMutex<Vec<WakuContentTopic>>>,
 ) -> Result<(), GraphcastAgentError> {
     let handle_async = move |signal: Signal| {

@@ -1,6 +1,9 @@
 use std::sync::Mutex as SyncMutex;
 use std::{borrow::Cow, env, num::ParseIntError, sync::Arc};
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashSet, VecDeque},
+    time::Duration,
+};
 use std::{net::IpAddr, str::FromStr};
 
 use tracing::{debug, error, info, trace};
@@ -131,7 +134,6 @@ fn node_config(
 
     let gossipsub_params = GossipSubParams {
         seen_messages_ttl_seconds: Some(1800),
-        history_length: Some(100_000),
         ..Default::default()
     };
 
@@ -392,7 +394,7 @@ pub fn boot_node_handle(
 /// Parse and validate incoming message
 pub fn handle_signal(
     signal: Signal,
-    seen_msg_ids: &Arc<SyncMutex<HashSet<String>>>,
+    seen_msg_ids: &Arc<SyncMutex<SeenMsgIds>>,
     content_topics: &Arc<SyncMutex<Vec<WakuContentTopic>>>,
 ) -> Result<WakuMessage, WakuHandlingError> {
     // Do not accept messages that were already received or sent by self
@@ -490,9 +492,62 @@ impl WakuHandlingError {
     }
 }
 
+/// Upper bound on remembered message ids. Gossipsub already drops repeats
+/// within its 1800s seen-TTL, so this only needs to outlast that window.
+pub const SEEN_MSG_IDS_CAP: usize = 10_000;
+
+/// Message ids received or sent by this node, oldest evicted once full.
+#[derive(Debug, Default)]
+pub struct SeenMsgIds {
+    ids: HashSet<String>,
+    order: VecDeque<String>,
+}
+
+impl SeenMsgIds {
+    pub fn contains(&self, id: &str) -> bool {
+        self.ids.contains(id)
+    }
+
+    /// Returns false if the id was already present.
+    pub fn insert(&mut self, id: String) -> bool {
+        if !self.ids.insert(id.clone()) {
+            return false;
+        }
+        self.order.push_back(id);
+        if self.order.len() > SEEN_MSG_IDS_CAP {
+            if let Some(oldest) = self.order.pop_front() {
+                self.ids.remove(&oldest);
+            }
+        }
+        true
+    }
+
+    pub fn len(&self) -> usize {
+        self.ids.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_seen_msg_ids_bounded() {
+        let mut seen = SeenMsgIds::default();
+        for i in 0..(SEEN_MSG_IDS_CAP + 5) {
+            assert!(seen.insert(i.to_string()));
+        }
+        assert_eq!(seen.len(), SEEN_MSG_IDS_CAP);
+        assert!(!seen.contains("0"));
+        assert!(!seen.contains("4"));
+        assert!(seen.contains("5"));
+        assert!(seen.contains(&(SEEN_MSG_IDS_CAP + 4).to_string()));
+        assert!(!seen.insert("5".to_string()));
+    }
 
     #[test]
     fn test_empty_topics() {
